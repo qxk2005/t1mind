@@ -12,3 +12,7 @@ PRODUCT_BUNDLE_IDENTIFIER = io.appflowy.appflowy
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2025 AppFlowy.IO. All rights reserved.
+
+// Architectures
+ARCHS = "$(ARCHS_STANDARD)";
+EXCLUDED_ARCHS[sdk=macosx*] = x86_64;
