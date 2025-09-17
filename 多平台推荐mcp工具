@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "spec-workflow": {
+      "command": "npx",
+      "args": ["-y", "@pimzino/spec-workflow-mcp@latest", "D:/AI/t1mind", "--AutoStartDashboard", "--port", "3456"]
+    },
+    "nanhang-kengine-mcp": {
+        "url": "http://10.203.51.13:8007/sse",
+        "disabled": false,
+        "autoApprove": []
+    },
+    "excel": {
+      "url": "http://localhost:8007/sse"
+    }
+  }
+}
