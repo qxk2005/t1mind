@@ -76,7 +76,8 @@ dependencies:
     git:
       url: https://github.com/LucasXu0/emoji_mart.git
       ref: "355aa56"
-  flutter_math_fork: ^0.7.3
+  flutter_math_fork:
+    path: third_party/flutter_math_fork
   flutter_slidable: ^3.0.0
 
   flutter_staggered_grid_view: ^0.7.0
@@ -239,6 +240,20 @@ dependency_overrides:
       url: https://github.com/LucasXu0/auto_updater.git
       path: packages/auto_updater_platform_interface
       ref: 1d81a824f3633f1d0200ba51b78fe0f9ce429458
+
+  auto_updater_windows:
+    git:
+      url: https://github.com/LucasXu0/auto_updater.git
+      path: packages/auto_updater_windows
+      ref: 1d81a824f3633f1d0200ba51b78fe0f9ce429458
+
+  # Federated platform packages to satisfy default_package resolution on Windows/Linux
+  screen_retriever: ^0.2.0
+  screen_retriever_windows: ^0.2.0
+  screen_retriever_linux: ^0.2.0
+  bitsdojo_window_windows: ^0.1.6
+  bitsdojo_window_linux: ^0.1.4
+  app_links_linux: ^1.0.3
 
   unsplash_client:
     git:
