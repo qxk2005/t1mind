@@ -23,9 +23,9 @@ extension GlobalModelTypeExtension on GlobalModelType {
   String get displayName {
     switch (this) {
       case GlobalModelType.ollama:
-        return 'Ollama 本地'; // TODO: 使用国际化
+        return LocaleKeys.settings_aiPage_keys_ollamaLocal.tr();
       case GlobalModelType.openaiCompatible:
-        return 'OpenAI 兼容服务器'; // TODO: 使用国际化
+        return LocaleKeys.settings_aiPage_keys_openaiCompatible.tr();
     }
   }
 }
@@ -126,7 +126,7 @@ class _GlobalModelTypeSelectionWithPanelState extends State<_GlobalModelTypeSele
             children: [
               Expanded(
                 child: FlowyText.medium(
-                  '全局使用的模型类型', // TODO: 使用国际化 LocaleKeys.settings_aiPage_keys_globalModelType.tr()
+                  LocaleKeys.settings_aiPage_keys_globalModelType.tr(),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),

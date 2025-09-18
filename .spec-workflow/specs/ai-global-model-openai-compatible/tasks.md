@@ -50,7 +50,7 @@
     - _Requirements: Requirements §4.1
     - Success: 移动端可访问全局模型类型设置
 
-- [ ] A5: 基础 i18n 文案
+- [x] A5: 基础 i18n 文案
   - Files: `frontend/resources/translations/zh-CN.json`, `frontend/resources/translations/en-US.json`
   - Implements: Requirements §4.5; Design §2.3
   - _Prompt:

@@ -1,4 +1,6 @@
+import 'package:appflowy/generated/locale_keys.g.dart';
 import 'package:appflowy/workspace/presentation/settings/shared/settings_input_field.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flowy_infra_ui/flowy_infra_ui.dart';
 import 'package:flutter/material.dart';
 
@@ -121,7 +123,7 @@ class _ChatConfigSection extends StatelessWidget {
       children: [
         // 区域标题
         FlowyText.medium(
-          '聊天配置', // TODO: 使用国际化 LocaleKeys.settings_aiPage_keys_chatConfig.tr()
+          LocaleKeys.settings_aiPage_keys_chatConfiguration.tr(),
           fontSize: 14,
           color: Theme.of(context).colorScheme.onSurface,
         ),
@@ -129,7 +131,7 @@ class _ChatConfigSection extends StatelessWidget {
         
         // API 端点
         _buildInputField(
-          label: 'API 端点', // TODO: 使用国际化
+          label: LocaleKeys.settings_aiPage_keys_apiEndpoint.tr(),
           controller: endpointController,
           placeholder: 'https://api.openai.com/v1/chat/completions',
           tooltip: '聊天 API 的完整端点 URL', // TODO: 使用国际化
@@ -138,9 +140,9 @@ class _ChatConfigSection extends StatelessWidget {
         
         // API 密钥
         _buildInputField(
-          label: 'API 密钥', // TODO: 使用国际化
+          label: LocaleKeys.settings_aiPage_keys_apiKey.tr(),
           controller: apiKeyController,
-          placeholder: '输入您的 API 密钥',
+          placeholder: LocaleKeys.settings_aiPage_keys_apiKeyPlaceholder.tr(),
           obscureText: true,
           tooltip: 'API 访问密钥，将被安全存储', // TODO: 使用国际化
         ),
@@ -151,16 +153,16 @@ class _ChatConfigSection extends StatelessWidget {
           children: [
             Expanded(
               child: _buildInputField(
-                label: '模型名称', // TODO: 使用国际化
+                label: LocaleKeys.settings_aiPage_keys_modelName.tr(),
                 controller: modelController,
-                placeholder: 'gpt-3.5-turbo',
+                placeholder: LocaleKeys.settings_aiPage_keys_modelNamePlaceholder.tr(),
                 tooltip: '要使用的聊天模型名称', // TODO: 使用国际化
               ),
             ),
             const HSpace(12),
             Expanded(
               child: _buildInputField(
-                label: '模型类型', // TODO: 使用国际化
+                label: LocaleKeys.settings_aiPage_keys_modelType.tr(),
                 controller: modelTypeController,
                 placeholder: 'openai',
                 tooltip: '模型提供商类型', // TODO: 使用国际化
@@ -175,7 +177,7 @@ class _ChatConfigSection extends StatelessWidget {
           children: [
             Expanded(
               child: _buildInputField(
-                label: '最大 Tokens', // TODO: 使用国际化
+                label: LocaleKeys.settings_aiPage_keys_maxTokens.tr(),
                 controller: maxTokensController,
                 placeholder: '4096',
                 tooltip: '响应的最大 token 数量', // TODO: 使用国际化
@@ -184,7 +186,7 @@ class _ChatConfigSection extends StatelessWidget {
             const HSpace(12),
             Expanded(
               child: _buildInputField(
-                label: '温度', // TODO: 使用国际化
+                label: LocaleKeys.settings_aiPage_keys_temperature.tr(),
                 controller: temperatureController,
                 placeholder: '0.7',
                 tooltip: '控制响应的随机性（0.0-2.0）', // TODO: 使用国际化
@@ -193,7 +195,7 @@ class _ChatConfigSection extends StatelessWidget {
             const HSpace(12),
             Expanded(
               child: _buildInputField(
-                label: '超时（秒）', // TODO: 使用国际化
+                label: LocaleKeys.settings_aiPage_keys_requestTimeout.tr(),
                 controller: timeoutController,
                 placeholder: '30',
                 tooltip: '请求超时时间', // TODO: 使用国际化
@@ -245,7 +247,7 @@ class _EmbeddingConfigSection extends StatelessWidget {
       children: [
         // 区域标题
         FlowyText.medium(
-          '嵌入配置', // TODO: 使用国际化 LocaleKeys.settings_aiPage_keys_embeddingConfig.tr()
+          LocaleKeys.settings_aiPage_keys_embeddingConfiguration.tr(),
           fontSize: 14,
           color: Theme.of(context).colorScheme.onSurface,
         ),
@@ -253,7 +255,7 @@ class _EmbeddingConfigSection extends StatelessWidget {
         
         // API 端点
         _buildInputField(
-          label: 'API 端点', // TODO: 使用国际化
+          label: LocaleKeys.settings_aiPage_keys_apiEndpoint.tr(),
           controller: endpointController,
           placeholder: 'https://api.openai.com/v1/embeddings',
           tooltip: '嵌入 API 的完整端点 URL', // TODO: 使用国际化
@@ -262,9 +264,9 @@ class _EmbeddingConfigSection extends StatelessWidget {
         
         // API 密钥
         _buildInputField(
-          label: 'API 密钥', // TODO: 使用国际化
+          label: LocaleKeys.settings_aiPage_keys_apiKey.tr(),
           controller: apiKeyController,
-          placeholder: '输入您的 API 密钥',
+          placeholder: LocaleKeys.settings_aiPage_keys_apiKeyPlaceholder.tr(),
           obscureText: true,
           tooltip: 'API 访问密钥，将被安全存储', // TODO: 使用国际化
         ),
@@ -272,9 +274,9 @@ class _EmbeddingConfigSection extends StatelessWidget {
         
         // 模型名称
         _buildInputField(
-          label: '模型名称', // TODO: 使用国际化
+          label: LocaleKeys.settings_aiPage_keys_modelName.tr(),
           controller: modelController,
-          placeholder: 'text-embedding-ada-002',
+          placeholder: LocaleKeys.settings_aiPage_keys_embeddingModelPlaceholder.tr(),
           tooltip: '要使用的嵌入模型名称', // TODO: 使用国际化
         ),
       ],
@@ -314,7 +316,7 @@ class _ActionButtons extends StatelessWidget {
         // 测试聊天按钮
         FlowyButton(
           text: FlowyText.regular(
-            '测试聊天', // TODO: 使用国际化 LocaleKeys.settings_aiPage_keys_testChat.tr()
+            LocaleKeys.settings_aiPage_keys_testChat.tr(),
             fontSize: 14,
           ),
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -328,7 +330,7 @@ class _ActionButtons extends StatelessWidget {
         // 测试嵌入按钮
         FlowyButton(
           text: FlowyText.regular(
-            '测试嵌入', // TODO: 使用国际化 LocaleKeys.settings_aiPage_keys_testEmbedding.tr()
+            LocaleKeys.settings_aiPage_keys_testEmbedding.tr(),
             fontSize: 14,
           ),
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -342,7 +344,7 @@ class _ActionButtons extends StatelessWidget {
         // 保存按钮
         FlowyButton(
           text: FlowyText.regular(
-            '保存配置', // TODO: 使用国际化 LocaleKeys.settings_aiPage_keys_saveConfig.tr()
+            LocaleKeys.settings_aiPage_keys_saveSettings.tr(),
             fontSize: 14,
             color: Theme.of(context).colorScheme.onPrimary,
           ),
