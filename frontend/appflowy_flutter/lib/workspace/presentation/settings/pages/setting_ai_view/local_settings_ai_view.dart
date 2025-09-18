@@ -1,6 +1,7 @@
 import 'package:appflowy/generated/locale_keys.g.dart';
 import 'package:appflowy/workspace/application/settings/ai/settings_ai_bloc.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/local_ai_setting.dart';
+import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/openai_compatible_setting.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/settings_ai_view.dart';
 import 'package:appflowy/workspace/presentation/settings/shared/af_dropdown_menu_entry.dart';
 import 'package:appflowy/workspace/presentation/settings/shared/settings_body.dart';
@@ -30,60 +31,79 @@ class LocalSettingsAIView extends StatelessWidget {
         title: LocaleKeys.settings_aiPage_title.tr(),
         description: "",
         children: [
-          const _LocalGlobalModelTypeSelection(),
-          const LocalAISetting(),
+          const _LocalGlobalModelTypeSelectionWithPanel(),
         ],
       ),
     );
   }
 }
 
-class _LocalGlobalModelTypeSelection extends StatefulWidget {
-  const _LocalGlobalModelTypeSelection();
+/// 全局模型类型选择器和相应的配置面板（本地版本）
+class _LocalGlobalModelTypeSelectionWithPanel extends StatefulWidget {
+  const _LocalGlobalModelTypeSelectionWithPanel();
 
   @override
-  State<_LocalGlobalModelTypeSelection> createState() => _LocalGlobalModelTypeSelectionState();
+  State<_LocalGlobalModelTypeSelectionWithPanel> createState() => _LocalGlobalModelTypeSelectionWithPanelState();
 }
 
-class _LocalGlobalModelTypeSelectionState extends State<_LocalGlobalModelTypeSelection> {
+class _LocalGlobalModelTypeSelectionWithPanelState extends State<_LocalGlobalModelTypeSelectionWithPanel> {
   // 临时状态管理，默认选择 Ollama 本地
   GlobalModelType selectedType = GlobalModelType.ollama;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Expanded(
-            child: FlowyText.medium(
-              '全局使用的模型类型', // TODO: 使用国际化 LocaleKeys.settings_aiPage_keys_globalModelType.tr()
-              overflow: TextOverflow.ellipsis,
-            ),
+    return Column(
+      children: [
+        // 全局模型类型选择器
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: FlowyText.medium(
+                  '全局使用的模型类型', // TODO: 使用国际化 LocaleKeys.settings_aiPage_keys_globalModelType.tr()
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Flexible(
+                child: SettingsDropdown<GlobalModelType>(
+                  selectedOption: selectedType,
+                  onChanged: (type) {
+                    setState(() {
+                      selectedType = type;
+                    });
+                    // TODO: 在后续任务中连接到 BLoC
+                  },
+                  options: GlobalModelType.values
+                      .map(
+                        (type) => buildDropdownMenuEntry<GlobalModelType>(
+                          context,
+                          value: type,
+                          label: type.displayName,
+                          selectedValue: selectedType,
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ],
           ),
-          Flexible(
-            child: SettingsDropdown<GlobalModelType>(
-              selectedOption: selectedType,
-              onChanged: (type) {
-                setState(() {
-                  selectedType = type;
-                });
-                // TODO: 在后续任务中连接到 BLoC
-              },
-              options: GlobalModelType.values
-                  .map(
-                    (type) => buildDropdownMenuEntry<GlobalModelType>(
-                      context,
-                      value: type,
-                      label: type.displayName,
-                      selectedValue: selectedType,
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-        ],
-      ),
+        ),
+        
+        // 根据选择的模型类型显示对应的配置面板
+        const SizedBox(height: 8),
+        _buildConfigurationPanel(),
+      ],
     );
+  }
+
+  /// 根据选择的全局模型类型构建相应的配置面板
+  Widget _buildConfigurationPanel() {
+    switch (selectedType) {
+      case GlobalModelType.ollama:
+        return const LocalAISetting();
+      case GlobalModelType.openaiCompatible:
+        return const OpenAICompatibleSetting();
+    }
   }
 }

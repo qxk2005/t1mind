@@ -14,7 +14,7 @@
     - _Requirements: Requirements §4.1
     - Success: 下拉选择器可见；选项可选择；界面无异常
 
-- [ ] A2: 创建 OpenAI 兼容服务器设置面板骨架
+- [x] A2: 创建 OpenAI 兼容服务器设置面板骨架
   - Files: `frontend/appflowy_flutter/lib/workspace/presentation/settings/pages/setting_ai_view/openai_compatible_setting.dart` (new)
   - Implements: Requirements §4.2, §4.3; Design §2.1
   - _Prompt:
@@ -26,7 +26,7 @@
     - _Requirements: Requirements §4.2, §4.3
     - Success: 配置面板可见；所有字段可输入；按钮可点击（暂无功能）
 
-- [ ] A3: 添加 Tab 切换逻辑
+- [x] A3: 添加 Tab 切换逻辑
   - Files: `frontend/appflowy_flutter/lib/workspace/presentation/settings/pages/setting_ai_view/settings_ai_view.dart`
   - Implements: Requirements §4.1; Design §2.1
   - _Prompt:
