@@ -38,7 +38,7 @@
     - _Requirements: Requirements §4.1
     - Success: 选择"ollama 本地"显示现有面板；选择"openai 兼容服务器"显示新面板
 
-- [ ] A4: 移动端设置入口
+- [x] A4: 移动端设置入口
   - Files: `frontend/appflowy_flutter/lib/mobile/presentation/setting/ai/ai_settings_group.dart`
   - Implements: Requirements §4.1; Design §2.1
   - _Prompt:
