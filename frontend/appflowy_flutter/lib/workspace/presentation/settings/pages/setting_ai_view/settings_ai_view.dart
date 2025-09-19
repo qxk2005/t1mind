@@ -8,24 +8,21 @@ import 'package:appflowy/workspace/presentation/settings/shared/settings_body.da
 import 'package:appflowy/workspace/presentation/settings/shared/settings_dropdown.dart';
 import 'package:appflowy/workspace/presentation/widgets/toggle/toggle.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/protobuf.dart';
+import 'package:appflowy_backend/protobuf/flowy-ai/entities.pb.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flowy_infra_ui/style_widget/text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-// 临时的全局模型类型枚举
-enum GlobalModelType {
-  ollama,
-  openaiCompatible,
-}
-
-extension GlobalModelTypeExtension on GlobalModelType {
+extension GlobalAIModelTypePBExtension on GlobalAIModelTypePB {
   String get displayName {
     switch (this) {
-      case GlobalModelType.ollama:
+      case GlobalAIModelTypePB.GlobalLocalAI:
         return LocaleKeys.settings_aiPage_keys_ollamaLocal.tr();
-      case GlobalModelType.openaiCompatible:
+      case GlobalAIModelTypePB.GlobalOpenAICompatible:
         return LocaleKeys.settings_aiPage_keys_openaiCompatible.tr();
+      default:
+        return 'Unknown';
     }
   }
 }
@@ -104,71 +101,68 @@ class _AISearchToggle extends StatelessWidget {
 }
 
 /// 全局模型类型选择器和相应的配置面板
-class _GlobalModelTypeSelectionWithPanel extends StatefulWidget {
+class _GlobalModelTypeSelectionWithPanel extends StatelessWidget {
   const _GlobalModelTypeSelectionWithPanel();
 
   @override
-  State<_GlobalModelTypeSelectionWithPanel> createState() => _GlobalModelTypeSelectionWithPanelState();
-}
-
-class _GlobalModelTypeSelectionWithPanelState extends State<_GlobalModelTypeSelectionWithPanel> {
-  // 临时状态管理，默认选择 Ollama 本地
-  GlobalModelType selectedType = GlobalModelType.ollama;
-
-  @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // 全局模型类型选择器
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Row(
-            children: [
-              Expanded(
-                child: FlowyText.medium(
-                  LocaleKeys.settings_aiPage_keys_globalModelType.tr(),
-                  overflow: TextOverflow.ellipsis,
-                ),
+    return BlocBuilder<SettingsAIBloc, SettingsAIState>(
+      builder: (context, state) {
+        return Column(
+          children: [
+            // 全局模型类型选择器
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: FlowyText.medium(
+                      LocaleKeys.settings_aiPage_keys_globalModelType.tr(),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Flexible(
+                    child: SettingsDropdown<GlobalAIModelTypePB>(
+                      selectedOption: state.globalModelType,
+                      onChanged: (type) {
+                        context
+                            .read<SettingsAIBloc>()
+                            .add(SettingsAIEvent.saveGlobalModelType(type));
+                      },
+                      options: GlobalAIModelTypePB.values
+                          .map(
+                            (type) => buildDropdownMenuEntry<GlobalAIModelTypePB>(
+                              context,
+                              value: type,
+                              label: type.displayName,
+                              selectedValue: state.globalModelType,
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+                ],
               ),
-              Flexible(
-                child: SettingsDropdown<GlobalModelType>(
-                  selectedOption: selectedType,
-                  onChanged: (type) {
-                    setState(() {
-                      selectedType = type;
-                    });
-                    // TODO: 在后续任务中连接到 BLoC
-                  },
-                  options: GlobalModelType.values
-                      .map(
-                        (type) => buildDropdownMenuEntry<GlobalModelType>(
-                          context,
-                          value: type,
-                          label: type.displayName,
-                          selectedValue: selectedType,
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-            ],
-          ),
-        ),
-        
-        // 根据选择的模型类型显示对应的配置面板
-        const SizedBox(height: 8),
-        _buildConfigurationPanel(),
-      ],
+            ),
+            
+            // 根据选择的模型类型显示对应的配置面板
+            const SizedBox(height: 8),
+            _buildConfigurationPanel(state.globalModelType),
+          ],
+        );
+      },
     );
   }
 
   /// 根据选择的全局模型类型构建相应的配置面板
-  Widget _buildConfigurationPanel() {
-    switch (selectedType) {
-      case GlobalModelType.ollama:
+  Widget _buildConfigurationPanel(GlobalAIModelTypePB modelType) {
+    switch (modelType) {
+      case GlobalAIModelTypePB.GlobalLocalAI:
         return const LocalAISetting();
-      case GlobalModelType.openaiCompatible:
+      case GlobalAIModelTypePB.GlobalOpenAICompatible:
         return const OpenAICompatibleSetting();
+      default:
+        return const LocalAISetting(); // 默认显示本地 AI 设置
     }
   }
 }

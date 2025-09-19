@@ -41,7 +41,7 @@ pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
       update_local_ai_setting_handler,
     )
     .event(AIEvent::CreateChatContext, create_chat_context_handler)
-    .event(AIEvent::GetChatInfo, create_chat_context_handler)
+    .event(AIEvent::GetChatInfo, get_chat_info_handler)
     .event(AIEvent::GetChatSettings, get_chat_settings_handler)
     .event(AIEvent::UpdateChatSettings, update_chat_settings_handler)
     .event(AIEvent::RegenerateResponse, regenerate_response_handler)
@@ -58,6 +58,13 @@ pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
       AIEvent::SetCustomPromptDatabaseConfiguration,
       set_custom_prompt_database_configuration_handler,
     )
+    // Added for ai-global-model-openai-compatible spec v1.0 - Task B3
+    .event(AIEvent::GetGlobalAIModelType, get_global_ai_model_type_handler)
+    .event(AIEvent::SaveGlobalAIModelType, save_global_ai_model_type_handler)
+    .event(AIEvent::GetOpenAICompatibleSetting, get_openai_compatible_setting_handler)
+    .event(AIEvent::SaveOpenAICompatibleSetting, save_openai_compatible_setting_handler)
+    .event(AIEvent::TestOpenAIChat, test_openai_chat_handler)
+    .event(AIEvent::TestOpenAIEmbedding, test_openai_embedding_handler)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Display, Hash, ProtoBuf_Enum, Flowy_Event)]

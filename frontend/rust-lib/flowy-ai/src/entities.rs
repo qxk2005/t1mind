@@ -774,7 +774,7 @@ pub enum GlobalAIModelTypePB {
   GlobalOpenAICompatible = 1,
 }
 
-#[derive(Default, ProtoBuf, Clone, Debug)]
+#[derive(Default, ProtoBuf, Clone, Debug, Validate)]
 pub struct GlobalAIModelTypeSettingPB {
   #[pb(index = 1)]
   pub model_type: GlobalAIModelTypePB,
@@ -822,12 +822,14 @@ pub struct OpenAIEmbeddingSettingPB {
   pub model_name: String,
 }
 
-#[derive(Default, ProtoBuf, Clone, Debug)]
+#[derive(Default, ProtoBuf, Clone, Debug, Validate)]
 pub struct OpenAICompatibleSettingPB {
   #[pb(index = 1)]
+  #[validate(nested)]
   pub chat_setting: OpenAIChatSettingPB,
 
   #[pb(index = 2)]
+  #[validate(nested)]
   pub embedding_setting: OpenAIEmbeddingSettingPB,
 }
 

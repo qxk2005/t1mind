@@ -397,3 +397,99 @@ pub(crate) async fn set_custom_prompt_database_configuration_handler(
 
   Ok(())
 }
+
+// Added for ai-global-model-openai-compatible spec v1.0 - Task B3
+#[tracing::instrument(level = "debug", skip_all)]
+pub(crate) async fn get_global_ai_model_type_handler(
+  _ai_manager: AFPluginState<Weak<AIManager>>,
+) -> DataResult<GlobalAIModelTypeSettingPB, FlowyError> {
+  // TODO: Implement actual logic in later tasks (C1)
+  // For now, return default local AI type
+  let setting = GlobalAIModelTypeSettingPB {
+    model_type: GlobalAIModelTypePB::GlobalLocalAI,
+  };
+  data_result_ok(setting)
+}
+
+#[tracing::instrument(level = "debug", skip_all)]
+pub(crate) async fn save_global_ai_model_type_handler(
+  data: AFPluginData<GlobalAIModelTypeSettingPB>,
+  _ai_manager: AFPluginState<Weak<AIManager>>,
+) -> Result<(), FlowyError> {
+  let _data = data.try_into_inner()?;
+  // TODO: Implement actual persistence in later tasks (C1)
+  // For now, just accept the data without saving
+  tracing::debug!("Received global AI model type setting (mock implementation)");
+  Ok(())
+}
+
+#[tracing::instrument(level = "debug", skip_all)]
+pub(crate) async fn get_openai_compatible_setting_handler(
+  _ai_manager: AFPluginState<Weak<AIManager>>,
+) -> DataResult<OpenAICompatibleSettingPB, FlowyError> {
+  // TODO: Implement actual logic in later tasks (C1)
+  // For now, return default settings
+  let setting = OpenAICompatibleSettingPB {
+    chat_setting: OpenAIChatSettingPB {
+      api_endpoint: "https://api.openai.com/v1".to_string(),
+      api_key: "".to_string(),
+      model_name: "gpt-3.5-turbo".to_string(),
+      model_type: "chat".to_string(),
+      max_tokens: 4096,
+      temperature: 0.7,
+      timeout_seconds: 30,
+    },
+    embedding_setting: OpenAIEmbeddingSettingPB {
+      api_endpoint: "https://api.openai.com/v1".to_string(),
+      api_key: "".to_string(),
+      model_name: "text-embedding-ada-002".to_string(),
+    },
+  };
+  data_result_ok(setting)
+}
+
+#[tracing::instrument(level = "debug", skip_all)]
+pub(crate) async fn save_openai_compatible_setting_handler(
+  data: AFPluginData<OpenAICompatibleSettingPB>,
+  _ai_manager: AFPluginState<Weak<AIManager>>,
+) -> Result<(), FlowyError> {
+  let _data = data.try_into_inner()?;
+  // TODO: Implement actual persistence in later tasks (C1)
+  // For now, just accept the data without saving
+  tracing::debug!("Received OpenAI compatible setting (mock implementation)");
+  Ok(())
+}
+
+#[tracing::instrument(level = "debug", skip_all)]
+pub(crate) async fn test_openai_chat_handler(
+  data: AFPluginData<OpenAIChatSettingPB>,
+  _ai_manager: AFPluginState<Weak<AIManager>>,
+) -> DataResult<TestResultPB, FlowyError> {
+  let _data = data.try_into_inner()?;
+  // TODO: Implement actual HTTP client test in later tasks (C2, C3)
+  // For now, return mock success result
+  let result = TestResultPB {
+    success: true,
+    error_message: "".to_string(),
+    response_time_ms: "150".to_string(),
+  };
+  tracing::debug!("OpenAI chat test completed (mock implementation)");
+  data_result_ok(result)
+}
+
+#[tracing::instrument(level = "debug", skip_all)]
+pub(crate) async fn test_openai_embedding_handler(
+  data: AFPluginData<OpenAIEmbeddingSettingPB>,
+  _ai_manager: AFPluginState<Weak<AIManager>>,
+) -> DataResult<TestResultPB, FlowyError> {
+  let _data = data.try_into_inner()?;
+  // TODO: Implement actual HTTP client test in later tasks (C2, C3)
+  // For now, return mock success result
+  let result = TestResultPB {
+    success: true,
+    error_message: "".to_string(),
+    response_time_ms: "200".to_string(),
+  };
+  tracing::debug!("OpenAI embedding test completed (mock implementation)");
+  data_result_ok(result)
+}

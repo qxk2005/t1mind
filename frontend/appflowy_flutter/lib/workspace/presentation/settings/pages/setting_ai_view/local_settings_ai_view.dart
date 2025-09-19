@@ -7,6 +7,7 @@ import 'package:appflowy/workspace/presentation/settings/shared/af_dropdown_menu
 import 'package:appflowy/workspace/presentation/settings/shared/settings_body.dart';
 import 'package:appflowy/workspace/presentation/settings/shared/settings_dropdown.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/protobuf.dart';
+import 'package:appflowy_backend/protobuf/flowy-ai/entities.pb.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flowy_infra_ui/style_widget/text.dart';
 import 'package:flutter/material.dart';
@@ -48,7 +49,7 @@ class _LocalGlobalModelTypeSelectionWithPanel extends StatefulWidget {
 
 class _LocalGlobalModelTypeSelectionWithPanelState extends State<_LocalGlobalModelTypeSelectionWithPanel> {
   // 临时状态管理，默认选择 Ollama 本地
-  GlobalModelType selectedType = GlobalModelType.ollama;
+  GlobalAIModelTypePB selectedType = GlobalAIModelTypePB.GlobalLocalAI;
 
   @override
   Widget build(BuildContext context) {
@@ -66,7 +67,7 @@ class _LocalGlobalModelTypeSelectionWithPanelState extends State<_LocalGlobalMod
                 ),
               ),
               Flexible(
-                child: SettingsDropdown<GlobalModelType>(
+                child: SettingsDropdown<GlobalAIModelTypePB>(
                   selectedOption: selectedType,
                   onChanged: (type) {
                     setState(() {
@@ -74,9 +75,9 @@ class _LocalGlobalModelTypeSelectionWithPanelState extends State<_LocalGlobalMod
                     });
                     // TODO: 在后续任务中连接到 BLoC
                   },
-                  options: GlobalModelType.values
+                  options: GlobalAIModelTypePB.values
                       .map(
-                        (type) => buildDropdownMenuEntry<GlobalModelType>(
+                        (type) => buildDropdownMenuEntry<GlobalAIModelTypePB>(
                           context,
                           value: type,
                           label: type.displayName,
@@ -100,10 +101,12 @@ class _LocalGlobalModelTypeSelectionWithPanelState extends State<_LocalGlobalMod
   /// 根据选择的全局模型类型构建相应的配置面板
   Widget _buildConfigurationPanel() {
     switch (selectedType) {
-      case GlobalModelType.ollama:
+      case GlobalAIModelTypePB.GlobalLocalAI:
         return const LocalAISetting();
-      case GlobalModelType.openaiCompatible:
+      case GlobalAIModelTypePB.GlobalOpenAICompatible:
         return const OpenAICompatibleSetting();
+      default:
+        return const LocalAISetting();
     }
   }
 }

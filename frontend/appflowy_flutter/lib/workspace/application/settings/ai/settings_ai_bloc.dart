@@ -61,6 +61,7 @@ class SettingsAIBloc extends Bloc<SettingsAIEvent, SettingsAIState> {
           );
           _loadModelList();
           _loadUserWorkspaceSetting();
+          _loadGlobalModelType();
         },
         didReceiveUserProfile: (userProfile) {
           emit(state.copyWith(userProfile: userProfile));
@@ -94,6 +95,19 @@ class SettingsAIBloc extends Bloc<SettingsAIEvent, SettingsAIState> {
           emit(
             state.copyWith(
               availableModels: models,
+            ),
+          );
+        },
+        loadGlobalModelType: () {
+          _loadGlobalModelType();
+        },
+        saveGlobalModelType: (GlobalAIModelTypePB modelType) {
+          _saveGlobalModelType(modelType);
+        },
+        didLoadGlobalModelType: (GlobalAIModelTypePB modelType) {
+          emit(
+            state.copyWith(
+              globalModelType: modelType,
             ),
           );
         },
@@ -155,6 +169,36 @@ class SettingsAIBloc extends Bloc<SettingsAIEvent, SettingsAIState> {
       });
     });
   }
+
+  void _loadGlobalModelType() {
+    AIEventGetGlobalAIModelType().send().then((result) {
+      result.fold((setting) {
+        if (!isClosed) {
+          add(SettingsAIEvent.didLoadGlobalModelType(setting.modelType));
+        }
+      }, (err) {
+        Log.error('Failed to load global model type: $err');
+        // Use default value if loading fails
+        if (!isClosed) {
+          add(SettingsAIEvent.didLoadGlobalModelType(GlobalAIModelTypePB.GlobalLocalAI));
+        }
+      });
+    });
+  }
+
+  void _saveGlobalModelType(GlobalAIModelTypePB modelType) {
+    final payload = GlobalAIModelTypeSettingPB(modelType: modelType);
+    AIEventSaveGlobalAIModelType(payload).send().then((result) {
+      result.fold((ok) {
+        Log.info('Save global model type success');
+        if (!isClosed) {
+          add(SettingsAIEvent.didLoadGlobalModelType(modelType));
+        }
+      }, (err) {
+        Log.error('Save global model type failed: $err');
+      });
+    });
+  }
 }
 
 @freezed
@@ -175,6 +219,16 @@ class SettingsAIEvent with _$SettingsAIEvent {
   const factory SettingsAIEvent.didLoadAvailableModels(
     ModelSelectionPB models,
   ) = _DidLoadAvailableModels;
+
+  const factory SettingsAIEvent.loadGlobalModelType() = _LoadGlobalModelType;
+
+  const factory SettingsAIEvent.saveGlobalModelType(
+    GlobalAIModelTypePB modelType,
+  ) = _SaveGlobalModelType;
+
+  const factory SettingsAIEvent.didLoadGlobalModelType(
+    GlobalAIModelTypePB modelType,
+  ) = _DidLoadGlobalModelType;
 }
 
 @freezed
@@ -184,5 +238,6 @@ class SettingsAIState with _$SettingsAIState {
     WorkspaceSettingsPB? aiSettings,
     ModelSelectionPB? availableModels,
     @Default(true) bool enableSearchIndexing,
+    @Default(GlobalAIModelTypePB.GlobalLocalAI) GlobalAIModelTypePB globalModelType,
   }) = _SettingsAIState;
 }

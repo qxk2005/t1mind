@@ -88,7 +88,7 @@
     - _Requirements: Requirements Design §3
     - Success: 事件定义完整；代码生成无错误
 
-- [ ] B3: 实现 Rust 事件处理器骨架
+- [x] B3: 实现 Rust 事件处理器骨架
   - Files: `frontend/rust-lib/flowy-ai/src/event_handler.rs`
   - Implements: Requirements §4.2-§4.4; Design §4
   - _Prompt:
@@ -100,7 +100,7 @@
     - _Requirements: Requirements Design §4
     - Success: Dart 调用 Rust 事件不报错；返回预期数据结构
 
-- [ ] B4: 创建 OpenAI 兼容设置 BLoC
+- [x] B4: 创建 OpenAI 兼容设置 BLoC
   - Files: `frontend/appflowy_flutter/lib/workspace/application/settings/ai/openai_compatible_setting_bloc.dart` (new)
   - Implements: Requirements §4.1-§4.4; Design §2.2
   - _Prompt:
@@ -112,7 +112,7 @@
     - _Requirements: Requirements §4.1-§4.4
     - Success: BLoC 状态更新正确；UI 可响应状态变化
 
-- [ ] B5: 扩展主设置 BLoC
+- [x] B5: 扩展主设置 BLoC
   - Files: `frontend/appflowy_flutter/lib/workspace/application/settings/ai/settings_ai_bloc.dart`
   - Implements: Requirements §4.1; Design §2.2
   - _Prompt:
@@ -124,7 +124,7 @@
     - _Requirements: Requirements §4.1
     - Success: 全局模型类型状态正确管理；UI 响应切换
 
-- [ ] B6: 连接 UI 与 BLoC
+- [x] B6: 连接 UI 与 BLoC
   - Files: `frontend/appflowy_flutter/lib/workspace/presentation/settings/pages/setting_ai_view/settings_ai_view.dart`, `frontend/appflowy_flutter/lib/workspace/presentation/settings/pages/setting_ai_view/openai_compatible_setting.dart`
   - Implements: Requirements §4.1-§4.4; Design §2.1, §2.2
   - _Prompt:
