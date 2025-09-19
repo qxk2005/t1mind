@@ -64,7 +64,7 @@
 
 ## 里程碑 B：持久化（可视化：字段保存成功并可在重启后读取）
 
-- [ ] B1: 定义 Proto 消息结构
+- [x] B1: 定义 Proto 消息结构
   - Files: `frontend/appflowy_flutter/appflowy_backend/protobuf/flowy-ai/entities.proto`
   - Implements: Requirements §4.2-§4.4; Design §3
   - _Prompt:
@@ -76,7 +76,7 @@
     - _Requirements: Requirements Design §3
     - Success: Proto 文件编译成功；生成 Dart/Rust 代码
 
-- [ ] B2: 添加 FFI 事件定义
+- [x] B2: 添加 FFI 事件定义
   - Files: `frontend/appflowy_flutter/appflowy_backend/protobuf/flowy-ai/event_map.proto`
   - Implements: Requirements §4.2-§4.4; Design §3
   - _Prompt:

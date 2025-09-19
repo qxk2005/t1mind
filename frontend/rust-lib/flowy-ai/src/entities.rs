@@ -765,3 +765,80 @@ pub struct CustomPromptDatabaseConfigurationPB {
   #[pb(index = 5, one_of)]
   pub category_field_id: Option<String>,
 }
+
+// Added for ai-global-model-openai-compatible spec v1.0
+#[derive(Clone, Debug, ProtoBuf_Enum, Default)]
+pub enum GlobalAIModelTypePB {
+  #[default]
+  GlobalLocalAI = 0,
+  GlobalOpenAICompatible = 1,
+}
+
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct GlobalAIModelTypeSettingPB {
+  #[pb(index = 1)]
+  pub model_type: GlobalAIModelTypePB,
+}
+
+#[derive(Default, ProtoBuf, Clone, Debug, Validate)]
+pub struct OpenAIChatSettingPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub api_endpoint: String,
+
+  #[pb(index = 2)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub api_key: String,
+
+  #[pb(index = 3)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub model_name: String,
+
+  #[pb(index = 4)]
+  pub model_type: String,
+
+  #[pb(index = 5)]
+  pub max_tokens: i32,
+
+  #[pb(index = 6)]
+  pub temperature: f64,
+
+  #[pb(index = 7)]
+  pub timeout_seconds: i32,
+}
+
+#[derive(Default, ProtoBuf, Clone, Debug, Validate)]
+pub struct OpenAIEmbeddingSettingPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub api_endpoint: String,
+
+  #[pb(index = 2)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub api_key: String,
+
+  #[pb(index = 3)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub model_name: String,
+}
+
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct OpenAICompatibleSettingPB {
+  #[pb(index = 1)]
+  pub chat_setting: OpenAIChatSettingPB,
+
+  #[pb(index = 2)]
+  pub embedding_setting: OpenAIEmbeddingSettingPB,
+}
+
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct TestResultPB {
+  #[pb(index = 1)]
+  pub success: bool,
+
+  #[pb(index = 2)]
+  pub error_message: String,
+
+  #[pb(index = 3)]
+  pub response_time_ms: String,
+}

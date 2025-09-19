@@ -142,4 +142,23 @@ pub enum AIEvent {
 
   #[event(input = "CustomPromptDatabaseConfigurationPB")]
   SetCustomPromptDatabaseConfiguration = 36,
+
+  // Added for ai-global-model-openai-compatible spec v1.0
+  #[event(output = "GlobalAIModelTypeSettingPB")]
+  GetGlobalAIModelType = 37,
+
+  #[event(input = "GlobalAIModelTypeSettingPB")]
+  SaveGlobalAIModelType = 38,
+
+  #[event(output = "OpenAICompatibleSettingPB")]
+  GetOpenAICompatibleSetting = 39,
+
+  #[event(input = "OpenAICompatibleSettingPB")]
+  SaveOpenAICompatibleSetting = 40,
+
+  #[event(input = "OpenAIChatSettingPB", output = "TestResultPB")]
+  TestOpenAIChat = 41,
+
+  #[event(input = "OpenAIEmbeddingSettingPB", output = "TestResultPB")]
+  TestOpenAIEmbedding = 42,
 }
