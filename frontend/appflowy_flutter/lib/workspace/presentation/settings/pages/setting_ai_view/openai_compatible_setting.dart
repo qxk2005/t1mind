@@ -24,7 +24,7 @@ class OpenAICompatibleSetting extends StatelessWidget {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: FlowyText.regular(
-                  '配置保存成功',
+                  LocaleKeys.settings_aiPage_keys_settingsSaved.tr(),
                   color: Colors.white,
                 ),
                 backgroundColor: Colors.green,
@@ -38,7 +38,7 @@ class OpenAICompatibleSetting extends StatelessWidget {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: FlowyText.regular(
-                  '配置保存失败',
+                  LocaleKeys.settings_aiPage_keys_settingsSaveFailed.tr(),
                   color: Colors.white,
                 ),
                 backgroundColor: Colors.red,
@@ -72,10 +72,10 @@ class OpenAICompatibleSetting extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    FlowyText.medium('加载配置时出错'),
+                    FlowyText.medium(LocaleKeys.settings_aiPage_keys_loadConfigError.tr()),
                     const VSpace(8),
                     FlowyButton(
-                      text: FlowyText.regular('重试'),
+                      text: FlowyText.regular(LocaleKeys.button_retry.tr()),
                       onTap: () => context
                           .read<OpenAICompatibleSettingBloc>()
                           .add(const OpenAICompatibleSettingEvent.started()),
@@ -155,7 +155,7 @@ class _ChatConfigSection extends StatelessWidget {
           label: LocaleKeys.settings_aiPage_keys_apiEndpoint.tr(),
           value: _getItemValue(OpenAISettingType.chatEndpoint),
           placeholder: kDefaultChatEndpoint,
-          tooltip: '聊天 API 的完整端点 URL', // TODO: 使用国际化
+          tooltip: LocaleKeys.settings_aiPage_keys_chatEndpointTooltip.tr(),
           settingType: OpenAISettingType.chatEndpoint,
         ),
         const VSpace(12),
@@ -167,7 +167,7 @@ class _ChatConfigSection extends StatelessWidget {
           value: _getItemValue(OpenAISettingType.chatApiKey),
           placeholder: LocaleKeys.settings_aiPage_keys_apiKeyPlaceholder.tr(),
           obscureText: true,
-          tooltip: 'API 访问密钥，将被安全存储', // TODO: 使用国际化
+          tooltip: LocaleKeys.settings_aiPage_keys_apiKeyTooltip.tr(),
           settingType: OpenAISettingType.chatApiKey,
         ),
         const VSpace(12),
@@ -181,7 +181,7 @@ class _ChatConfigSection extends StatelessWidget {
                 label: LocaleKeys.settings_aiPage_keys_modelName.tr(),
                 value: _getItemValue(OpenAISettingType.chatModel),
                 placeholder: kDefaultChatModel,
-                tooltip: '要使用的聊天模型名称', // TODO: 使用国际化
+                tooltip: LocaleKeys.settings_aiPage_keys_chatModelTooltip.tr(),
                 settingType: OpenAISettingType.chatModel,
               ),
             ),
@@ -192,7 +192,7 @@ class _ChatConfigSection extends StatelessWidget {
                 label: LocaleKeys.settings_aiPage_keys_modelType.tr(),
                 value: _getItemValue(OpenAISettingType.chatModelType),
                 placeholder: 'chat',
-                tooltip: '模型提供商类型', // TODO: 使用国际化
+                tooltip: LocaleKeys.settings_aiPage_keys_modelTypeTooltip.tr(),
                 settingType: OpenAISettingType.chatModelType,
               ),
             ),
@@ -209,7 +209,7 @@ class _ChatConfigSection extends StatelessWidget {
                 label: LocaleKeys.settings_aiPage_keys_maxTokens.tr(),
                 value: _getItemValue(OpenAISettingType.chatMaxTokens),
                 placeholder: kDefaultMaxTokens.toString(),
-                tooltip: '响应的最大 token 数量', // TODO: 使用国际化
+                tooltip: LocaleKeys.settings_aiPage_keys_maxTokensTooltip.tr(),
                 settingType: OpenAISettingType.chatMaxTokens,
               ),
             ),
@@ -220,7 +220,7 @@ class _ChatConfigSection extends StatelessWidget {
                 label: LocaleKeys.settings_aiPage_keys_temperature.tr(),
                 value: _getItemValue(OpenAISettingType.chatTemperature),
                 placeholder: kDefaultTemperature.toString(),
-                tooltip: '控制响应的随机性（0.0-2.0）', // TODO: 使用国际化
+                tooltip: LocaleKeys.settings_aiPage_keys_temperatureTooltip.tr(),
                 settingType: OpenAISettingType.chatTemperature,
               ),
             ),
@@ -231,7 +231,7 @@ class _ChatConfigSection extends StatelessWidget {
                 label: LocaleKeys.settings_aiPage_keys_requestTimeout.tr(),
                 value: _getItemValue(OpenAISettingType.chatTimeout),
                 placeholder: kDefaultTimeoutSeconds.toString(),
-                tooltip: '请求超时时间（秒）', // TODO: 使用国际化
+                tooltip: LocaleKeys.settings_aiPage_keys_timeoutTooltip.tr(),
                 settingType: OpenAISettingType.chatTimeout,
               ),
             ),
@@ -250,11 +250,9 @@ class _ChatConfigSection extends StatelessWidget {
     String? tooltip,
     bool obscureText = false,
   }) {
-    final controller = TextEditingController(text: value);
-    
     return SettingsInputField(
       label: label,
-      textController: controller,
+      value: value, // 使用value参数而不是textController
       placeholder: placeholder,
       tooltip: tooltip,
       obscureText: obscureText,
@@ -304,7 +302,7 @@ class _EmbeddingConfigSection extends StatelessWidget {
           label: LocaleKeys.settings_aiPage_keys_apiEndpoint.tr(),
           value: _getItemValue(OpenAISettingType.embeddingEndpoint),
           placeholder: kDefaultEmbeddingEndpoint,
-          tooltip: '嵌入 API 的完整端点 URL', // TODO: 使用国际化
+          tooltip: LocaleKeys.settings_aiPage_keys_embeddingEndpointTooltip.tr(),
           settingType: OpenAISettingType.embeddingEndpoint,
         ),
         const VSpace(12),
@@ -327,7 +325,7 @@ class _EmbeddingConfigSection extends StatelessWidget {
           label: LocaleKeys.settings_aiPage_keys_modelName.tr(),
           value: _getItemValue(OpenAISettingType.embeddingModel),
           placeholder: kDefaultEmbeddingModel,
-          tooltip: '要使用的嵌入模型名称', // TODO: 使用国际化
+          tooltip: LocaleKeys.settings_aiPage_keys_embeddingModelTooltip.tr(),
           settingType: OpenAISettingType.embeddingModel,
         ),
       ],
@@ -343,11 +341,9 @@ class _EmbeddingConfigSection extends StatelessWidget {
     String? tooltip,
     bool obscureText = false,
   }) {
-    final controller = TextEditingController(text: value);
-    
     return SettingsInputField(
       label: label,
-      textController: controller,
+      value: value, // 使用value参数而不是textController
       placeholder: placeholder,
       tooltip: tooltip,
       obscureText: obscureText,
@@ -407,7 +403,7 @@ class _ActionButtons extends StatelessWidget {
             FlowyButton(
               text: FlowyText.regular(
                 chatTestState == TestState.testing 
-                    ? '测试中...' 
+                    ? LocaleKeys.settings_aiPage_keys_testing.tr() 
                     : LocaleKeys.settings_aiPage_keys_testChat.tr(),
                 fontSize: 14,
               ),
@@ -427,7 +423,7 @@ class _ActionButtons extends StatelessWidget {
             FlowyButton(
               text: FlowyText.regular(
                 embeddingTestState == TestState.testing 
-                    ? '测试中...' 
+                    ? LocaleKeys.settings_aiPage_keys_testing.tr() 
                     : LocaleKeys.settings_aiPage_keys_testEmbedding.tr(),
                 fontSize: 14,
               ),
@@ -447,7 +443,7 @@ class _ActionButtons extends StatelessWidget {
             FlowyButton(
               text: FlowyText.regular(
                 submitState == SubmitState.submitting 
-                    ? '保存中...' 
+                    ? LocaleKeys.settings_aiPage_keys_saving.tr() 
                     : LocaleKeys.settings_aiPage_keys_saveSettings.tr(),
                 fontSize: 14,
                 color: isEdited || submitState == SubmitState.submitting
@@ -493,17 +489,17 @@ class _ActionButtons extends StatelessWidget {
       backgroundColor = Theme.of(context).colorScheme.surfaceContainerHighest;
       textColor = Theme.of(context).colorScheme.onSurface;
       icon = Icons.hourglass_empty;
-      message = '正在测试连接...';
+      message = LocaleKeys.settings_aiPage_keys_testingConnection.tr();
     } else if (result.success) {
       backgroundColor = Colors.green.withOpacity(0.1);
       textColor = Colors.green.shade700;
       icon = Icons.check_circle;
-      message = '$title 连接成功';
+      message = LocaleKeys.settings_aiPage_keys_testSuccess.tr();
     } else {
       backgroundColor = Colors.red.withOpacity(0.1);
       textColor = Colors.red.shade700;
       icon = Icons.error;
-      message = '$title 连接失败: ${result.errorMessage}';
+      message = '${LocaleKeys.settings_aiPage_keys_testFailed.tr()}: ${_getLocalizedErrorMessage(result.errorMessage)}';
     }
 
     return Container(
@@ -545,5 +541,39 @@ class _ActionButtons extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// 获取本地化的错误消息
+  String _getLocalizedErrorMessage(String errorMessage) {
+    // 根据错误消息内容返回对应的本地化文案
+    if (errorMessage.toLowerCase().contains('connection') || 
+        errorMessage.toLowerCase().contains('connect') ||
+        errorMessage.toLowerCase().contains('network')) {
+      return LocaleKeys.settings_aiPage_keys_connectionError.tr();
+    } else if (errorMessage.toLowerCase().contains('auth') || 
+               errorMessage.toLowerCase().contains('unauthorized') ||
+               errorMessage.toLowerCase().contains('401')) {
+      return LocaleKeys.settings_aiPage_keys_authenticationError.tr();
+    } else if (errorMessage.toLowerCase().contains('model') || 
+               errorMessage.toLowerCase().contains('404')) {
+      return LocaleKeys.settings_aiPage_keys_modelNotFoundError.tr();
+    } else if (errorMessage.toLowerCase().contains('timeout')) {
+      return LocaleKeys.settings_aiPage_keys_timeoutError.tr();
+    } else if (errorMessage.toLowerCase().contains('rate') || 
+               errorMessage.toLowerCase().contains('limit') ||
+               errorMessage.toLowerCase().contains('429')) {
+      return LocaleKeys.settings_aiPage_keys_rateLimitError.tr();
+    } else if (errorMessage.toLowerCase().contains('server') || 
+               errorMessage.toLowerCase().contains('500') ||
+               errorMessage.toLowerCase().contains('502') ||
+               errorMessage.toLowerCase().contains('503')) {
+      return LocaleKeys.settings_aiPage_keys_serverError.tr();
+    } else if (errorMessage.toLowerCase().contains('endpoint') || 
+               errorMessage.toLowerCase().contains('url')) {
+      return LocaleKeys.settings_aiPage_keys_invalidEndpointError.tr();
+    } else {
+      // 如果无法匹配到特定错误类型，返回原始错误消息
+      return errorMessage;
+    }
   }
 }

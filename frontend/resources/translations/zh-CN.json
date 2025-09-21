@@ -756,6 +756,19 @@
         "saveSettings": "保存设置",
         "testChat": "测试聊天",
         "testEmbedding": "测试嵌入",
+        "testing": "测试中...",
+        "saving": "保存中...",
+        "testingConnection": "正在测试连接...",
+        "loadConfigError": "加载配置时出错",
+        "chatEndpointTooltip": "聊天 API 的完整端点 URL",
+        "apiKeyTooltip": "API 访问密钥，将被安全存储",
+        "chatModelTooltip": "要使用的聊天模型名称",
+        "modelTypeTooltip": "模型提供商类型",
+        "maxTokensTooltip": "响应的最大 token 数量",
+        "temperatureTooltip": "控制响应的随机性（0.0-2.0）",
+        "timeoutTooltip": "请求超时时间（秒）",
+        "embeddingEndpointTooltip": "嵌入 API 的完整端点 URL",
+        "embeddingModelTooltip": "要使用的嵌入模型名称",
         "apiEndpointPlaceholder": "https://api.openai.com/v1",
         "apiKeyPlaceholder": "请输入您的 API 密钥",
         "modelNamePlaceholder": "gpt-3.5-turbo",
@@ -771,7 +784,119 @@
         "networkError": "网络错误：请检查您的网络连接",
         "invalidEndpointError": "无效端点：请检查 API 端点 URL",
         "rateLimitError": "请求频率超限：请求过于频繁",
-        "serverError": "服务器错误：API 服务器遇到错误"
+        "serverError": "服务器错误：API 服务器遇到错误",
+        "detailedErrors": {
+          "connection": {
+            "title": "无法连接到服务器",
+            "description": "请检查以下项目：",
+            "suggestions": [
+              "确认 API 端点地址是否正确",
+              "检查网络连接是否正常",
+              "确认服务器是否正在运行",
+              "检查防火墙设置是否阻止了连接"
+            ]
+          },
+          "authentication": {
+            "title": "身份验证失败",
+            "description": "API 密钥验证失败，请检查：",
+            "suggestions": [
+              "确认 API 密钥是否正确输入",
+              "检查 API 密钥是否已过期",
+              "确认 API 密钥是否有足够的权限",
+              "联系服务提供商确认账户状态"
+            ]
+          },
+          "modelNotFound": {
+            "title": "模型不可用",
+            "description": "指定的模型无法使用，可能的原因：",
+            "suggestions": [
+              "检查模型名称是否正确拼写",
+              "确认该模型是否在您的订阅计划中",
+              "尝试使用其他可用的模型",
+              "联系服务提供商确认模型可用性"
+            ]
+          },
+          "timeout": {
+            "title": "请求超时",
+            "description": "服务器响应时间过长，建议：",
+            "suggestions": [
+              "检查网络连接稳定性",
+              "尝试增加超时时间设置",
+              "稍后重试请求",
+              "联系服务提供商确认服务状态"
+            ]
+          },
+          "network": {
+            "title": "网络连接问题",
+            "description": "网络连接出现问题，请尝试：",
+            "suggestions": [
+              "检查互联网连接是否正常",
+              "尝试访问其他网站确认网络状态",
+              "重启网络设备",
+              "联系网络服务提供商"
+            ]
+          },
+          "invalidEndpoint": {
+            "title": "API 端点无效",
+            "description": "API 端点地址格式不正确，请：",
+            "suggestions": [
+              "确认端点 URL 格式正确（如：https://api.example.com/v1）",
+              "检查是否包含了正确的协议（http:// 或 https://）",
+              "确认端点路径是否完整",
+              "参考服务提供商的 API 文档"
+            ]
+          },
+          "rateLimit": {
+            "title": "请求频率超限",
+            "description": "请求过于频繁，已达到限制，建议：",
+            "suggestions": [
+              "稍等片刻后再试",
+              "检查您的 API 使用配额",
+              "考虑升级到更高级别的服务计划",
+              "优化请求频率"
+            ]
+          },
+          "server": {
+            "title": "服务器内部错误",
+            "description": "API 服务器遇到内部错误，请：",
+            "suggestions": [
+              "稍后重试请求",
+              "检查服务提供商的状态页面",
+              "联系技术支持报告问题",
+              "尝试使用备用服务端点"
+            ]
+          },
+          "invalidResponse": {
+            "title": "响应格式错误",
+            "description": "服务器返回了无效的响应格式：",
+            "suggestions": [
+              "确认 API 端点是否支持 OpenAI 兼容格式",
+              "检查服务器配置是否正确",
+              "联系服务提供商确认 API 兼容性",
+              "尝试使用官方推荐的端点"
+            ]
+          },
+          "quota": {
+            "title": "配额已用尽",
+            "description": "您的 API 使用配额已达到限制：",
+            "suggestions": [
+              "检查您的账户余额",
+              "等待配额重置时间",
+              "考虑升级服务计划",
+              "联系服务提供商了解配额详情"
+            ]
+          },
+          "unsupportedModel": {
+            "title": "模型不支持",
+            "description": "当前模型不支持此操作：",
+            "suggestions": [
+              "选择支持该功能的模型",
+              "查看模型功能说明文档",
+              "联系服务提供商了解模型能力",
+              "尝试使用推荐的替代模型"
+            ]
+          }
+        }
       }
     },
     "planPage": {

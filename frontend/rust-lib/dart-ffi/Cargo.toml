@@ -7,8 +7,8 @@ edition = "2018"
 [lib]
 name = "dart_ffi"
 # this value will change depending on the target os
-# default static library, cdylib for Android
-crate-type = ["staticlib", "cdylib"]
+# default static library, staticlib for Android
+crate-type = ["staticlib", "staticlib"]
 
 
 [dependencies]

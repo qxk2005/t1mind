@@ -70,6 +70,17 @@ class _SettingsInputFieldState extends State<SettingsInputField> {
   late bool obscureText = widget.obscureText;
 
   @override
+  void didUpdateWidget(SettingsInputField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 当value更新时，同步控制器的文本
+    if (widget.value != oldWidget.value && 
+        widget.textController == null && 
+        widget.value != controller.text) {
+      controller.text = widget.value ?? '';
+    }
+  }
+
+  @override
   void dispose() {
     if (widget.focusNode == null) {
       focusNode.dispose();

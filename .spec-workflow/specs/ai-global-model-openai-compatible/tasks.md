@@ -138,7 +138,7 @@
 
 ## 里程碑 C：测试能力（可视化：测试按钮返回成功/错误，错误含具体原因）
 
-- [ ] C1: 实现 Rust 持久化层
+- [x] C1: 实现 Rust 持久化层
   - Files: `frontend/rust-lib/flowy-ai/src/persistence.rs` (new or extend existing)
   - Implements: Requirements §4.4; Design §4.3
   - _Prompt:
@@ -150,7 +150,7 @@
     - _Requirements: Requirements §4.4
     - Success: 配置可保存和读取；重启应用后配置保持
 
-- [ ] C2: 实现 OpenAI 兼容 HTTP 客户端
+- [x] C2: 实现 OpenAI 兼容 HTTP 客户端
   - Files: `frontend/rust-lib/flowy-ai/src/openai_compatible/client.rs` (new), `frontend/rust-lib/flowy-ai/src/openai_compatible/types.rs` (new)
   - Implements: Requirements §4.2, §4.3; Design §4.1
   - _Prompt:
@@ -162,7 +162,7 @@
     - _Requirements: Requirements §4.2, §4.3
     - Success: 能够发送 HTTP 请求；错误映射清晰
 
-- [ ] C3: 实现测试功能
+- [x] C3: 实现测试功能
   - Files: `frontend/rust-lib/flowy-ai/src/openai_compatible/controller.rs` (new)
   - Implements: Requirements §4.2, §4.3; Design §4.1
   - _Prompt:
@@ -174,7 +174,7 @@
     - _Requirements: Requirements §4.2, §4.3
     - Success: 测试函数返回明确的成功/失败结果
 
-- [ ] C4: 完善事件处理器实现
+- [x] C4: 完善事件处理器实现
   - Files: `frontend/rust-lib/flowy-ai/src/event_handler.rs`
   - Implements: Requirements §4.2-§4.4; Design §4
   - _Prompt:
@@ -186,7 +186,7 @@
     - _Requirements: Requirements §4.2-§4.4
     - Success: 所有 FFI 事件功能完整；Dart 调用返回正确结果
 
-- [ ] C5: 完善错误提示文案
+- [x] C5: 完善错误提示文案
   - Files: `frontend/resources/translations/zh-CN.json`, `frontend/resources/translations/en-US.json`
   - Implements: Requirements §4.5; Design §2.3
   - _Prompt:
@@ -198,7 +198,7 @@
     - _Requirements: Requirements §4.5
     - Success: 各种错误场景都有清晰的中英文提示
 
-- [ ] C6: 实现 UI 测试反馈
+- [x] C6: 实现 UI 测试反馈
   - Files: `frontend/appflowy_flutter/lib/workspace/presentation/settings/pages/setting_ai_view/openai_compatible_setting.dart`
   - Implements: Requirements §4.2, §4.3; Design §2.1
   - _Prompt:

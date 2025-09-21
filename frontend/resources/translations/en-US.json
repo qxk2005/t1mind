@@ -951,6 +951,19 @@
         "saveSettings": "Save Settings",
         "testChat": "Test Chat",
         "testEmbedding": "Test Embedding",
+        "testing": "Testing...",
+        "saving": "Saving...",
+        "testingConnection": "Testing connection...",
+        "loadConfigError": "Error loading configuration",
+        "chatEndpointTooltip": "Complete endpoint URL for chat API",
+        "apiKeyTooltip": "API access key, will be stored securely",
+        "chatModelTooltip": "Name of the chat model to use",
+        "modelTypeTooltip": "Model provider type",
+        "maxTokensTooltip": "Maximum number of tokens in response",
+        "temperatureTooltip": "Controls response randomness (0.0-2.0)",
+        "timeoutTooltip": "Request timeout in seconds",
+        "embeddingEndpointTooltip": "Complete endpoint URL for embedding API",
+        "embeddingModelTooltip": "Name of the embedding model to use",
         "apiEndpointPlaceholder": "https://api.openai.com/v1",
         "apiKeyPlaceholder": "Enter your API key",
         "modelNamePlaceholder": "gpt-3.5-turbo",
@@ -966,7 +979,119 @@
         "networkError": "Network error: Please check your internet connection",
         "invalidEndpointError": "Invalid endpoint: Please check the API endpoint URL",
         "rateLimitError": "Rate limit exceeded: Too many requests",
-        "serverError": "Server error: The API server encountered an error"
+        "serverError": "Server error: The API server encountered an error",
+        "detailedErrors": {
+          "connection": {
+            "title": "Unable to Connect to Server",
+            "description": "Please check the following:",
+            "suggestions": [
+              "Verify that the API endpoint address is correct",
+              "Check if your internet connection is working",
+              "Confirm that the server is running",
+              "Check if firewall settings are blocking the connection"
+            ]
+          },
+          "authentication": {
+            "title": "Authentication Failed",
+            "description": "API key verification failed, please check:",
+            "suggestions": [
+              "Verify that the API key is entered correctly",
+              "Check if the API key has expired",
+              "Confirm that the API key has sufficient permissions",
+              "Contact the service provider to verify account status"
+            ]
+          },
+          "modelNotFound": {
+            "title": "Model Not Available",
+            "description": "The specified model cannot be used, possible reasons:",
+            "suggestions": [
+              "Check if the model name is spelled correctly",
+              "Verify if the model is included in your subscription plan",
+              "Try using other available models",
+              "Contact the service provider to confirm model availability"
+            ]
+          },
+          "timeout": {
+            "title": "Request Timeout",
+            "description": "The server took too long to respond, suggestions:",
+            "suggestions": [
+              "Check network connection stability",
+              "Try increasing the timeout setting",
+              "Retry the request later",
+              "Contact the service provider to confirm service status"
+            ]
+          },
+          "network": {
+            "title": "Network Connection Issue",
+            "description": "Network connection problem occurred, please try:",
+            "suggestions": [
+              "Check if internet connection is working properly",
+              "Try accessing other websites to confirm network status",
+              "Restart network devices",
+              "Contact your internet service provider"
+            ]
+          },
+          "invalidEndpoint": {
+            "title": "Invalid API Endpoint",
+            "description": "API endpoint address format is incorrect, please:",
+            "suggestions": [
+              "Verify the endpoint URL format is correct (e.g., https://api.example.com/v1)",
+              "Check if the correct protocol is included (http:// or https://)",
+              "Confirm the endpoint path is complete",
+              "Refer to the service provider's API documentation"
+            ]
+          },
+          "rateLimit": {
+            "title": "Rate Limit Exceeded",
+            "description": "Too many requests have been made, limit reached, suggestions:",
+            "suggestions": [
+              "Wait a moment before trying again",
+              "Check your API usage quota",
+              "Consider upgrading to a higher service plan",
+              "Optimize request frequency"
+            ]
+          },
+          "server": {
+            "title": "Server Internal Error",
+            "description": "The API server encountered an internal error, please:",
+            "suggestions": [
+              "Retry the request later",
+              "Check the service provider's status page",
+              "Contact technical support to report the issue",
+              "Try using an alternative service endpoint"
+            ]
+          },
+          "invalidResponse": {
+            "title": "Invalid Response Format",
+            "description": "The server returned an invalid response format:",
+            "suggestions": [
+              "Verify if the API endpoint supports OpenAI-compatible format",
+              "Check if server configuration is correct",
+              "Contact the service provider to confirm API compatibility",
+              "Try using the officially recommended endpoint"
+            ]
+          },
+          "quota": {
+            "title": "Quota Exhausted",
+            "description": "Your API usage quota has reached the limit:",
+            "suggestions": [
+              "Check your account balance",
+              "Wait for quota reset time",
+              "Consider upgrading your service plan",
+              "Contact the service provider for quota details"
+            ]
+          },
+          "unsupportedModel": {
+            "title": "Model Not Supported",
+            "description": "The current model does not support this operation:",
+            "suggestions": [
+              "Select a model that supports this feature",
+              "Review the model capability documentation",
+              "Contact the service provider to understand model capabilities",
+              "Try using a recommended alternative model"
+            ]
+          }
+        }
       }
     },
     "planPage": {

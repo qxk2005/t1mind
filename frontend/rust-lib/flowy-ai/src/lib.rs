@@ -6,6 +6,7 @@ mod chat;
 mod completion;
 pub mod entities;
 pub mod local_ai;
+pub mod openai_compatible;
 
 // #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 // pub mod mcp;
@@ -21,6 +22,7 @@ mod model_select;
 mod model_select_test;
 pub mod notification;
 pub mod offline;
+mod persistence;
 mod protobuf;
 mod search;
 mod stream_message;
