@@ -843,4 +843,13 @@ pub struct TestResultPB {
 
   #[pb(index = 3)]
   pub response_time_ms: String,
+
+  #[pb(index = 4)]
+  pub status_code: i32,
+
+  #[pb(index = 5)]
+  pub server_response: String,
+
+  #[pb(index = 6)]
+  pub request_details: String,
 }

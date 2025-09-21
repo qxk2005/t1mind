@@ -52,6 +52,40 @@ impl OpenAICompatibleClient {
         }
     }
 
+    /// Test chat functionality with detailed result information
+    #[instrument(level = "debug", skip(self), err)]
+    pub async fn test_chat_detailed(&self) -> Result<(String, Option<String>, Option<String>)> {
+        let request = ChatCompletionRequest {
+            model: self.config.chat_model.clone(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Hello, this is a test message.".to_string(),
+            }],
+            max_tokens: Some(50),
+            temperature: Some(0.1),
+            stream: Some(false),
+        };
+
+        // Serialize request for logging
+        let request_json = serde_json::to_string_pretty(&request)
+            .unwrap_or_else(|_| "Failed to serialize request".to_string());
+
+        match self.chat_completion_detailed(request).await {
+            Ok((response, response_json)) => {
+                if let Some(choice) = response.choices.first() {
+                    let result_msg = format!("Chat test successful: {}", choice.message.content.trim());
+                    Ok((result_msg, Some(response_json), Some(request_json)))
+                } else {
+                    Err(anyhow!("No response choices returned"))
+                }
+            }
+            Err(e) => {
+                error!("Chat test failed: {}", e);
+                Err(e)
+            }
+        }
+    }
+
     /// Test embedding functionality with a simple text
     #[instrument(level = "debug", skip(self), err)]
     pub async fn test_embedding(&self) -> Result<String> {
@@ -67,6 +101,37 @@ impl OpenAICompatibleClient {
                         "Embedding test successful: {} dimensions",
                         data.embedding.len()
                     ))
+                } else {
+                    Err(anyhow!("No embedding data returned"))
+                }
+            }
+            Err(e) => {
+                error!("Embedding test failed: {}", e);
+                Err(e)
+            }
+        }
+    }
+
+    /// Test embedding functionality with detailed result information
+    #[instrument(level = "debug", skip(self), err)]
+    pub async fn test_embedding_detailed(&self) -> Result<(String, Option<String>, Option<String>)> {
+        let request = EmbeddingRequest {
+            model: self.config.embedding_model.clone(),
+            input: EmbeddingInput::String("Hello, this is a test embedding.".to_string()),
+        };
+
+        // Serialize request for logging
+        let request_json = serde_json::to_string_pretty(&request)
+            .unwrap_or_else(|_| "Failed to serialize request".to_string());
+
+        match self.create_embedding_detailed(request).await {
+            Ok((response, response_json)) => {
+                if let Some(data) = response.data.first() {
+                    let result_msg = format!(
+                        "Embedding test successful: {} dimensions",
+                        data.embedding.len()
+                    );
+                    Ok((result_msg, Some(response_json), Some(request_json)))
                 } else {
                     Err(anyhow!("No embedding data returned"))
                 }
@@ -100,6 +165,28 @@ impl OpenAICompatibleClient {
         self.handle_response(response).await
     }
 
+    /// Send a chat completion request with detailed response information
+    #[instrument(level = "debug", skip(self, request), err)]
+    pub async fn chat_completion_detailed(&self, request: ChatCompletionRequest) -> Result<(ChatCompletionResponse, String)> {
+        let masked_key = self.mask_api_key(&self.config.chat_api_key);
+        debug!(
+            "Sending chat completion request to {} with model {} (API key: {})",
+            self.config.chat_endpoint, request.model, masked_key
+        );
+
+        let response = self
+            .client
+            .post(&self.config.chat_endpoint)
+            .header("Authorization", format!("Bearer {}", self.config.chat_api_key))
+            .header("Content-Type", "application/json")
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to send chat request: {}", e))?;
+
+        self.handle_response_detailed(response).await
+    }
+
     /// Create embeddings for the given input
     #[instrument(level = "debug", skip(self, request), err)]
     pub async fn create_embedding(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse> {
@@ -120,6 +207,28 @@ impl OpenAICompatibleClient {
             .map_err(|e| anyhow!("Failed to send embedding request: {}", e))?;
 
         self.handle_response(response).await
+    }
+
+    /// Create embeddings for the given input with detailed response information
+    #[instrument(level = "debug", skip(self, request), err)]
+    pub async fn create_embedding_detailed(&self, request: EmbeddingRequest) -> Result<(EmbeddingResponse, String)> {
+        let masked_key = self.mask_api_key(&self.config.embedding_api_key);
+        debug!(
+            "Sending embedding request to {} with model {} (API key: {})",
+            self.config.embedding_endpoint, request.model, masked_key
+        );
+
+        let response = self
+            .client
+            .post(&self.config.embedding_endpoint)
+            .header("Authorization", format!("Bearer {}", self.config.embedding_api_key))
+            .header("Content-Type", "application/json")
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to send embedding request: {}", e))?;
+
+        self.handle_response_detailed(response).await
     }
 
     /// Handle HTTP response and parse JSON or error
@@ -144,6 +253,49 @@ impl OpenAICompatibleClient {
                 .await
                 .map_err(|e| anyhow!("Failed to read error response body: {}", e))?;
 
+            // Try to parse as OpenAI error format
+            if let Ok(error_response) = serde_json::from_str::<ErrorResponse>(&text) {
+                Err(anyhow!(
+                    "API error ({}): {}",
+                    status,
+                    error_response.error.message
+                ))
+            } else {
+                // Fallback to generic error message
+                let error_msg = match status {
+                    StatusCode::UNAUTHORIZED => "Authentication failed. Please check your API key.".to_string(),
+                    StatusCode::NOT_FOUND => "API endpoint not found. Please check your endpoint URL.".to_string(),
+                    StatusCode::TOO_MANY_REQUESTS => "Rate limit exceeded. Please try again later.".to_string(),
+                    StatusCode::INTERNAL_SERVER_ERROR => "Server error. Please try again later.".to_string(),
+                    StatusCode::BAD_REQUEST => format!("Bad request: {}", text),
+                    _ => format!("HTTP error {}: {}", status, text),
+                };
+
+                warn!("API request failed: {} (URL: {})", error_msg, url);
+                Err(anyhow!(error_msg))
+            }
+        }
+    }
+
+    /// Handle HTTP response and parse JSON or error with detailed response information
+    async fn handle_response_detailed<T>(&self, response: Response) -> Result<(T, String)>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let status = response.status();
+        let url = response.url().clone();
+
+        let text = response
+            .text()
+            .await
+            .map_err(|e| anyhow!("Failed to read response body: {}", e))?;
+
+        if status.is_success() {
+            match serde_json::from_str(&text) {
+                Ok(parsed) => Ok((parsed, text)),
+                Err(e) => Err(anyhow!("Failed to parse JSON response: {} (body: {})", e, text))
+            }
+        } else {
             // Try to parse as OpenAI error format
             if let Ok(error_response) = serde_json::from_str::<ErrorResponse>(&text) {
                 Err(anyhow!(

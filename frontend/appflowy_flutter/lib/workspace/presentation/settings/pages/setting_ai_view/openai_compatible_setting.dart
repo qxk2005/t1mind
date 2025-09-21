@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:appflowy/generated/locale_keys.g.dart';
 import 'package:appflowy/workspace/application/settings/ai/openai_compatible_setting_bloc.dart';
 import 'package:appflowy/workspace/presentation/settings/shared/settings_input_field.dart';
@@ -513,34 +515,236 @@ class _ActionButtons extends StatelessWidget {
           width: 1,
         ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: textColor, size: 16),
-          const HSpace(8),
-          Expanded(
-            child: FlowyText.medium(
-              message,
-              color: textColor,
-              fontSize: 13,
-            ),
-          ),
-          if (state != TestState.testing)
-            GestureDetector(
-              onTap: () {
-                // 清除测试结果
-                context.read<OpenAICompatibleSettingBloc>().add(
-                      const OpenAICompatibleSettingEvent.started(),
-                    );
-              },
-              child: Icon(
-                Icons.close,
-                color: textColor.withOpacity(0.7),
-                size: 16,
+          // 主要结果行
+          Row(
+            children: [
+              Icon(icon, color: textColor, size: 16),
+              const HSpace(8),
+              Expanded(
+                child: FlowyText.medium(
+                  message,
+                  color: textColor,
+                  fontSize: 13,
+                ),
               ),
+              if (state != TestState.testing) ...[
+                // 详情按钮
+                GestureDetector(
+                  onTap: () => _showTestResultDetails(context, title, result),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: textColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: FlowyText.regular(
+                      '详情',
+                      color: textColor,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                const HSpace(8),
+                // 关闭按钮
+                GestureDetector(
+                  onTap: () {
+                    // 清除测试结果
+                    context.read<OpenAICompatibleSettingBloc>().add(
+                          const OpenAICompatibleSettingEvent.started(),
+                        );
+                  },
+                  child: Icon(
+                    Icons.close,
+                    color: textColor.withOpacity(0.7),
+                    size: 16,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          
+          // 基本信息行
+          if (state != TestState.testing && result.responseTimeMs.isNotEmpty) ...[
+            const VSpace(8),
+            Row(
+              children: [
+                FlowyText.regular(
+                  '响应时间: ${result.responseTimeMs}ms',
+                  color: textColor.withOpacity(0.8),
+                  fontSize: 12,
+                ),
+                if (result.statusCode > 0) ...[
+                  const HSpace(16),
+                  FlowyText.regular(
+                    'HTTP状态: ${result.statusCode}',
+                    color: textColor.withOpacity(0.8),
+                    fontSize: 12,
+                  ),
+                ],
+              ],
             ),
+          ],
         ],
       ),
     );
+  }
+
+  /// 显示测试结果详情对话框
+  void _showTestResultDetails(BuildContext context, String title, TestResultPB result) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: FlowyText.medium('$title 测试详情'),
+        content: SizedBox(
+          width: 600,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 基本信息
+                _buildDetailSection('基本信息', [
+                  _buildDetailItem('状态', result.success ? '成功' : '失败'),
+                  _buildDetailItem('响应时间', '${result.responseTimeMs}ms'),
+                  if (result.statusCode > 0)
+                    _buildDetailItem('HTTP状态码', result.statusCode.toString()),
+                ]),
+                
+                const VSpace(16),
+                
+                // 请求详情
+                if (result.requestDetails.isNotEmpty) ...[
+                  _buildDetailSection('请求详情', [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: FlowyText.regular(
+                        result.requestDetails,
+                        fontSize: 12,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ]),
+                  const VSpace(16),
+                ],
+                
+                // 服务器响应
+                if (result.serverResponse.isNotEmpty) ...[
+                  _buildDetailSection('服务器响应', [
+                    Container(
+                      width: double.infinity,
+                      constraints: const BoxConstraints(maxHeight: 200),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: SingleChildScrollView(
+                        child: FlowyText.regular(
+                          _formatJsonResponse(result.serverResponse),
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
+                  ]),
+                  const VSpace(16),
+                ],
+                
+                // 错误信息
+                if (!result.success && result.errorMessage.isNotEmpty) ...[
+                  _buildDetailSection('错误信息', [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Colors.red.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: FlowyText.regular(
+                        result.errorMessage,
+                        fontSize: 12,
+                        color: Colors.red.shade700,
+                      ),
+                    ),
+                  ]),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          FlowyButton(
+            text: FlowyText.regular('关闭'),
+            onTap: () => Navigator.of(dialogContext).pop(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 构建详情区段
+  Widget _buildDetailSection(String title, List<Widget> children) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        FlowyText.medium(
+          title,
+          fontSize: 14,
+        ),
+        const VSpace(8),
+        ...children,
+      ],
+    );
+  }
+
+  /// 构建详情项
+  Widget _buildDetailItem(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 100,
+            child:             FlowyText.medium(
+              '$label:',
+              fontSize: 12,
+            ),
+          ),
+          Expanded(
+            child: FlowyText.regular(
+              value,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 格式化JSON响应
+  String _formatJsonResponse(String response) {
+    try {
+      // 尝试解析并格式化JSON
+      final dynamic jsonData = json.decode(response);
+      const encoder = JsonEncoder.withIndent('  ');
+      return encoder.convert(jsonData);
+    } catch (e) {
+      // 如果不是有效的JSON，直接返回原始响应
+      return response;
+    }
   }
 
   /// 获取本地化的错误消息

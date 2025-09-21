@@ -2,6 +2,18 @@ use crate::entities::{OpenAIChatSettingPB, OpenAIEmbeddingSettingPB, TestResultP
 use crate::openai_compatible::{OpenAICompatibleClient, OpenAICompatibleConfig};
 use std::time::Instant;
 use tracing::{debug, error, instrument};
+use serde_json;
+
+/// Detailed test result with additional information
+#[derive(Debug, Clone)]
+pub struct DetailedTestResult {
+    pub success: bool,
+    pub error_message: String,
+    pub response_time_ms: u128,
+    pub status_code: Option<u16>,
+    pub server_response: Option<String>,
+    pub request_details: Option<String>,
+}
 
 /// Test OpenAI compatible chat functionality
 #[instrument(level = "debug", skip(chat_setting))]
@@ -15,6 +27,9 @@ pub async fn test_chat(chat_setting: OpenAIChatSettingPB) -> TestResultPB {
             success: false,
             error_message: "API endpoint is required".to_string(),
             response_time_ms: "0".to_string(),
+            status_code: 0,
+            server_response: String::new(),
+            request_details: String::new(),
         };
     }
 
@@ -23,6 +38,9 @@ pub async fn test_chat(chat_setting: OpenAIChatSettingPB) -> TestResultPB {
             success: false,
             error_message: "API key is required".to_string(),
             response_time_ms: "0".to_string(),
+            status_code: 0,
+            server_response: String::new(),
+            request_details: String::new(),
         };
     }
 
@@ -31,6 +49,9 @@ pub async fn test_chat(chat_setting: OpenAIChatSettingPB) -> TestResultPB {
             success: false,
             error_message: "Model name is required".to_string(),
             response_time_ms: "0".to_string(),
+            status_code: 0,
+            server_response: String::new(),
+            request_details: String::new(),
         };
     }
 
@@ -58,24 +79,34 @@ pub async fn test_chat(chat_setting: OpenAIChatSettingPB) -> TestResultPB {
     // Create client and test
     match OpenAICompatibleClient::new(config) {
         Ok(client) => {
-            match client.test_chat().await {
-                Ok(response) => {
+            match client.test_chat_detailed().await {
+                Ok((response, server_response, request_details)) => {
                     let elapsed = start_time.elapsed();
                     debug!("Chat test successful: {}", response);
                     TestResultPB {
                         success: true,
                         error_message: String::new(),
                         response_time_ms: elapsed.as_millis().to_string(),
+                        status_code: 200,
+                        server_response: server_response.unwrap_or_default(),
+                        request_details: request_details.unwrap_or_default(),
                     }
                 }
                 Err(e) => {
                     let elapsed = start_time.elapsed();
                     let error_msg = format_user_friendly_error(&e);
                     error!("Chat test failed: {}", e);
+                    
+                    // Try to extract status code from error message
+                    let status_code = extract_status_code_from_error(&e);
+                    
                     TestResultPB {
                         success: false,
                         error_message: error_msg,
                         response_time_ms: elapsed.as_millis().to_string(),
+                        status_code: status_code.unwrap_or(0) as i32,
+                        server_response: e.to_string(),
+                        request_details: String::new(),
                     }
                 }
             }
@@ -88,6 +119,9 @@ pub async fn test_chat(chat_setting: OpenAIChatSettingPB) -> TestResultPB {
                 success: false,
                 error_message: error_msg,
                 response_time_ms: elapsed.as_millis().to_string(),
+                status_code: 0,
+                server_response: e.to_string(),
+                request_details: String::new(),
             }
         }
     }
@@ -105,6 +139,9 @@ pub async fn test_embedding(embedding_setting: OpenAIEmbeddingSettingPB) -> Test
             success: false,
             error_message: "API endpoint is required".to_string(),
             response_time_ms: "0".to_string(),
+            status_code: 0,
+            server_response: String::new(),
+            request_details: String::new(),
         };
     }
 
@@ -113,6 +150,9 @@ pub async fn test_embedding(embedding_setting: OpenAIEmbeddingSettingPB) -> Test
             success: false,
             error_message: "API key is required".to_string(),
             response_time_ms: "0".to_string(),
+            status_code: 0,
+            server_response: String::new(),
+            request_details: String::new(),
         };
     }
 
@@ -121,6 +161,9 @@ pub async fn test_embedding(embedding_setting: OpenAIEmbeddingSettingPB) -> Test
             success: false,
             error_message: "Model name is required".to_string(),
             response_time_ms: "0".to_string(),
+            status_code: 0,
+            server_response: String::new(),
+            request_details: String::new(),
         };
     }
 
@@ -140,24 +183,34 @@ pub async fn test_embedding(embedding_setting: OpenAIEmbeddingSettingPB) -> Test
     // Create client and test
     match OpenAICompatibleClient::new(config) {
         Ok(client) => {
-            match client.test_embedding().await {
-                Ok(response) => {
+            match client.test_embedding_detailed().await {
+                Ok((response, server_response, request_details)) => {
                     let elapsed = start_time.elapsed();
                     debug!("Embedding test successful: {}", response);
                     TestResultPB {
                         success: true,
                         error_message: String::new(),
                         response_time_ms: elapsed.as_millis().to_string(),
+                        status_code: 200,
+                        server_response: server_response.unwrap_or_default(),
+                        request_details: request_details.unwrap_or_default(),
                     }
                 }
                 Err(e) => {
                     let elapsed = start_time.elapsed();
                     let error_msg = format_user_friendly_error(&e);
                     error!("Embedding test failed: {}", e);
+                    
+                    // Try to extract status code from error message
+                    let status_code = extract_status_code_from_error(&e);
+                    
                     TestResultPB {
                         success: false,
                         error_message: error_msg,
                         response_time_ms: elapsed.as_millis().to_string(),
+                        status_code: status_code.unwrap_or(0) as i32,
+                        server_response: e.to_string(),
+                        request_details: String::new(),
                     }
                 }
             }
@@ -170,8 +223,35 @@ pub async fn test_embedding(embedding_setting: OpenAIEmbeddingSettingPB) -> Test
                 success: false,
                 error_message: error_msg,
                 response_time_ms: elapsed.as_millis().to_string(),
+                status_code: 0,
+                server_response: e.to_string(),
+                request_details: String::new(),
             }
         }
+    }
+}
+
+/// Extract HTTP status code from error message
+fn extract_status_code_from_error(error: &anyhow::Error) -> Option<u16> {
+    let error_str = error.to_string();
+    
+    // Try to extract status code from common patterns
+    if error_str.contains("401") {
+        Some(401)
+    } else if error_str.contains("404") {
+        Some(404)
+    } else if error_str.contains("429") {
+        Some(429)
+    } else if error_str.contains("500") {
+        Some(500)
+    } else if error_str.contains("502") {
+        Some(502)
+    } else if error_str.contains("503") {
+        Some(503)
+    } else if error_str.contains("400") {
+        Some(400)
+    } else {
+        None
     }
 }
 
