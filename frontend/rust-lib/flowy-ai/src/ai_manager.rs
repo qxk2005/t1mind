@@ -85,6 +85,7 @@ impl AIManager {
       user_service.clone(),
       chat_cloud_service,
       local_ai.clone(),
+      Arc::downgrade(&store_preferences),
       storage_service,
     ));
     let mut model_control = ModelSelectionControl::new();
