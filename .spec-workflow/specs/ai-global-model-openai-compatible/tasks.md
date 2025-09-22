@@ -236,7 +236,7 @@
     - _Requirements: Requirements §4.3
     - Success: 嵌入生成功能正常；向量格式正确
 
-- [ ] D3: 修改中间件路由逻辑
+- [x] D3: 修改中间件路由逻辑
   - Files: `frontend/rust-lib/flowy-ai/src/middleware/chat_service_mw.rs`
   - Implements: Requirements §4.4; Design §4.2
   - _Prompt:
