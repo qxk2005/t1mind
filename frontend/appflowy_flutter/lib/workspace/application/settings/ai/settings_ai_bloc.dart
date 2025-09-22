@@ -190,7 +190,6 @@ class SettingsAIBloc extends Bloc<SettingsAIEvent, SettingsAIState> {
     final payload = GlobalAIModelTypeSettingPB(modelType: modelType);
     AIEventSaveGlobalAIModelType(payload).send().then((result) {
       result.fold((ok) {
-        Log.info('Save global model type success');
         if (!isClosed) {
           add(SettingsAIEvent.didLoadGlobalModelType(modelType));
         }

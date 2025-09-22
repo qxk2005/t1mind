@@ -248,7 +248,7 @@
     - _Requirements: Requirements §4.4
     - Success: 全局切换能正确路由聊天请求
 
-- [ ] D4: 修改嵌入选择逻辑
+- [x] D4: 修改嵌入选择逻辑
   - Files: `frontend/rust-lib/flowy-core/src/server_layer.rs` (或相关嵌入选择文件)
   - Implements: Requirements §4.4; Design §4.2
   - _Prompt:
@@ -260,7 +260,7 @@
     - _Requirements: Requirements §4.4
     - Success: 全局切换能正确路由嵌入请求
 
-- [ ] D5: 端到端验收测试
+- [X] D5: 端到端验收测试
   - Files: N/A (runtime verification)
   - Implements: Requirements §6 全部
   - _Prompt:

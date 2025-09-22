@@ -1,6 +1,7 @@
 use crate::embeddings::scheduler::EmbeddingScheduler;
 use arc_swap::ArcSwapOption;
 use flowy_error::{ErrorCode, FlowyError, FlowyResult};
+use flowy_sqlite::kv::KVStorePreferences;
 use flowy_sqlite_vec::db::VectorSqliteDB;
 use lib_infra::util::get_operating_system;
 use ollama_rs::Ollama;
@@ -12,6 +13,7 @@ pub struct EmbedContext {
   ollama: ArcSwapOption<Ollama>,
   vector_db: ArcSwapOption<VectorSqliteDB>,
   scheduler: ArcSwapOption<EmbeddingScheduler>,
+  store_preferences: ArcSwapOption<KVStorePreferences>,
 }
 
 impl EmbedContext {
@@ -22,12 +24,18 @@ impl EmbedContext {
         ollama: ArcSwapOption::empty(),
         vector_db: ArcSwapOption::empty(),
         scheduler: Default::default(),
+        store_preferences: ArcSwapOption::empty(),
       })
     })
   }
 
   pub fn get_vector_db(&self) -> Option<Arc<VectorSqliteDB>> {
     self.vector_db.load_full()
+  }
+
+  pub fn set_store_preferences(&self, store_preferences: Arc<KVStorePreferences>) {
+    self.store_preferences.store(Some(store_preferences));
+    self.try_create_scheduler();
   }
 
   pub fn init_vector_db(&self, db_path: PathBuf) {
@@ -80,9 +88,13 @@ impl EmbedContext {
   }
 
   fn try_create_scheduler(&self) {
-    if let (Some(ollama), Some(vector_db)) = (self.ollama.load_full(), self.vector_db.load_full()) {
+    if let (Some(ollama), Some(vector_db), Some(store_preferences)) = (
+      self.ollama.load_full(), 
+      self.vector_db.load_full(),
+      self.store_preferences.load_full()
+    ) {
       info!("[Embedding] Creating scheduler");
-      match EmbeddingScheduler::new(ollama, vector_db) {
+      match EmbeddingScheduler::new(ollama, vector_db, Arc::downgrade(&store_preferences)) {
         Ok(s) => {
           info!("[Embedding] create scheduler successfully");
           self.scheduler.store(Some(s));
@@ -90,7 +102,7 @@ impl EmbedContext {
         Err(err) => error!("[Embedding] Failed to create scheduler: {}", err),
       }
     } else {
-      info!("[Embedding] Ollama or vector db is not initialized, remove embedding scheduler");
+      info!("[Embedding] Ollama, vector db, or store preferences is not initialized, remove embedding scheduler");
       self.scheduler.store(None);
     }
   }

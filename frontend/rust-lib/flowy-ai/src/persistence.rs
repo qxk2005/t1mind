@@ -52,7 +52,6 @@ impl AIPersistence {
   /// Save the global AI model type
   pub fn save_global_model_type(&self, model_type: GlobalAIModelTypePB) -> FlowyResult<()> {
     let store = self.upgrade_store()?;
-    debug!("Saving global AI model type: {:?}", model_type);
     
     let stored = StoredGlobalAIModelType {
       model_type: model_type as i32,
@@ -65,16 +64,16 @@ impl AIPersistence {
   /// Load the global AI model type
   pub fn load_global_model_type(&self) -> FlowyResult<GlobalAIModelTypePB> {
     let store = self.upgrade_store()?;
+    
     let stored = store
       .get_object::<StoredGlobalAIModelType>(GLOBAL_AI_MODEL_TYPE_KEY)
-      .unwrap_or(StoredGlobalAIModelType { model_type: 0 }); // Default to LocalAI
+      .unwrap_or_else(|| StoredGlobalAIModelType { model_type: 0 }); // Default to LocalAI
     
     let model_type = match stored.model_type {
       1 => GlobalAIModelTypePB::GlobalOpenAICompatible,
       _ => GlobalAIModelTypePB::GlobalLocalAI,
     };
     
-    debug!("Loaded global AI model type: {:?}", model_type);
     Ok(model_type)
   }
 

@@ -129,8 +129,11 @@ impl AppFlowyCore {
     info!("🔥{:?}", &config);
 
     #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
-    flowy_ai::embeddings::context::EmbedContext::shared()
-      .init_vector_db(PathBuf::from(&config.storage_path));
+    {
+      let embed_context = flowy_ai::embeddings::context::EmbedContext::shared();
+      embed_context.set_store_preferences(store_preference.clone());
+      embed_context.init_vector_db(PathBuf::from(&config.storage_path));
+    }
 
     let task_scheduler = TaskDispatcher::new(Duration::from_secs(10));
     let task_dispatcher = Arc::new(RwLock::new(task_scheduler));

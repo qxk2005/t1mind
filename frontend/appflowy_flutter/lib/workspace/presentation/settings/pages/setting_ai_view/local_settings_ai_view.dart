@@ -40,67 +40,62 @@ class LocalSettingsAIView extends StatelessWidget {
 }
 
 /// 全局模型类型选择器和相应的配置面板（本地版本）
-class _LocalGlobalModelTypeSelectionWithPanel extends StatefulWidget {
+class _LocalGlobalModelTypeSelectionWithPanel extends StatelessWidget {
   const _LocalGlobalModelTypeSelectionWithPanel();
 
   @override
-  State<_LocalGlobalModelTypeSelectionWithPanel> createState() => _LocalGlobalModelTypeSelectionWithPanelState();
-}
-
-class _LocalGlobalModelTypeSelectionWithPanelState extends State<_LocalGlobalModelTypeSelectionWithPanel> {
-  // 临时状态管理，默认选择 Ollama 本地
-  GlobalAIModelTypePB selectedType = GlobalAIModelTypePB.GlobalLocalAI;
-
-  @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // 全局模型类型选择器
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Row(
-            children: [
-              Expanded(
-                child: FlowyText.medium(
-                  '全局使用的模型类型', // TODO: 使用国际化 LocaleKeys.settings_aiPage_keys_globalModelType.tr()
-                  overflow: TextOverflow.ellipsis,
-                ),
+    return BlocBuilder<SettingsAIBloc, SettingsAIState>(
+      builder: (context, state) {
+        return Column(
+          children: [
+            // 全局模型类型选择器
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: FlowyText.medium(
+                      '全局使用的模型类型', // TODO: 使用国际化 LocaleKeys.settings_aiPage_keys_globalModelType.tr()
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Flexible(
+                    child: SettingsDropdown<GlobalAIModelTypePB>(
+                      selectedOption: state.globalModelType,
+                      onChanged: (type) {
+                        context
+                            .read<SettingsAIBloc>()
+                            .add(SettingsAIEvent.saveGlobalModelType(type));
+                      },
+                      options: GlobalAIModelTypePB.values
+                          .map(
+                            (type) => buildDropdownMenuEntry<GlobalAIModelTypePB>(
+                              context,
+                              value: type,
+                              label: type.displayName,
+                              selectedValue: state.globalModelType,
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+                ],
               ),
-              Flexible(
-                child: SettingsDropdown<GlobalAIModelTypePB>(
-                  selectedOption: selectedType,
-                  onChanged: (type) {
-                    setState(() {
-                      selectedType = type;
-                    });
-                    // TODO: 在后续任务中连接到 BLoC
-                  },
-                  options: GlobalAIModelTypePB.values
-                      .map(
-                        (type) => buildDropdownMenuEntry<GlobalAIModelTypePB>(
-                          context,
-                          value: type,
-                          label: type.displayName,
-                          selectedValue: selectedType,
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-            ],
-          ),
-        ),
-        
-        // 根据选择的模型类型显示对应的配置面板
-        const SizedBox(height: 8),
-        _buildConfigurationPanel(),
-      ],
+            ),
+            
+            // 根据选择的模型类型显示对应的配置面板
+            const SizedBox(height: 8),
+            _buildConfigurationPanel(state.globalModelType),
+          ],
+        );
+      },
     );
   }
 
   /// 根据选择的全局模型类型构建相应的配置面板
-  Widget _buildConfigurationPanel() {
-    switch (selectedType) {
+  Widget _buildConfigurationPanel(GlobalAIModelTypePB modelType) {
+    switch (modelType) {
       case GlobalAIModelTypePB.GlobalLocalAI:
         return const LocalAISetting();
       case GlobalAIModelTypePB.GlobalOpenAICompatible:

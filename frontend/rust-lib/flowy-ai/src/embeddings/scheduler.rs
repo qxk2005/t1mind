@@ -1,12 +1,16 @@
 use crate::embeddings::embedder::{Embedder, OllamaEmbedder};
 use crate::embeddings::indexer::IndexerProvider;
 use crate::search::summary::{LLMDocument, summarize_documents};
+use crate::persistence::AIPersistence;
+use crate::entities::GlobalAIModelTypePB;
+use crate::openai_compatible::OpenAICompatibleConfig;
 use flowy_ai_pub::cloud::search_dto::{
   SearchContentType, SearchDocumentResponseItem, SearchResult, SearchSummaryResult, Summary,
 };
 use flowy_ai_pub::entities::{EmbeddingRecord, UnindexedCollab, UnindexedData};
 use flowy_error::{ErrorCode, FlowyError, FlowyResult};
 use flowy_sqlite::internal::derives::multiconnection::chrono::Utc;
+use flowy_sqlite::kv::KVStorePreferences;
 use flowy_sqlite_vec::db::VectorSqliteDB;
 use ollama_rs::Ollama;
 use ollama_rs::generation::embeddings::request::{EmbeddingsInput, GenerateEmbeddingsRequest};
@@ -25,6 +29,7 @@ pub struct EmbeddingScheduler {
   generate_embedding_tx: mpsc::Sender<UnindexedCollab>,
   ollama: Arc<Ollama>,
   vector_db: Arc<VectorSqliteDB>,
+  store_preferences: Weak<KVStorePreferences>,
   pub(crate) stop_tx: tokio::sync::broadcast::Sender<()>,
 }
 
@@ -32,6 +37,7 @@ impl EmbeddingScheduler {
   pub fn new(
     ollama: Arc<Ollama>,
     vector_db: Arc<VectorSqliteDB>,
+    store_preferences: Weak<KVStorePreferences>,
   ) -> FlowyResult<Arc<EmbeddingScheduler>> {
     let indexer_provider = IndexerProvider::new();
     let (write_embedding_tx, write_embedding_rx) = unbounded_channel::<EmbeddingRecord>();
@@ -44,6 +50,7 @@ impl EmbeddingScheduler {
       generate_embedding_tx,
       ollama,
       vector_db,
+      store_preferences,
       stop_tx,
     });
 
@@ -67,12 +74,49 @@ impl EmbeddingScheduler {
   }
 
   pub(crate) fn create_embedder(&self) -> Result<Embedder, FlowyError> {
-    // TODO: Check global AI model type configuration to decide which embedder to use
-    // For now, default to Ollama embedder
-    let embedder = Embedder::Ollama(OllamaEmbedder {
-      ollama: self.ollama.clone(),
-    });
-    Ok(embedder)
+    // Check global AI model type configuration to decide which embedder to use
+    let persistence = AIPersistence::new(self.store_preferences.clone());
+    let global_model_type = persistence.load_global_model_type()
+      .unwrap_or(GlobalAIModelTypePB::GlobalLocalAI); // Default to LocalAI if loading fails
+
+    match global_model_type {
+      GlobalAIModelTypePB::GlobalLocalAI => {
+        debug!("[Embedding] Using Ollama embedder based on global configuration");
+        let embedder = Embedder::Ollama(OllamaEmbedder {
+          ollama: self.ollama.clone(),
+        });
+        Ok(embedder)
+      }
+      GlobalAIModelTypePB::GlobalOpenAICompatible => {
+        debug!("[Embedding] Using OpenAI compatible embedder based on global configuration");
+        
+        // Load OpenAI compatible settings
+        match persistence.load_openai_compatible_setting()? {
+          Some(settings) => {
+            let config = OpenAICompatibleConfig {
+              chat_endpoint: String::new(), // Not needed for embeddings
+              chat_api_key: String::new(),  // Not needed for embeddings
+              chat_model: String::new(),    // Not needed for embeddings
+              embedding_endpoint: settings.embedding_setting.api_endpoint,
+              embedding_api_key: settings.embedding_setting.api_key,
+              embedding_model: settings.embedding_setting.model_name,
+              timeout_ms: Some(30000), // Default 30 seconds
+              max_tokens: None,
+              temperature: None,
+            };
+            
+            Embedder::new_openai_compatible(config)
+          }
+          None => {
+            warn!("[Embedding] OpenAI compatible mode selected but no settings found, falling back to Ollama");
+            let embedder = Embedder::Ollama(OllamaEmbedder {
+              ollama: self.ollama.clone(),
+            });
+            Ok(embedder)
+          }
+        }
+      }
+    }
   }
 
   pub async fn index_collab(&self, data: UnindexedCollab) -> FlowyResult<()> {
