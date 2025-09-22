@@ -65,6 +65,11 @@ pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
     .event(AIEvent::SaveOpenAICompatibleSetting, save_openai_compatible_setting_handler)
     .event(AIEvent::TestOpenAIChat, test_openai_chat_handler)
     .event(AIEvent::TestOpenAIEmbedding, test_openai_embedding_handler)
+    // OpenAI SDK Events
+    .event(AIEvent::GetOpenAISDKSetting, get_openai_sdk_setting_handler)
+    .event(AIEvent::SaveOpenAISDKSetting, save_openai_sdk_setting_handler)
+    .event(AIEvent::TestOpenAISDKChat, test_openai_sdk_chat_handler)
+    .event(AIEvent::TestOpenAISDKEmbedding, test_openai_sdk_embedding_handler)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Display, Hash, ProtoBuf_Enum, Flowy_Event)]
@@ -168,4 +173,17 @@ pub enum AIEvent {
 
   #[event(input = "OpenAIEmbeddingSettingPB", output = "TestResultPB")]
   TestOpenAIEmbedding = 42,
+
+  // OpenAI SDK Events
+  #[event(output = "OpenAISDKSettingPB")]
+  GetOpenAISDKSetting = 43,
+
+  #[event(input = "OpenAISDKSettingPB")]
+  SaveOpenAISDKSetting = 44,
+
+  #[event(input = "OpenAISDKChatSettingPB", output = "TestResultPB")]
+  TestOpenAISDKChat = 45,
+
+  #[event(input = "OpenAISDKEmbeddingSettingPB", output = "TestResultPB")]
+  TestOpenAISDKEmbedding = 46,
 }

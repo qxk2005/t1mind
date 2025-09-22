@@ -1,4 +1,4 @@
-use crate::entities::{GlobalAIModelTypePB, OpenAICompatibleSettingPB};
+use crate::entities::{GlobalAIModelTypePB, OpenAICompatibleSettingPB, OpenAISDKSettingPB};
 use flowy_error::{ErrorCode, FlowyError, FlowyResult};
 use flowy_sqlite::kv::KVStorePreferences;
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,7 @@ use tracing::debug;
 // Version keys for persistence
 const GLOBAL_AI_MODEL_TYPE_KEY: &str = "global_ai_model_type:v1";
 const OPENAI_COMPATIBLE_SETTING_KEY: &str = "openai_compatible_setting:v1";
+const OPENAI_SDK_SETTING_KEY: &str = "openai_sdk_setting:v1";
 
 // Serde-compatible versions for storage
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +38,31 @@ pub struct StoredOpenAIEmbeddingSetting {
 pub struct StoredOpenAICompatibleSetting {
   pub chat_setting: StoredOpenAIChatSetting,
   pub embedding_setting: StoredOpenAIEmbeddingSetting,
+}
+
+// OpenAI SDK storage structures (reusing the same format as compatible)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredOpenAISDKChatSetting {
+  pub api_endpoint: String,
+  pub api_key: String,
+  pub model_name: String,
+  pub model_type: String,
+  pub max_tokens: i32,
+  pub temperature: f64,
+  pub timeout_seconds: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredOpenAISDKEmbeddingSetting {
+  pub api_endpoint: String,
+  pub api_key: String,
+  pub model_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredOpenAISDKSetting {
+  pub chat_setting: StoredOpenAISDKChatSetting,
+  pub embedding_setting: StoredOpenAISDKEmbeddingSetting,
 }
 
 /// Persistence manager for AI settings
@@ -157,6 +183,87 @@ impl AIPersistence {
     let store = self.upgrade_store()?;
     store.remove(OPENAI_COMPATIBLE_SETTING_KEY);
     debug!("Removed OpenAI compatible settings");
+    Ok(())
+  }
+
+  /// Save OpenAI SDK settings
+  pub fn save_openai_sdk_setting(
+    &self,
+    setting: &OpenAISDKSettingPB,
+  ) -> FlowyResult<()> {
+    let store = self.upgrade_store()?;
+    
+    // Convert to storage format
+    let stored = StoredOpenAISDKSetting {
+      chat_setting: StoredOpenAISDKChatSetting {
+        api_endpoint: setting.chat_setting.api_endpoint.clone(),
+        api_key: setting.chat_setting.api_key.clone(),
+        model_name: setting.chat_setting.model_name.clone(),
+        model_type: setting.chat_setting.model_type.clone(),
+        max_tokens: setting.chat_setting.max_tokens,
+        temperature: setting.chat_setting.temperature,
+        timeout_seconds: setting.chat_setting.timeout_seconds,
+      },
+      embedding_setting: StoredOpenAISDKEmbeddingSetting {
+        api_endpoint: setting.embedding_setting.api_endpoint.clone(),
+        api_key: setting.embedding_setting.api_key.clone(),
+        model_name: setting.embedding_setting.model_name.clone(),
+      },
+    };
+    
+    debug!("Saving OpenAI SDK settings to key: {}", OPENAI_SDK_SETTING_KEY);
+    match store.set_object(OPENAI_SDK_SETTING_KEY, &stored) {
+      Ok(_) => {
+        debug!("Successfully saved OpenAI SDK settings");
+        Ok(())
+      }
+      Err(e) => {
+        debug!("Failed to save OpenAI SDK settings: {:?}", e);
+        Err(FlowyError::new(ErrorCode::Internal, format!("Failed to save OpenAI SDK settings: {}", e)))
+      }
+    }
+  }
+
+  /// Load OpenAI SDK settings
+  pub fn load_openai_sdk_setting(&self) -> FlowyResult<Option<OpenAISDKSettingPB>> {
+    let store = self.upgrade_store()?;
+    debug!("Loading OpenAI SDK settings from key: {}", OPENAI_SDK_SETTING_KEY);
+    let stored = store.get_object::<StoredOpenAISDKSetting>(OPENAI_SDK_SETTING_KEY);
+    
+    match stored {
+      Some(stored) => {
+        let setting = OpenAISDKSettingPB {
+          chat_setting: crate::entities::OpenAISDKChatSettingPB {
+            api_endpoint: stored.chat_setting.api_endpoint,
+            api_key: stored.chat_setting.api_key,
+            model_name: stored.chat_setting.model_name,
+            model_type: stored.chat_setting.model_type,
+            max_tokens: stored.chat_setting.max_tokens,
+            temperature: stored.chat_setting.temperature,
+            timeout_seconds: stored.chat_setting.timeout_seconds,
+          },
+          embedding_setting: crate::entities::OpenAISDKEmbeddingSettingPB {
+            api_endpoint: stored.embedding_setting.api_endpoint,
+            api_key: stored.embedding_setting.api_key,
+            model_name: stored.embedding_setting.model_name,
+          },
+        };
+        
+        debug!("Successfully loaded OpenAI SDK settings with chat endpoint: {}", setting.chat_setting.api_endpoint);
+        Ok(Some(setting))
+      }
+      None => {
+        debug!("No OpenAI SDK settings found in storage");
+        Ok(None)
+      }
+    }
+  }
+
+  /// Remove OpenAI SDK settings (for cleanup/reset)
+  pub fn remove_openai_sdk_setting(&self) -> FlowyResult<()> {
+    let store = self.upgrade_store()?;
+    store.remove(OPENAI_SDK_SETTING_KEY);
+    debug!("Removed OpenAI SDK settings");
     Ok(())
   }
 

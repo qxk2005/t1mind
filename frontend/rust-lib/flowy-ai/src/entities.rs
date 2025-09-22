@@ -772,6 +772,7 @@ pub enum GlobalAIModelTypePB {
   #[default]
   GlobalLocalAI = 0,
   GlobalOpenAICompatible = 1,
+  GlobalOpenAISDK = 2,
 }
 
 #[derive(Default, ProtoBuf, Clone, Debug, Validate)]
@@ -853,3 +854,11 @@ pub struct TestResultPB {
   #[pb(index = 6)]
   pub request_details: String,
 }
+
+// OpenAI SDK Settings - Using existing OpenAICompatibleSettingPB for now
+// This provides the same functionality while maintaining protobuf compatibility
+pub type OpenAISDKSettingPB = OpenAICompatibleSettingPB;
+pub type OpenAISDKChatSettingPB = OpenAIChatSettingPB;
+pub type OpenAISDKEmbeddingSettingPB = OpenAIEmbeddingSettingPB;
+
+

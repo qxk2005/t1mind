@@ -4,6 +4,7 @@ use crate::search::summary::{LLMDocument, summarize_documents};
 use crate::persistence::AIPersistence;
 use crate::entities::GlobalAIModelTypePB;
 use crate::openai_compatible::OpenAICompatibleConfig;
+use crate::openai_sdk::OpenAISDKEmbeddingConfig;
 use flowy_ai_pub::cloud::search_dto::{
   SearchContentType, SearchDocumentResponseItem, SearchResult, SearchSummaryResult, Summary,
 };
@@ -109,6 +110,29 @@ impl EmbeddingScheduler {
           }
           None => {
             warn!("[Embedding] OpenAI compatible mode selected but no settings found, falling back to Ollama");
+            let embedder = Embedder::Ollama(OllamaEmbedder {
+              ollama: self.ollama.clone(),
+            });
+            Ok(embedder)
+          }
+        }
+      }
+      GlobalAIModelTypePB::GlobalOpenAISDK => {
+        debug!("[Embedding] Using OpenAI SDK embedder based on global configuration");
+        
+        // Load OpenAI SDK settings
+        match persistence.load_openai_sdk_setting()? {
+          Some(settings) => {
+            let config = OpenAISDKEmbeddingConfig {
+              api_endpoint: settings.embedding_setting.api_endpoint,
+              api_key: settings.embedding_setting.api_key,
+              model_name: settings.embedding_setting.model_name,
+            };
+            
+            Embedder::new_openai_sdk(config)
+          }
+          None => {
+            warn!("[Embedding] OpenAI SDK mode selected but no settings found, falling back to Ollama");
             let embedder = Embedder::Ollama(OllamaEmbedder {
               ollama: self.ollama.clone(),
             });

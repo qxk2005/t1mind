@@ -111,6 +111,8 @@ dependencies:
   numerus: ^2.1.2
   # Used to open local files on Mobile
   open_filex: ^4.5.0
+  # OpenAI Dart SDK for AI integration
+  dart_openai: ^5.1.0
   package_info_plus: ^8.0.2
   path: ^1.8.3
   path_provider: ^2.0.15

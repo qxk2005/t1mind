@@ -2,6 +2,7 @@ use crate::ai_manager::AIManager;
 use crate::completion::AICompletion;
 use crate::entities::*;
 use crate::openai_compatible;
+use crate::openai_sdk;
 use crate::persistence::AIPersistence;
 use flowy_ai_pub::cloud::{AIModel, ChatMessageType};
 use flowy_error::{ErrorCode, FlowyError, FlowyResult};
@@ -508,5 +509,84 @@ pub(crate) async fn test_openai_embedding_handler(
   let result = openai_compatible::test_embedding(embedding_setting).await;
   
   tracing::debug!("OpenAI embedding test completed: success={}", result.success);
+  data_result_ok(result)
+}
+
+// OpenAI SDK Event Handlers
+
+#[tracing::instrument(level = "debug", skip_all)]
+pub(crate) async fn get_openai_sdk_setting_handler(
+  ai_manager: AFPluginState<Weak<AIManager>>,
+) -> DataResult<OpenAISDKSettingPB, FlowyError> {
+  let ai_manager = ai_manager.upgrade().ok_or_else(|| {
+    FlowyError::internal().with_context("AI manager is dropped")
+  })?;
+  
+  let persistence = AIPersistence::new(Arc::downgrade(&ai_manager.store_preferences));
+  let setting = persistence.load_openai_sdk_setting()?.unwrap_or_else(|| {
+    // Return default settings if none exist
+    OpenAISDKSettingPB {
+      chat_setting: OpenAISDKChatSettingPB {
+        api_endpoint: "https://api.openai.com/v1".to_string(),
+        api_key: "".to_string(),
+        model_name: "gpt-3.5-turbo".to_string(),
+        model_type: "chat".to_string(),
+        max_tokens: 4096,
+        temperature: 0.7,
+        timeout_seconds: 30,
+      },
+      embedding_setting: OpenAISDKEmbeddingSettingPB {
+        api_endpoint: "https://api.openai.com/v1".to_string(),
+        api_key: "".to_string(),
+        model_name: "text-embedding-ada-002".to_string(),
+      },
+    }
+  });
+  
+  data_result_ok(setting)
+}
+
+#[tracing::instrument(level = "debug", skip_all)]
+pub(crate) async fn save_openai_sdk_setting_handler(
+  data: AFPluginData<OpenAISDKSettingPB>,
+  ai_manager: AFPluginState<Weak<AIManager>>,
+) -> Result<(), FlowyError> {
+  let data = data.try_into_inner()?;
+  let ai_manager = ai_manager.upgrade().ok_or_else(|| {
+    FlowyError::internal().with_context("AI manager is dropped")
+  })?;
+  
+  let persistence = AIPersistence::new(Arc::downgrade(&ai_manager.store_preferences));
+  persistence.save_openai_sdk_setting(&data)?;
+  
+  tracing::debug!("Saved OpenAI SDK settings");
+  Ok(())
+}
+
+#[tracing::instrument(level = "debug", skip_all)]
+pub(crate) async fn test_openai_sdk_chat_handler(
+  data: AFPluginData<OpenAISDKChatSettingPB>,
+  _ai_manager: AFPluginState<Weak<AIManager>>,
+) -> DataResult<TestResultPB, FlowyError> {
+  let chat_setting = data.try_into_inner()?;
+  
+  // Use the OpenAI SDK controller to test chat
+  let result = openai_sdk::OpenAISDKController::test_chat(chat_setting).await;
+  
+  tracing::debug!("OpenAI SDK chat test completed: success={}", result.success);
+  data_result_ok(result)
+}
+
+#[tracing::instrument(level = "debug", skip_all)]
+pub(crate) async fn test_openai_sdk_embedding_handler(
+  data: AFPluginData<OpenAISDKEmbeddingSettingPB>,
+  _ai_manager: AFPluginState<Weak<AIManager>>,
+) -> DataResult<TestResultPB, FlowyError> {
+  let embedding_setting = data.try_into_inner()?;
+  
+  // Use the OpenAI SDK controller to test embedding
+  let result = openai_sdk::OpenAISDKController::test_embedding(embedding_setting).await;
+  
+  tracing::debug!("OpenAI SDK embedding test completed: success={}", result.success);
   data_result_ok(result)
 }

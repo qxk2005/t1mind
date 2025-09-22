@@ -6,7 +6,9 @@ mod chat;
 mod completion;
 pub mod entities;
 pub mod local_ai;
+pub mod migration;
 pub mod openai_compatible;
+pub mod openai_sdk;
 
 // #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 // pub mod mcp;

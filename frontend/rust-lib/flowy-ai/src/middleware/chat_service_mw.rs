@@ -163,6 +163,10 @@ impl ChatServiceMiddleware {
         debug!("Global model type is set to Local AI");
         false
       }
+      Ok(GlobalAIModelTypePB::GlobalOpenAISDK) => {
+        debug!("Global model type is set to OpenAI SDK");
+        false // For now, return false until we implement SDK integration in middleware
+      }
       Err(e) => {
         warn!("Failed to get global model type, defaulting to Local AI: {}", e);
         false

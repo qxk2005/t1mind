@@ -13,6 +13,7 @@ use uuid::Uuid;
 pub enum EmbeddingModel {
   NomicEmbedText,
   OpenAICompatible,
+  OpenAISDK,
 }
 
 impl EmbeddingModel {
@@ -20,6 +21,7 @@ impl EmbeddingModel {
     match self {
       EmbeddingModel::NomicEmbedText => "nomic-embed-text",
       EmbeddingModel::OpenAICompatible => "openai-compatible",
+      EmbeddingModel::OpenAISDK => "openai-sdk",
     }
   }
 
@@ -30,6 +32,8 @@ impl EmbeddingModel {
       EmbeddingModel::NomicEmbedText => 768,
       // OpenAI compatible models can have various dimensions, default to common size
       EmbeddingModel::OpenAICompatible => 1536, // Common for text-embedding-ada-002
+      // OpenAI SDK models can have various dimensions, default to common size
+      EmbeddingModel::OpenAISDK => 1536, // Common for text-embedding-ada-002
     }
   }
 }

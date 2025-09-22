@@ -15,6 +15,7 @@ import 'package:go_router/go_router.dart';
 enum GlobalModelType {
   ollama,
   openaiCompatible,
+  openaiSDK,
 }
 
 extension GlobalModelTypeExtension on GlobalModelType {
@@ -24,6 +25,8 @@ extension GlobalModelTypeExtension on GlobalModelType {
         return 'Ollama 本地'; // TODO: 使用国际化
       case GlobalModelType.openaiCompatible:
         return 'OpenAI 兼容服务器'; // TODO: 使用国际化
+      case GlobalModelType.openaiSDK:
+        return 'OpenAI SDK'; // TODO: 使用国际化
     }
   }
 }
@@ -74,6 +77,24 @@ class _AiSettingsGroupState extends State<AiSettingsGroup> {
                     text: state.availableModels?.selectedModel.name ?? "",
                   ),
                   onTap: () => _onLLMModelTypeTap(context, state),
+                ),
+              // OpenAI兼容服务器配置（仅在选择OpenAI兼容服务器时显示）
+              if (_selectedGlobalModelType == GlobalModelType.openaiCompatible)
+                MobileSettingItem(
+                  name: 'OpenAI 兼容服务器配置', // TODO: 使用国际化
+                  trailing: const MobileSettingTrailing(
+                    text: '配置',
+                  ),
+                  onTap: () => _onOpenAICompatibleConfigTap(context),
+                ),
+              // OpenAI SDK配置（仅在选择OpenAI SDK时显示）
+              if (_selectedGlobalModelType == GlobalModelType.openaiSDK)
+                MobileSettingItem(
+                  name: 'OpenAI SDK 配置', // TODO: 使用国际化
+                  trailing: const MobileSettingTrailing(
+                    text: '配置',
+                  ),
+                  onTap: () => _onOpenAISDKConfigTap(context),
                 ),
               // enable AI search if needed
               // MobileSettingItem(
@@ -150,6 +171,44 @@ class _AiSettingsGroupState extends State<AiSettingsGroup> {
                 ),
               )
               .toList(),
+        );
+      },
+    );
+  }
+
+  void _onOpenAICompatibleConfigTap(BuildContext context) {
+    // TODO: 导航到OpenAI兼容服务器配置页面
+    // 这里应该导航到一个专门的移动端OpenAI兼容配置页面
+    // 暂时显示一个提示
+    showMobileBottomSheet(
+      context,
+      showHeader: true,
+      showDragHandle: true,
+      showDivider: false,
+      title: 'OpenAI 兼容服务器配置',
+      builder: (_) {
+        return const Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text('OpenAI 兼容服务器配置功能即将推出'),
+        );
+      },
+    );
+  }
+
+  void _onOpenAISDKConfigTap(BuildContext context) {
+    // TODO: 导航到OpenAI SDK配置页面
+    // 这里应该导航到一个专门的移动端OpenAI SDK配置页面
+    // 暂时显示一个提示
+    showMobileBottomSheet(
+      context,
+      showHeader: true,
+      showDragHandle: true,
+      showDivider: false,
+      title: 'OpenAI SDK 配置',
+      builder: (_) {
+        return const Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text('OpenAI SDK 配置功能即将推出'),
         );
       },
     );
