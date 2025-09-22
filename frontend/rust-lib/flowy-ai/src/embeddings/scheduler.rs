@@ -67,6 +67,8 @@ impl EmbeddingScheduler {
   }
 
   pub(crate) fn create_embedder(&self) -> Result<Embedder, FlowyError> {
+    // TODO: Check global AI model type configuration to decide which embedder to use
+    // For now, default to Ollama embedder
     let embedder = Embedder::Ollama(OllamaEmbedder {
       ollama: self.ollama.clone(),
     });

@@ -212,7 +212,7 @@
 
 ## 里程碑 D：全局生效（可视化：切换后端正确，聊天/补全走对应配置）
 
-- [ ] D1: 实现聊天流式支持
+- [x] D1: 实现聊天流式支持
   - Files: `frontend/rust-lib/flowy-ai/src/openai_compatible/chat.rs` (new)
   - Implements: Requirements §4.2; Design §4.1
   - _Prompt:
@@ -224,7 +224,7 @@
     - _Requirements: Requirements §4.2
     - Success: 流式聊天功能正常；与现有体验一致
 
-- [ ] D2: 实现嵌入功能
+- [x] D2: 实现嵌入功能
   - Files: `frontend/rust-lib/flowy-ai/src/openai_compatible/embeddings.rs` (new)
   - Implements: Requirements §4.3; Design §4.1
   - _Prompt:

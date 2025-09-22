@@ -12,12 +12,14 @@ use uuid::Uuid;
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum EmbeddingModel {
   NomicEmbedText,
+  OpenAICompatible,
 }
 
 impl EmbeddingModel {
   pub fn name(&self) -> &'static str {
     match self {
       EmbeddingModel::NomicEmbedText => "nomic-embed-text",
+      EmbeddingModel::OpenAICompatible => "openai-compatible",
     }
   }
 
@@ -26,6 +28,8 @@ impl EmbeddingModel {
     match self {
       // https://ollama.com/library/nomic-embed-text/blobs/970aa74c0a90
       EmbeddingModel::NomicEmbedText => 768,
+      // OpenAI compatible models can have various dimensions, default to common size
+      EmbeddingModel::OpenAICompatible => 1536, // Common for text-embedding-ada-002
     }
   }
 }

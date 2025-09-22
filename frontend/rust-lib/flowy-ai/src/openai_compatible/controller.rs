@@ -1,8 +1,9 @@
 use crate::entities::{OpenAIChatSettingPB, OpenAIEmbeddingSettingPB, TestResultPB};
-use crate::openai_compatible::{OpenAICompatibleClient, OpenAICompatibleConfig};
+use crate::openai_compatible::{OpenAICompatibleClient, OpenAICompatibleConfig, OpenAICompatibleChatClient};
+use flowy_ai_pub::cloud::{ResponseFormat, StreamAnswer};
+use flowy_error::FlowyError;
 use std::time::Instant;
 use tracing::{debug, error, instrument};
-use serde_json;
 
 /// Detailed test result with additional information
 #[derive(Debug, Clone)]
@@ -282,6 +283,174 @@ fn format_user_friendly_error(error: &anyhow::Error) -> String {
             format!("{}...", &msg[..200])
         } else {
             msg
+        }
+    }
+}
+
+/// Stream chat completion using OpenAI compatible API
+#[instrument(level = "debug", skip(chat_setting, messages))]
+pub async fn stream_chat_completion(
+    chat_setting: OpenAIChatSettingPB,
+    messages: Vec<crate::openai_compatible::types::ChatMessage>,
+    _format: ResponseFormat, // Currently not used, but kept for future compatibility
+) -> Result<StreamAnswer, FlowyError> {
+    debug!("Starting OpenAI compatible streaming chat completion");
+
+    // Validate required fields
+    if chat_setting.api_endpoint.trim().is_empty() {
+        return Err(FlowyError::invalid_data().with_context("API endpoint is required"));
+    }
+
+    if chat_setting.api_key.trim().is_empty() {
+        return Err(FlowyError::invalid_data().with_context("API key is required"));
+    }
+
+    if chat_setting.model_name.trim().is_empty() {
+        return Err(FlowyError::invalid_data().with_context("Model name is required"));
+    }
+
+    // Create configuration from settings
+    let config = OpenAICompatibleConfig {
+        chat_endpoint: format!("{}/chat/completions", chat_setting.api_endpoint.trim_end_matches('/')),
+        chat_api_key: chat_setting.api_key.clone(),
+        chat_model: chat_setting.model_name.clone(),
+        embedding_endpoint: String::new(), // Not needed for chat
+        embedding_api_key: String::new(),   // Not needed for chat
+        embedding_model: String::new(),     // Not needed for chat
+        timeout_ms: Some((chat_setting.timeout_seconds * 1000) as u64),
+        max_tokens: if chat_setting.max_tokens > 0 {
+            Some(chat_setting.max_tokens as u32)
+        } else {
+            None
+        },
+        temperature: if chat_setting.temperature >= 0.0 {
+            Some(chat_setting.temperature as f32)
+        } else {
+            None
+        },
+    };
+
+    // Extract values before moving config
+    let max_tokens = config.max_tokens;
+    let temperature = config.temperature;
+    
+    // Create streaming client and start streaming
+    let client = OpenAICompatibleChatClient::new(config)
+        .map_err(|e| FlowyError::internal().with_context(format!("Failed to create streaming client: {}", e)))?;
+    
+    let stream = client
+        .stream_chat_completion(
+            messages,
+            None, // Use model from config
+            max_tokens,
+            temperature,
+        )
+        .await
+        .map_err(|e| FlowyError::internal().with_context(format!("Failed to start streaming: {}", e)))?;
+
+    Ok(stream)
+}
+
+/// Test streaming functionality
+#[instrument(level = "debug", skip(chat_setting))]
+pub async fn test_streaming_chat(chat_setting: OpenAIChatSettingPB) -> TestResultPB {
+    debug!("Starting OpenAI compatible streaming chat test");
+    let start_time = Instant::now();
+
+    // Validate required fields
+    if chat_setting.api_endpoint.trim().is_empty() {
+        return TestResultPB {
+            success: false,
+            error_message: "API endpoint is required".to_string(),
+            response_time_ms: "0".to_string(),
+            status_code: 0,
+            server_response: String::new(),
+            request_details: String::new(),
+        };
+    }
+
+    if chat_setting.api_key.trim().is_empty() {
+        return TestResultPB {
+            success: false,
+            error_message: "API key is required".to_string(),
+            response_time_ms: "0".to_string(),
+            status_code: 0,
+            server_response: String::new(),
+            request_details: String::new(),
+        };
+    }
+
+    if chat_setting.model_name.trim().is_empty() {
+        return TestResultPB {
+            success: false,
+            error_message: "Model name is required".to_string(),
+            response_time_ms: "0".to_string(),
+            status_code: 0,
+            server_response: String::new(),
+            request_details: String::new(),
+        };
+    }
+
+    // Create configuration from settings
+    let config = OpenAICompatibleConfig {
+        chat_endpoint: format!("{}/chat/completions", chat_setting.api_endpoint.trim_end_matches('/')),
+        chat_api_key: chat_setting.api_key.clone(),
+        chat_model: chat_setting.model_name.clone(),
+        embedding_endpoint: String::new(), // Not needed for streaming test
+        embedding_api_key: String::new(),   // Not needed for streaming test
+        embedding_model: String::new(),     // Not needed for streaming test
+        timeout_ms: Some(30000), // 30 seconds timeout for test
+        max_tokens: Some(50), // Small number for test
+        temperature: Some(0.1), // Low temperature for consistent test results
+    };
+
+    // Create streaming client and test
+    match OpenAICompatibleChatClient::new(config) {
+        Ok(client) => {
+            match client.test_streaming().await {
+                Ok(response) => {
+                    let elapsed = start_time.elapsed();
+                    debug!("Streaming test successful: {}", response);
+                    TestResultPB {
+                        success: true,
+                        error_message: String::new(),
+                        response_time_ms: elapsed.as_millis().to_string(),
+                        status_code: 200,
+                        server_response: response,
+                        request_details: "Streaming chat test with simple message".to_string(),
+                    }
+                }
+                Err(e) => {
+                    let elapsed = start_time.elapsed();
+                    let error_msg = format_user_friendly_error(&e);
+                    error!("Streaming test failed: {}", e);
+                    
+                    // Try to extract status code from error message
+                    let status_code = extract_status_code_from_error(&e);
+                    
+                    TestResultPB {
+                        success: false,
+                        error_message: error_msg,
+                        response_time_ms: elapsed.as_millis().to_string(),
+                        status_code: status_code.unwrap_or(0) as i32,
+                        server_response: e.to_string(),
+                        request_details: "Streaming chat test with simple message".to_string(),
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            let elapsed = start_time.elapsed();
+            let error_msg = format!("Failed to create streaming client: {}", e);
+            error!("{}", error_msg);
+            TestResultPB {
+                success: false,
+                error_message: error_msg,
+                response_time_ms: elapsed.as_millis().to_string(),
+                status_code: 0,
+                server_response: e.to_string(),
+                request_details: "Failed to create streaming client".to_string(),
+            }
         }
     }
 }
