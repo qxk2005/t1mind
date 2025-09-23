@@ -1,6 +1,7 @@
 import 'package:appflowy/generated/locale_keys.g.dart';
 import 'package:appflowy/workspace/application/settings/ai/settings_ai_bloc.dart';
-import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/local_ai_setting.dart';
+import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/provider_selector.dart';
+import 'package:appflowy/workspace/application/settings/ai/ai_provider_cubit.dart';
 import 'package:appflowy/workspace/presentation/settings/shared/settings_body.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/protobuf.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -22,12 +23,16 @@ class LocalSettingsAIView extends StatelessWidget {
     return BlocProvider<SettingsAIBloc>(
       create: (_) => SettingsAIBloc(userProfile, workspaceId)
         ..add(const SettingsAIEvent.started()),
-      child: SettingsBody(
-        title: LocaleKeys.settings_aiPage_title.tr(),
-        description: "",
-        children: [
-          const LocalAISetting(),
-        ],
+      child: BlocProvider(
+        create: (_) => AiProviderCubit(),
+        child: SettingsBody(
+          title: LocaleKeys.settings_aiPage_title.tr(),
+          description: "",
+          children: const [
+            ProviderDropdown(),
+            ProviderTabSwitcher(),
+          ],
+        ),
       ),
     );
   }

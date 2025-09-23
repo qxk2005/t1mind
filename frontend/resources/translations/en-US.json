@@ -543,6 +543,24 @@
     }
   },
   "settings": {
+    "aiPage": {
+      "title": "AI Settings",
+      "keys": {
+        "aiSettingsDescription": "Configure models and providers",
+        "llmModelType": "Globally used model type",
+        "enableAISearchTitle": "Enable AI Search Indexing",
+        "localAIToggleTitle": "On-device AI (Ollama)",
+        "localAIToggleSubTitle": "Run models locally to protect privacy",
+        "disableLocalAITitle": "Turn off On-device AI",
+        "disableLocalAIDescription": "Are you sure to turn it off? You can re-enable it later.",
+        "providerType": "AI Provider",
+        "providerType_local": "Local (Ollama)",
+        "providerType_openai": "OpenAI Compatible Server",
+        "openAICompatTitle": "OpenAI Compatible Server",
+        "openAICompatSubTitle": "Configure OpenAI API compatible services (placeholder, M1 no save)",
+        "openAICompatComingSoon": "More settings coming soon"
+      }
+    },
     "title": "Settings",
     "popupMenuItem": {
       "settings": "Settings",

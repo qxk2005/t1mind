@@ -1,7 +1,8 @@
 import 'package:appflowy/generated/locale_keys.g.dart';
 import 'package:appflowy/workspace/application/settings/ai/settings_ai_bloc.dart';
-import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/local_ai_setting.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/model_selection.dart';
+import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/provider_selector.dart';
+import 'package:appflowy/workspace/application/settings/ai/ai_provider_cubit.dart';
 import 'package:appflowy/workspace/presentation/settings/shared/settings_body.dart';
 import 'package:appflowy/workspace/presentation/widgets/toggle/toggle.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/protobuf.dart';
@@ -27,14 +28,18 @@ class SettingsAIView extends StatelessWidget {
     return BlocProvider<SettingsAIBloc>(
       create: (_) => SettingsAIBloc(userProfile, workspaceId)
         ..add(const SettingsAIEvent.started()),
-      child: SettingsBody(
-        title: LocaleKeys.settings_aiPage_title.tr(),
-        description: LocaleKeys.settings_aiPage_keys_aiSettingsDescription.tr(),
-        children: [
-          const AIModelSelection(),
-          const _AISearchToggle(value: false),
-          const LocalAISetting(),
-        ],
+      child: BlocProvider(
+        create: (_) => AiProviderCubit(),
+        child: SettingsBody(
+          title: LocaleKeys.settings_aiPage_title.tr(),
+          description: LocaleKeys.settings_aiPage_keys_aiSettingsDescription.tr(),
+          children: const [
+            ProviderDropdown(),
+            AIModelSelection(),
+            _AISearchToggle(value: false),
+            ProviderTabSwitcher(),
+          ],
+        ),
       ),
     );
   }
@@ -82,3 +87,5 @@ class _AISearchToggle extends StatelessWidget {
     );
   }
 }
+
+// Provider UI 已迁移到 provider_selector.dart

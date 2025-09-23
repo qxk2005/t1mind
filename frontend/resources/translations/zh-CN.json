@@ -467,6 +467,24 @@
     }
   },
   "settings": {
+    "aiPage": {
+      "title": "AI 设置",
+      "keys": {
+        "aiSettingsDescription": "配置模型与提供商",
+        "llmModelType": "全局使用的模型类型",
+        "enableAISearchTitle": "启用 AI 搜索索引",
+        "localAIToggleTitle": "设备上 AI (Ollama)",
+        "localAIToggleSubTitle": "在本机上运行模型，保护数据隐私",
+        "disableLocalAITitle": "关闭设备上 AI",
+        "disableLocalAIDescription": "确定关闭？稍后可重新开启。",
+        "providerType": "AI 提供商",
+        "providerType_local": "本地 (Ollama)",
+        "providerType_openai": "OpenAI 兼容服务器",
+        "openAICompatTitle": "OpenAI 兼容服务器",
+        "openAICompatSubTitle": "配置兼容 OpenAI API 的第三方服务（占位，M1 不可保存）",
+        "openAICompatComingSoon": "即将推出更多设置"
+      }
+    },
     "title": "设置",
     "popupMenuItem": {
       "settings": "设置",

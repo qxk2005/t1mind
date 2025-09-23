@@ -1,0 +1,39 @@
+{
+  "id": "approval_1758596828291_axwvrk3oj",
+  "title": "设计文档审批 - appflowy-openai-compatible-ai",
+  "filePath": ".spec-workflow\\specs\\appflowy-openai-compatible-ai\\design.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2025-09-23T03:07:08.291Z",
+  "category": "spec",
+  "categoryName": "appflowy-openai-compatible-ai",
+  "response": "Feedback Summary (2 comments):\n\nSpecific Text Comments:\n1. \"测试：弹出内联结果状态（成功/失败）、耗时、简要信息；失败展示错误码/信息。\": 测试信息显示完整的请求和服务器端反馈结果便于排障和了解情况\n2. \"UI 层：Flutter（Desktop/Mobile）\": 在Appflowy所有调用AI功能的时候，自动使用全局使用的模型类型信息\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"selection\",\n      \"comment\": \"测试信息显示完整的请求和服务器端反馈结果便于排障和了解情况\",\n      \"timestamp\": \"2025-09-23T03:10:09.954Z\",\n      \"selectedText\": \"测试：弹出内联结果状态（成功/失败）、耗时、简要信息；失败展示错误码/信息。\",\n      \"highlightColor\": {\n        \"bg\": \"rgba(255, 235, 59, 0.3)\",\n        \"border\": \"#FFEB3B\",\n        \"name\": \"#ffeb3b\"\n      },\n      \"id\": \"comment_1758597009954_dvv4uwbbn\"\n    },\n    {\n      \"type\": \"selection\",\n      \"comment\": \"在Appflowy所有调用AI功能的时候，自动使用全局使用的模型类型信息\",\n      \"timestamp\": \"2025-09-23T03:11:45.927Z\",\n      \"selectedText\": \"UI 层：Flutter（Desktop/Mobile）\",\n      \"highlightColor\": {\n        \"bg\": \"rgba(255, 235, 59, 0.3)\",\n        \"border\": \"#FFEB3B\",\n        \"name\": \"#ffeb3b\"\n      },\n      \"id\": \"comment_1758597105927_ro30wt56l\"\n    }\n  ],\n  \"summary\": \"Feedback Summary (2 comments):\\n\\nSpecific Text Comments:\\n1. \\\"测试：弹出内联结果状态（成功/失败）、耗时、简要信息；失败展示错误码/信息。\\\": 测试信息显示完整的请求和服务器端反馈结果便于排障和了解情况\\n2. \\\"UI 层：Flutter（Desktop/Mobile）\\\": 在Appflowy所有调用AI功能的时候，自动使用全局使用的模型类型信息\\n\",\n  \"timestamp\": \"2025-09-23T03:11:49.143Z\"\n}",
+  "respondedAt": "2025-09-23T03:11:49.462Z",
+  "comments": [
+    {
+      "type": "selection",
+      "comment": "测试信息显示完整的请求和服务器端反馈结果便于排障和了解情况",
+      "timestamp": "2025-09-23T03:10:09.954Z",
+      "selectedText": "测试：弹出内联结果状态（成功/失败）、耗时、简要信息；失败展示错误码/信息。",
+      "highlightColor": {
+        "bg": "rgba(255, 235, 59, 0.3)",
+        "border": "#FFEB3B",
+        "name": "#ffeb3b"
+      },
+      "id": "comment_1758597009954_dvv4uwbbn"
+    },
+    {
+      "type": "selection",
+      "comment": "在Appflowy所有调用AI功能的时候，自动使用全局使用的模型类型信息",
+      "timestamp": "2025-09-23T03:11:45.927Z",
+      "selectedText": "UI 层：Flutter（Desktop/Mobile）",
+      "highlightColor": {
+        "bg": "rgba(255, 235, 59, 0.3)",
+        "border": "#FFEB3B",
+        "name": "#ffeb3b"
+      },
+      "id": "comment_1758597105927_ro30wt56l"
+    }
+  ]
+}
