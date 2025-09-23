@@ -3,8 +3,8 @@
 说明：每个任务均需有可视化产出或可验证的接口行为；支持 Windows/macOS/Android；中英双语。完成一个任务后请在本文件中将其状态从 [ ] 改为 [x]。
 
 ### M1：Provider 切换与 Tab 骨架
-- [ ] 在 `SettingsAIView` 增加“全局使用的模型类型”下拉（Ollama 本地 / OpenAI 兼容服务器）
-- [ ] 新增 `OpenAICompatSettingPage` 选项卡骨架（禁用保存），能够在两种 Provider 间切换可见
+- [x] 在 `SettingsAIView` 增加“全局使用的模型类型”下拉（Ollama 本地 / OpenAI 兼容服务器）
+- [x] 新增 `OpenAICompatSettingPage` 选项卡骨架（禁用保存），能够在两种 Provider 间切换可见
 
 _Prompt_
 Implement the task for spec appflowy-openai-compatible-ai, first run spec-workflow-guide to get the workflow guide then implement the task:
@@ -16,9 +16,9 @@ _Requirements: Requirements.M1, Design.UI/交互
 Success: Dropdown switches tabs; selection persisted and reloaded.
 
 ### M2：OpenAI 兼容聊天表单与测试（脱敏调试信息）
-- [ ] `OpenAICompatSettingPage` 中实现聊天表单字段与校验
-- [ ] “测试聊天模型”按钮：成功/失败/耗时、展开查看脱敏请求/响应、SSE 时间线、复制调试信息
-- [ ] 保存/加载配置（workspace 优先，device 次之）
+- [x] `OpenAICompatSettingPage` 中实现聊天表单字段与校验
+- [x] “测试聊天模型”按钮：成功/失败/耗时、展开查看脱敏请求/响应、SSE 时间线、复制调试信息
+- [x] 保存/加载配置（workspace 优先，device 次之）
 
 _Prompt_
 Implement the task for spec appflowy-openai-compatible-ai, first run spec-workflow-guide to get the workflow guide then implement the task:
@@ -30,8 +30,8 @@ _Requirements: Requirements.M2, Design.测试（增强版）/事件与接口
 Success: Test shows structured results; save/reload works across app restarts.
 
 ### M3：OpenAI 兼容嵌入表单与测试（脱敏调试信息）
-- [ ] 嵌入表单与校验；独立测试按钮，展示维度、耗时与错误详情（脱敏）
-- [ ] 保存/加载嵌入配置
+- [x] 嵌入表单与校验；独立测试按钮，展示维度、耗时与错误详情（脱敏）
+- [x] 保存/加载嵌入配置
 
 _Prompt_
 Implement the task for spec appflowy-openai-compatible-ai, first run spec-workflow-guide to get the workflow guide then implement the task:
@@ -43,9 +43,9 @@ _Requirements: Requirements.M3, Design.事件与接口
 Success: Test produces expected dim; save persists; i18n done.
 
 ### M4：三界面支持与作用域优先级
-- [ ] 桌面端服务器设置与工作空间设置均具备 M2/M3 功能
-- [ ] 移动端新增 `openai_compat_setting_page.dart` 并接入 `AiSettingsGroup`
-- [ ] 作用域：workspace > device > default；校验覆盖行为
+- [x] 桌面端服务器设置与工作空间设置均具备 M2/M3 功能
+- [x] 移动端新增 `openai_compat_setting_page.dart` 并接入 `AiSettingsGroup`
+- [x] 作用域：workspace > device > default；校验覆盖行为
 
 _Prompt_
 Implement the task for spec appflowy-openai-compatible-ai, first run spec-workflow-guide to get the workflow guide then implement the task:

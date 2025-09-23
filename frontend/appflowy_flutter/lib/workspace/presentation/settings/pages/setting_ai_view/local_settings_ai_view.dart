@@ -24,13 +24,13 @@ class LocalSettingsAIView extends StatelessWidget {
       create: (_) => SettingsAIBloc(userProfile, workspaceId)
         ..add(const SettingsAIEvent.started()),
       child: BlocProvider(
-        create: (_) => AiProviderCubit(),
+        create: (_) => AiProviderCubit(workspaceId: workspaceId),
         child: SettingsBody(
           title: LocaleKeys.settings_aiPage_title.tr(),
           description: "",
-          children: const [
-            ProviderDropdown(),
-            ProviderTabSwitcher(),
+          children: [
+            const ProviderDropdown(),
+            ProviderTabSwitcher(workspaceId: workspaceId),
           ],
         ),
       ),

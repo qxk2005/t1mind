@@ -469,6 +469,7 @@
   "settings": {
     "aiPage": {
       "title": "AI 设置",
+      "menuLabel": "AI 设置",
       "keys": {
         "aiSettingsDescription": "配置模型与提供商",
         "llmModelType": "全局使用的模型类型",
@@ -481,8 +482,27 @@
         "providerType_local": "本地 (Ollama)",
         "providerType_openai": "OpenAI 兼容服务器",
         "openAICompatTitle": "OpenAI 兼容服务器",
-        "openAICompatSubTitle": "配置兼容 OpenAI API 的第三方服务（占位，M1 不可保存）",
-        "openAICompatComingSoon": "即将推出更多设置"
+        "openAICompatSubTitle": "配置兼容 OpenAI API 的服务",
+        "openAICompatComingSoon": "即将推出更多设置",
+        "chatBaseUrlLabel": "聊天 Base URL",
+        "embedBaseUrlLabel": "嵌入 Base URL",
+        "baseUrlLabel": "Base URL",
+        "apiKeyLabel": "API Key",
+        "modelLabel": "模型",
+        "temperatureLabel": "温度",
+        "maxTokensLabel": "最大 tokens",
+        "timeoutMsLabel": "超时 (毫秒)",
+        "testChat": "测试聊天模型",
+        "embeddingsTitle": "嵌入（Embeddings）",
+        "embeddingModelLabel": "嵌入模型",
+        "testEmbeddings": "测试嵌入",
+        "debugInfoCopied": "已复制调试信息",
+        "copyDebugInfo": "复制调试信息",
+        "success": "成功",
+        "failed": "失败",
+        "latency": "耗时",
+        "vectorDim": "向量维度",
+        "errorLabel": "错误"
       }
     },
     "title": "设置",
@@ -748,7 +768,7 @@
         "end": "滚动至底部"
       }
     },
-    "aiPage": {
+    "aiPage_legacy": {
       "title": "AI 设置",
       "menuLabel": "AI 设置",
       "keys": {

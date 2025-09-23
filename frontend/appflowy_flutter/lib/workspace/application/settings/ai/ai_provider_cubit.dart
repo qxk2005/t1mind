@@ -26,8 +26,9 @@ class AiProviderState {
 }
 
 class AiProviderCubit extends Cubit<AiProviderState> {
-  AiProviderCubit({user_settings.UserSettingsBackendService? service})
+  AiProviderCubit({user_settings.UserSettingsBackendService? service, String? workspaceId})
       : _service = service ?? const user_settings.UserSettingsBackendService(),
+        _workspaceId = workspaceId,
         super(AiProviderState(provider: AiProviderType.local, isLoading: true)) {
     _load();
   }
@@ -36,12 +37,14 @@ class AiProviderCubit extends Cubit<AiProviderState> {
 
   final user_settings.UserSettingsBackendService _service;
   AppearanceSettingsPB? _appearance;
+  final String? _workspaceId;
 
   Future<void> _load() async {
     try {
       final appearance = await _service.getAppearanceSetting();
       _appearance = appearance;
-      final value = appearance.settingKeyValue[_kvKey];
+      final String scopedKey = _workspaceId == null ? _kvKey : '$_kvKey.${_workspaceId}';
+      final value = appearance.settingKeyValue[scopedKey] ?? appearance.settingKeyValue[_kvKey];
       final provider = _parseProvider(value);
       emit(state.copyWith(provider: provider, isLoading: false));
     } catch (e) {
@@ -55,7 +58,8 @@ class AiProviderCubit extends Cubit<AiProviderState> {
     try {
       _appearance ??= await _service.getAppearanceSetting();
       final appearance = _appearance!;
-      appearance.settingKeyValue[_kvKey] = _toString(provider);
+      final String scopedKey = _workspaceId == null ? _kvKey : '$_kvKey.${_workspaceId}';
+      appearance.settingKeyValue[scopedKey] = _toString(provider);
       await _service.setAppearanceSetting(appearance);
       emit(state.copyWith(provider: provider, isLoading: false));
     } catch (e) {

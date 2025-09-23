@@ -64,7 +64,9 @@ class ProviderDropdown extends StatelessWidget {
 }
 
 class ProviderTabSwitcher extends StatelessWidget {
-  const ProviderTabSwitcher({super.key});
+  const ProviderTabSwitcher({super.key, this.workspaceId});
+
+  final String? workspaceId;
 
   @override
   Widget build(BuildContext context) {
@@ -74,7 +76,7 @@ class ProviderTabSwitcher extends StatelessWidget {
           case AiProviderType.local:
             return const LocalAISetting();
           case AiProviderType.openaiCompatible:
-            return const OpenAICompatSetting();
+            return OpenAICompatSetting(workspaceId: workspaceId);
         }
       },
     );

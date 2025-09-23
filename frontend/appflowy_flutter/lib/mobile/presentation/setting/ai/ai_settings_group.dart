@@ -10,6 +10,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:appflowy/mobile/presentation/setting/ai/openai_compat_setting_page.dart';
 
 class AiSettingsGroup extends StatelessWidget {
   const AiSettingsGroup({
@@ -39,6 +40,14 @@ class AiSettingsGroup extends StatelessWidget {
                   text: state.availableModels?.selectedModel.name ?? "",
                 ),
                 onTap: () => _onLLMModelTypeTap(context, state),
+              ),
+              MobileSettingItem(
+                name: 'settings.aiPage.keys.openAICompatTitle'.tr(),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push(
+                  OpenAICompatSettingMobilePage.routeName,
+                  extra: workspaceId,
+                ),
               ),
               // enable AI search if needed
               // MobileSettingItem(

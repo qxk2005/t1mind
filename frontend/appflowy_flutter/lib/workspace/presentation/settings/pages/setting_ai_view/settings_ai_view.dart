@@ -29,15 +29,15 @@ class SettingsAIView extends StatelessWidget {
       create: (_) => SettingsAIBloc(userProfile, workspaceId)
         ..add(const SettingsAIEvent.started()),
       child: BlocProvider(
-        create: (_) => AiProviderCubit(),
+        create: (_) => AiProviderCubit(workspaceId: workspaceId),
         child: SettingsBody(
           title: LocaleKeys.settings_aiPage_title.tr(),
           description: LocaleKeys.settings_aiPage_keys_aiSettingsDescription.tr(),
-          children: const [
-            ProviderDropdown(),
-            AIModelSelection(),
-            _AISearchToggle(value: false),
-            ProviderTabSwitcher(),
+          children: [
+            const ProviderDropdown(),
+            const AIModelSelection(),
+            const _AISearchToggle(value: false),
+            ProviderTabSwitcher(workspaceId: workspaceId),
           ],
         ),
       ),

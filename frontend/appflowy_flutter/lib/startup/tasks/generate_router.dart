@@ -31,6 +31,7 @@ import 'package:appflowy/user/application/auth/auth_service.dart';
 import 'package:appflowy/user/presentation/presentation.dart';
 import 'package:appflowy/workspace/presentation/home/desktop_home_screen.dart';
 import 'package:appflowy/workspace/presentation/settings/widgets/feature_flags/mobile_feature_flag_screen.dart';
+import 'package:appflowy/mobile/presentation/setting/ai/openai_compat_setting_page.dart';
 import 'package:appflowy_backend/log.dart';
 import 'package:appflowy_backend/protobuf/flowy-database2/protobuf.dart';
 import 'package:flowy_infra/time/duration.dart';
@@ -65,6 +66,7 @@ GoRouter generateRouter(Widget child) {
         _mobileCloudSettingAppFlowyCloudPageRoute(),
         _mobileLaunchSettingsPageRoute(),
         _mobileFeatureFlagPageRoute(),
+        _mobileOpenAICompatSettingPageRoute(),
 
         // view page
         _mobileEditorScreenRoute(),
@@ -288,6 +290,20 @@ GoRoute _mobileLaunchSettingsPageRoute() {
       return const MaterialExtendedPage(
         child: MobileLaunchSettingsPage(),
         name: MobileLaunchSettingsPage.routeName,
+      );
+    },
+  );
+}
+
+GoRoute _mobileOpenAICompatSettingPageRoute() {
+  return GoRoute(
+    parentNavigatorKey: AppGlobals.rootNavKey,
+    path: OpenAICompatSettingMobilePage.routeName,
+    pageBuilder: (context, state) {
+      final workspaceId = state.extra as String?;
+      return MaterialExtendedPage(
+        child: OpenAICompatSettingMobilePage(workspaceId: workspaceId),
+        name: OpenAICompatSettingMobilePage.routeName,
       );
     },
   );
