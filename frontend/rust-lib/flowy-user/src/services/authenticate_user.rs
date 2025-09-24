@@ -10,6 +10,7 @@ use flowy_error::{internal_error, ErrorCode, FlowyError, FlowyResult};
 use flowy_sqlite::kv::KVStorePreferences;
 use flowy_sqlite::DBConnection;
 use flowy_user_pub::entities::{UserWorkspace, WorkspaceType};
+use crate::entities::AppearanceSettingsPB;
 use flowy_user_pub::session::Session;
 use flowy_user_pub::sql::{select_user_workspace, select_user_workspace_type};
 use std::path::PathBuf;
@@ -56,6 +57,32 @@ impl AuthenticateUser {
 
   pub async fn is_local_mode(&self) -> FlowyResult<bool> {
     let session = self.get_session()?;
+
+    // 1) Try read provider from appearance settings (workspace-scoped > device-scoped)
+    if let Some(s) = self.store_preferences.get_str("appearance_settings") {
+      if let Ok(setting) = serde_json::from_str::<AppearanceSettingsPB>(&s) {
+        let scoped_key = format!("ai.global.provider.{}", session.workspace_id);
+        let provider = setting
+          .setting_key_value
+          .get(&scoped_key)
+          .cloned()
+          .or_else(|| setting.setting_key_value.get("ai.global.provider").cloned());
+
+        if let Some(provider) = provider {
+          let p = provider.to_lowercase();
+          // 兼容多种写法："local"/"ollama" => 本地；"openai_compat"/"openai"/"server"/"remote" => 非本地
+          if p == "local" || p == "ollama" {
+            return Ok(true);
+          }
+          if matches!(p.as_str(), "openai_compat" | "openai" | "server" | "remote") {
+            return Ok(false);
+          }
+          // Unknown value: fall through to legacy behavior
+        }
+      }
+    }
+
+    // 2) Legacy fallback: infer from workspace type
     let mut conn = self.get_sqlite_connection(session.user_id)?;
     let workspace_type = select_user_workspace_type(&session.workspace_id, &mut conn)?;
     Ok(matches!(workspace_type, WorkspaceType::Local))

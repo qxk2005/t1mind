@@ -35,6 +35,7 @@ impl std::convert::From<i32> for ChatNotification {
       6 => ChatNotification::UpdateLocalAIState,
       7 => ChatNotification::DidUpdateChatSettings,
       8 => ChatNotification::LocalAIResourceUpdated,
+      9 => ChatNotification::DidUpdateSelectedModel,
       _ => ChatNotification::Unknown,
     }
   }

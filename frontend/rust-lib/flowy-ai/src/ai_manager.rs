@@ -86,6 +86,7 @@ impl AIManager {
       chat_cloud_service,
       local_ai.clone(),
       storage_service,
+      store_preferences.clone(),
     ));
     let mut model_control = ModelSelectionControl::new();
     model_control.set_local_storage(LocalModelStorageImpl(store_preferences.clone()));
@@ -477,13 +478,45 @@ impl AIManager {
   pub async fn get_active_model(&self, source: &str) -> AIModel {
     match self.user_service.workspace_id() {
       Ok(workspace_id) => {
+        let prefer_local = self.user_service.is_local_model().await.unwrap_or(false);
         let source_key = SourceKey::new(source.to_string());
-        self
+        let current = self
           .model_control
           .lock()
           .await
           .get_active_model(&workspace_id, &source_key)
-          .await
+          .await;
+
+        // Provider routing: enforce provider preference, with graceful fallback
+        if prefer_local {
+          if current.is_local {
+            return current;
+          }
+          // prefer local model; if local AI not ready, fall back to server model
+          if self.local_ai.is_ready().await {
+            let name = self.local_ai.get_local_ai_setting().chat_model_name;
+            return AIModel::local(name, "".to_string());
+          } else if let Ok(name) = self
+            .cloud_service_wm
+            .get_workspace_default_model(&workspace_id)
+            .await
+          {
+            return AIModel::server(name, "".to_string());
+          }
+          return current;
+        } else {
+          // prefer server model; if current is local, replace with server default when available
+          if current.is_local {
+            if let Ok(name) = self
+              .cloud_service_wm
+              .get_workspace_default_model(&workspace_id)
+              .await
+            {
+              return AIModel::server(name, "".to_string());
+            }
+          }
+          return current;
+        }
       },
       Err(_) => AIModel::default(),
     }
@@ -534,6 +567,7 @@ impl AIManager {
   ) -> FlowyResult<ModelSelectionPB> {
     let is_local_mode = self.user_service.is_local_model().await?;
     if is_local_mode {
+      // 仅本地：返回本地模型列表，并将默认选中设为本地配置模型
       return self.get_local_available_models(Some(source)).await;
     }
 
@@ -557,6 +591,7 @@ impl AIManager {
       local_model_name
     );
 
+    // Server + 可选本地：融合模型列表（服务端 + 指定本地一项或全部）
     let all_models = model_control
       .get_models_with_specific_local_model(&workspace_id, local_model_name)
       .await;

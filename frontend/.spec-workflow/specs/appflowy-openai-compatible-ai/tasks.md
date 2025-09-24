@@ -57,10 +57,10 @@ _Requirements: Requirements.M4
 Success: Values persist and override correctly per scope on all platforms.
 
 ### M5：全局 Provider 路由与默认生效、错误与回退
-- [ ] 在 Rust 层统一根据 `ai.global.modelProvider` 路由聊天、补全、相关问题、嵌入/索引
-- [ ] Model 列表融合与 `AIModelSwitchListener` 同步更新
-- [ ] 所有 AI 使用处默认走当前 Provider；LAI 可作为回退并提示
-- [ ] 错误分类与 UI 提示完善；中英双语
+- [x] 在 Rust 层统一根据 `ai.global.modelProvider` 路由聊天、补全、相关问题、嵌入/索引
+- [x] Model 列表融合与 `AIModelSwitchListener` 同步更新
+- [x] 所有 AI 使用处默认走当前 Provider；LAI 可作为回退并提示
+- [x] 错误分类与 UI 提示完善；中英双语
 
 _Prompt_
 Implement the task for spec appflowy-openai-compatible-ai, first run spec-workflow-guide to get the workflow guide then implement the task:
