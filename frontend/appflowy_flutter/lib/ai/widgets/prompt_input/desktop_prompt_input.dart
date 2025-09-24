@@ -34,6 +34,7 @@ class DesktopPromptInput extends StatefulWidget {
     this.hideDecoration = false,
     this.hideFormats = false,
     this.extraBottomActionButton,
+    this.leadingExtra,
   });
 
   final bool isStreaming;
@@ -45,6 +46,7 @@ class DesktopPromptInput extends StatefulWidget {
   final bool hideDecoration;
   final bool hideFormats;
   final Widget? extraBottomActionButton;
+  final Widget? leadingExtra;
 
   @override
   State<DesktopPromptInput> createState() => _DesktopPromptInputState();
@@ -202,6 +204,7 @@ class _DesktopPromptInputState extends State<DesktopPromptInput> {
                               onUpdateSelectedSources:
                                   widget.onUpdateSelectedSources,
                               onSelectPrompt: handleOnSelectPrompt,
+                                leadingExtra: widget.leadingExtra,
                               extraBottomActionButton:
                                   widget.extraBottomActionButton,
                             ),
@@ -218,6 +221,7 @@ class _DesktopPromptInputState extends State<DesktopPromptInput> {
       ),
     );
   }
+
 
   BoxDecoration decoration(BuildContext context) {
     if (widget.hideDecoration) {
@@ -640,6 +644,7 @@ class _PromptBottomActions extends StatelessWidget {
     required this.selectedSourcesNotifier,
     required this.onUpdateSelectedSources,
     required this.onSelectPrompt,
+    this.leadingExtra,
     this.extraBottomActionButton,
   });
 
@@ -653,6 +658,7 @@ class _PromptBottomActions extends StatelessWidget {
   final ValueNotifier<List<String>> selectedSourcesNotifier;
   final void Function(List<String>) onUpdateSelectedSources;
   final void Function(AiPrompt) onSelectPrompt;
+  final Widget? leadingExtra;
   final Widget? extraBottomActionButton;
 
   @override
@@ -668,6 +674,8 @@ class _PromptBottomActions extends StatelessWidget {
               if (showPredefinedFormatButton) _predefinedFormatButton(),
               _selectModelButton(context),
               _buildBrowsePromptsButton(),
+
+              if (leadingExtra != null) leadingExtra!,
 
               const Spacer(),
 

@@ -99,6 +99,9 @@ class ChatMessageHandler {
         "chatId": chatId,
         if (sentMetadata != null)
           messageChatFileListKey: sentMetadata[messageChatFileListKey],
+        if (sentMetadata != null &&
+            sentMetadata.containsKey(messageSelectedMcpNamesKey))
+          messageSelectedMcpNamesKey: sentMetadata[messageSelectedMcpNamesKey],
       },
       id: questionStreamMessageId,
       createdAt: now,

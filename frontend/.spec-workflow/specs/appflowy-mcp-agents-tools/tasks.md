@@ -51,7 +51,7 @@
     - _Requirements: R-2.2。
     - Success: 桌面/工作区左侧菜单出现“助手智能体”；移动端设置出现入口；可新增/编辑 Agent 并保存工具范围。
 
-- [ ] T4 聊天输入：新增“MCP 选择器”多选控件
+- [x] T4 聊天输入：新增“MCP 选择器”多选控件
   - 文件：
     - `appflowy_flutter/lib/plugins/ai_chat/presentation/chat_page/chat_footer.dart`（挂载入口）
     - `appflowy_flutter/lib/plugins/mcp/chat/mcp_selector.dart`（新建）

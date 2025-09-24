@@ -18,6 +18,7 @@ class MobileChatInput extends StatefulWidget {
     required this.onSubmitted,
     required this.selectedSourcesNotifier,
     required this.onUpdateSelectedSources,
+    this.leadingExtra,
   });
 
   final bool isStreaming;
@@ -26,6 +27,7 @@ class MobileChatInput extends StatefulWidget {
   final void Function(String, PredefinedFormat?, Map<String, dynamic>)
       onSubmitted;
   final void Function(List<String>) onUpdateSelectedSources;
+  final Widget? leadingExtra;
 
   @override
   State<MobileChatInput> createState() => _MobileChatInputState();
@@ -346,6 +348,7 @@ class _MobileChatInputState extends State<MobileChatInput> {
       },
       selectedSourcesNotifier: widget.selectedSourcesNotifier,
       onUpdateSelectedSources: widget.onUpdateSelectedSources,
+      leadingExtra: widget.leadingExtra,
     );
   }
 
@@ -364,12 +367,14 @@ class _LeadingActions extends StatelessWidget {
     required this.onTogglePredefinedFormatSection,
     required this.selectedSourcesNotifier,
     required this.onUpdateSelectedSources,
+    this.leadingExtra,
   });
 
   final bool showPredefinedFormats;
   final void Function() onTogglePredefinedFormatSection;
   final ValueNotifier<List<String>> selectedSourcesNotifier;
   final void Function(List<String>) onUpdateSelectedSources;
+  final Widget? leadingExtra;
 
   @override
   Widget build(BuildContext context) {
@@ -383,6 +388,7 @@ class _LeadingActions extends StatelessWidget {
             selectedSourcesNotifier: selectedSourcesNotifier,
             onUpdateSelectedSources: onUpdateSelectedSources,
           ),
+          if (leadingExtra != null) leadingExtra!,
           PromptInputMobileToggleFormatButton(
             showFormatBar: showPredefinedFormats,
             onTap: onTogglePredefinedFormatSection,

@@ -21,6 +21,7 @@ const aiResponseUserId = "0";
 const messageRefSourceJsonStringKey = "ref_source_json_string";
 const messageChatFileListKey = "chat_files";
 const messageQuestionIdKey = "question_id";
+const messageSelectedMcpNamesKey = "selected_mcp_names";
 
 @JsonSerializable()
 class ChatMessageRefSource {
