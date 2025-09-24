@@ -109,6 +109,13 @@ class SettingsMenu extends StatelessWidget {
               ),
               changeSelectedPage: changeSelectedPage,
             ),
+            SettingsMenuElement(
+              page: SettingsPage.mcp,
+              selectedPage: currentPage,
+              label: LocaleKeys.settings_mcpPage_menuLabel.tr(),
+              icon: const FlowySvg(FlowySvgs.settings_page_ai_m),
+              changeSelectedPage: changeSelectedPage,
+            ),
             if (userProfile.workspaceType == WorkspaceTypePB.ServerW &&
                 currentUserRole != null &&
                 currentUserRole != AFRolePB.Guest)

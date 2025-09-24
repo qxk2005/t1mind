@@ -17,6 +17,8 @@ import 'package:appflowy/workspace/application/user/user_workspace_bloc.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/protobuf.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flowy_infra_ui/flowy_infra_ui.dart';
+import 'package:go_router/go_router.dart';
+import 'package:appflowy/mobile/presentation/setting/mcp/mcp_settings_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -97,12 +99,25 @@ class _MobileHomeSettingPageState extends State<MobileHomeSettingPage> {
                   const AppearanceSettingGroup(),
                   const LanguageSettingGroup(),
                   if (Env.enableCustomCloud) const CloudSettingGroup(),
-                  if (isAuthEnabled)
+                  if (isAuthEnabled) ...[
                     AiSettingsGroup(
                       key: ValueKey(currentWorkspaceId),
                       userProfile: userProfile,
                       workspaceId: currentWorkspaceId,
                     ),
+                    MobileSettingGroup(
+                      groupTitle: LocaleKeys.settings_mcpPage_title.tr(),
+                      settingItemList: [
+                        MobileSettingItem(
+                          name: LocaleKeys.settings_mcpPage_title.tr(),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => context.push(
+                            McpSettingsMobilePage.routeName,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   const SupportSettingGroup(),
                   const AboutSettingGroup(),
                   UserSessionSettingGroup(

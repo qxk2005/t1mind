@@ -9,6 +9,7 @@ import 'package:appflowy/workspace/application/settings/appearance/appearance_cu
 import 'package:appflowy/workspace/application/settings/appflowy_cloud_urls_bloc.dart';
 import 'package:appflowy/workspace/application/settings/settings_dialog_bloc.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/settings_ai_view.dart';
+import 'package:appflowy/workspace/presentation/settings/pages/setting_mcp_view/settings_mcp_view.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/settings_account_view.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/settings_billing_view.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/settings_manage_data_view.dart';
@@ -162,6 +163,12 @@ class SettingsDialog extends StatelessWidget {
             workspaceId: workspace.workspaceId,
           );
         }
+      case SettingsPage.mcp:
+        return SettingsMCPView(
+          key: ValueKey('mcp-${workspace.workspaceId}'),
+          workspaceId: workspace.workspaceId,
+          userProfile: user,
+        );
       case SettingsPage.member:
         return WorkspaceMembersPage(
           userProfile: user,

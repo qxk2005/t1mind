@@ -561,6 +561,27 @@
         "openAICompatComingSoon": "More settings coming soon"
       }
     },
+    "mcpPage": {
+      "menuLabel": "MCP",
+      "title": "MCP Management",
+      "description": "Manage MCP endpoints and basic settings",
+      "emptyHint": "No endpoints yet. Click Create to add one.",
+      "androidDisabled": "Disable on Android",
+      "field": {
+        "name": "Name",
+        "transport": "Transport",
+        "url": "SSE URL",
+        "command": "Command",
+        "args": "Arguments",
+        "description": "Description",
+        "env": "Environment Variables",
+        "headers": "HTTP Headers",
+        "key": "Key",
+        "value": "Value"
+      },
+      "newTitle": "New MCP Endpoint",
+      "editTitle": "Edit MCP Endpoint"
+    },
     "title": "Settings",
     "popupMenuItem": {
       "settings": "Settings",

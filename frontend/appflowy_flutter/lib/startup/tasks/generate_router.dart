@@ -43,6 +43,7 @@ import 'package:universal_platform/universal_platform.dart';
 
 import '../../shared/icon_emoji_picker/tab.dart';
 import 'af_navigator_observer.dart';
+import 'package:appflowy/mobile/presentation/setting/mcp/mcp_settings_page.dart';
 
 GoRouter generateRouter(Widget child) {
   return GoRouter(
@@ -63,6 +64,7 @@ GoRouter generateRouter(Widget child) {
       if (UniversalPlatform.isMobile) ...[
         // settings
         _mobileHomeSettingPageRoute(),
+        _mobileMcpSettingsPageRoute(),
         _mobileCloudSettingAppFlowyCloudPageRoute(),
         _mobileLaunchSettingsPageRoute(),
         _mobileFeatureFlagPageRoute(),
@@ -127,6 +129,18 @@ GoRouter generateRouter(Widget child) {
         },
       ),
     ],
+  );
+}
+GoRoute _mobileMcpSettingsPageRoute() {
+  return GoRoute(
+    parentNavigatorKey: AppGlobals.rootNavKey,
+    path: McpSettingsMobilePage.routeName,
+    pageBuilder: (context, state) {
+      return const MaterialExtendedPage(
+        child: McpSettingsMobilePage(),
+        name: McpSettingsMobilePage.routeName,
+      );
+    },
   );
 }
 
