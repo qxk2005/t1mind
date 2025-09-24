@@ -20,7 +20,7 @@
     - _Requirements: R-1。
     - Success: 桌面/工作区左侧菜单出现“MCP”；移动端设置出现入口；页面可新建/编辑/删除记录，字段切换与校验正常。
 
-- [ ] T2 一键检查：检查弹窗与 I/O 日志（模拟数据打通）
+- [x] T2 一键检查：检查弹窗与 I/O 日志（模拟数据打通）
   - 文件：
     - `appflowy_flutter/lib/plugins/mcp/settings/mcp_edit_dialog.dart`（加“检查”触发）
     - `appflowy_flutter/lib/plugins/mcp/settings/mcp_check_dialog.dart`（新建弹窗）
