@@ -18,7 +18,8 @@ use std::sync::{Arc, Weak};
 use tracing::{info, trace};
 use uuid::Uuid;
 use flowy_sqlite::kv::KVStorePreferences;
-use futures_util::{StreamExt, stream};
+use futures_util::StreamExt;
+use async_stream::try_stream;
 use serde_json::json;
 
 #[derive(Clone, Debug)]
@@ -104,88 +105,193 @@ impl ChatServiceMiddleware {
   fn openai_chat_payload(model: &str, content: String) -> serde_json::Value {
     json!({
       "model": model,
-      "stream": false,
+      "stream": true,
+      "stream_options": {"include_reasoning": true},
       "messages": [
         {"role": "user", "content": content}
       ]
     })
   }
 
-  async fn openai_chat_once(&self, cfg: &OpenAICompatConfig, model_override: Option<&str>, content: String) -> FlowyResult<String> {
+  /// 提取推理文本与最终答案
+  fn parse_reasoning_and_answer(v: &serde_json::Value) -> (Option<String>, Option<String>) {
+    // chat.completions 风格
+    if let Some(choices) = v.get("choices").and_then(|c| c.as_array()) {
+      if let Some(first) = choices.get(0) {
+        if let Some(text) = first
+          .get("message")
+          .and_then(|m| m.get("content"))
+          .and_then(|s| s.as_str())
+        {
+          return (None, Some(text.to_string()));
+        }
+        // content 为数组的情况
+        if let Some(arr) = first
+          .get("message")
+          .and_then(|m| m.get("content"))
+          .and_then(|a| a.as_array())
+        {
+          let mut reasoning = String::new();
+          let mut answer = String::new();
+          for item in arr {
+            let ty = item.get("type").and_then(|s| s.as_str()).unwrap_or("");
+            if ty == "reasoning" {
+              if let Some(t) = item.get("text").and_then(|s| s.as_str()) {
+                reasoning.push_str(t);
+              }
+            } else if ty == "output_text" {
+              if let Some(t) = item.get("text").and_then(|o| o.get("value")).and_then(|s| s.as_str()) {
+                answer.push_str(t);
+              }
+            } else if ty == "text" {
+              if let Some(t) = item.get("text").and_then(|s| s.as_str()) {
+                answer.push_str(t);
+              }
+            }
+          }
+          return (
+            if reasoning.is_empty() { None } else { Some(reasoning) },
+            if answer.is_empty() { None } else { Some(answer) },
+          );
+        }
+      }
+    }
+
+    // responses 风格
+    if let Some(output) = v.get("output").and_then(|o| o.as_array()) {
+      for item in output {
+        if item.get("type").and_then(|s| s.as_str()) == Some("message") {
+          if let Some(content) = item.get("content").and_then(|c| c.as_array()) {
+            let mut reasoning = String::new();
+            let mut answer = String::new();
+            for c in content {
+              let ty = c.get("type").and_then(|s| s.as_str()).unwrap_or("");
+              match ty {
+                "reasoning" => {
+                  if let Some(t) = c
+                    .get("reasoning")
+                    .and_then(|r| r.get("text"))
+                    .and_then(|s| s.as_str())
+                  {
+                    reasoning.push_str(t);
+                  }
+                },
+                "output_text" => {
+                  if let Some(t) = c
+                    .get("text")
+                    .and_then(|o| o.get("value"))
+                    .and_then(|s| s.as_str())
+                  {
+                    answer.push_str(t);
+                  }
+                },
+                "text" => {
+                  if let Some(t) = c.get("text").and_then(|s| s.as_str()) {
+                    answer.push_str(t);
+                  }
+                },
+                _ => {},
+              }
+            }
+            return (
+              if reasoning.is_empty() { None } else { Some(reasoning) },
+              if answer.is_empty() { None } else { Some(answer) },
+            );
+          }
+        }
+      }
+    }
+    (None, None)
+  }
+
+  async fn openai_chat_stream(&self, cfg: &OpenAICompatConfig, model_override: Option<&str>, content: String) -> FlowyResult<(Option<String>, StreamAnswer)> {
     let client = reqwest::Client::new();
     let base = cfg.base_url.trim_end_matches('/');
-    let candidates = if base.ends_with("/v1") {
-      vec![format!("{}/chat/completions", base), format!("{}/responses", base)]
-    } else {
-      vec![format!("{}/v1/chat/completions", base), format!("{}/v1/responses", base)]
-    };
+    // 仅对 chat.completions 走 SSE；responses 不同供应商差异大，暂不做 SSE
+    let url = if base.ends_with("/v1") { format!("{}/chat/completions", base) } else { format!("{}/v1/chat/completions", base) };
 
     let model_name = match model_override {
       Some(name) if !name.is_empty() && name != DEFAULT_AI_MODEL_NAME => name.to_string(),
       _ => cfg.model.clone(),
     };
 
-    let mut last_status = None;
-    for url in candidates {
-      let mut payload = Self::openai_chat_payload(&model_name, content.clone());
-      if let Some(t) = cfg.temperature { payload.as_object_mut().unwrap().insert("temperature".into(), json!(t)); }
-      if let Some(m) = cfg.max_tokens { payload.as_object_mut().unwrap().insert("max_tokens".into(), json!(m)); }
-
-      match client
-        .post(&url)
-        .bearer_auth(&cfg.api_key)
-        .header("Content-Type", "application/json")
-        .json(&payload)
-        .send()
-        .await
-      {
-        Ok(resp) => {
-          let status = resp.status();
-          if status.is_success() {
-            let v: serde_json::Value = resp.json().await.map_err(|e| FlowyError::server_error().with_context(e.to_string()))?;
-            // Prefer chat.completions style
-            if let Some(text) = v
-              .get("choices")
-              .and_then(|c| c.get(0))
-              .and_then(|c| c.get("message").or_else(|| c.get("delta")))
-              .and_then(|m| m.get("content"))
-              .and_then(|s| s.as_str())
-            {
-              return Ok(text.to_string());
-            }
-            // Fallback for responses API
-            if let Some(text) = v
-              .get("output")
-              .and_then(|o| o.get("choices"))
-              .and_then(|c| c.get(0))
-              .and_then(|c| c.get("message"))
-              .and_then(|m| m.get("content"))
-              .and_then(|arr| arr.get(0))
-              .and_then(|obj| obj.get("text"))
-              .and_then(|t| t.get("value"))
-              .and_then(|s| s.as_str())
-            {
-              return Ok(text.to_string());
-            }
-            // Unknown format
-            return Ok(String::new());
-          } else {
-            last_status = Some(status);
-            continue;
-          }
-        },
-        Err(e) => {
-          // try next
-          tracing::warn!("OpenAI compat request error: {}", e);
-          continue;
-        },
-      }
+    let mut payload = Self::openai_chat_payload(&model_name, content.clone());
+    if let Some(t) = cfg.temperature { payload.as_object_mut().unwrap().insert("temperature".into(), json!(t)); }
+    if let Some(m) = cfg.max_tokens { payload.as_object_mut().unwrap().insert("max_tokens".into(), json!(m)); }
+    let resp = client
+      .post(&url)
+      .bearer_auth(&cfg.api_key)
+      .header("Content-Type", "application/json")
+      .header("Accept", "text/event-stream")
+      .json(&payload)
+      .send()
+      .await
+      .map_err(|e| FlowyError::server_error().with_context(e.to_string()))?;
+    if !resp.status().is_success() {
+      return Err(FlowyError::server_error().with_context(format!("OpenAI compat error: {}", resp.status())));
     }
 
-    Err(FlowyError::server_error().with_context(format!(
-      "OpenAI compat error: {}",
-      last_status.map(|s| s.to_string()).unwrap_or_else(|| "Unknown".to_string())
-    )))
+    let s = try_stream! {
+      let mut inside_think = false;
+      let mut stream = resp.bytes_stream();
+      while let Some(chunk) = stream.next().await {
+        let bytes = chunk.map_err(|e| FlowyError::server_error().with_context(e.to_string()))?;
+        let s = String::from_utf8_lossy(&bytes);
+        for line in s.lines() {
+          let l = line.trim_start();
+          if !l.starts_with("data:") { continue; }
+          let data = l.trim_start_matches("data:").trim();
+          if data == "[DONE]" { break; }
+          if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
+            if let Some(delta) = v.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("delta")) {
+              // 1) 数组结构：显式 type
+              if let Some(arr) = delta.get("content").and_then(|a| a.as_array()) {
+                for item in arr {
+                  let ty = item.get("type").and_then(|s| s.as_str()).unwrap_or("");
+                  match ty {
+                    "reasoning" => {
+                      if let Some(t) = item.get("text").and_then(|s| s.as_str()) { yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata { value: json!({"reasoning_delta": t}) }; }
+                    },
+                    "output_text" | "text" => {
+                      if let Some(t) = item.get("text").and_then(|s| s.as_str()) { yield flowy_ai_pub::cloud::QuestionStreamValue::Answer { value: t.to_string() }; }
+                    },
+                    _ => {},
+                  }
+                }
+                continue;
+              }
+
+              // 2) 字符串结构：DeepSeek <think> ... </think>
+              if let Some(token) = delta.get("content").and_then(|c| c.as_str()) {
+                let mut text = token.to_string();
+                // 处理开始标签
+                if let Some(idx) = text.find("<think>") { inside_think = true; text.replace_range(idx..idx+7, ""); }
+                // 处理结束标签（可能与内容同一块）
+                if let Some(end_idx) = text.find("</think>") {
+                  let (before, after) = text.split_at(end_idx);
+                  let after = after.trim_start_matches("</think>");
+                  if !before.is_empty() { yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata { value: json!({"reasoning_delta": before}) }; }
+                  inside_think = false;
+                  if !after.is_empty() { yield flowy_ai_pub::cloud::QuestionStreamValue::Answer { value: after.to_string() }; }
+                  continue;
+                }
+                if inside_think {
+                  if !text.is_empty() { yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata { value: json!({"reasoning_delta": text}) }; }
+                } else {
+                  if !text.is_empty() { yield flowy_ai_pub::cloud::QuestionStreamValue::Answer { value: text }; }
+                }
+                continue;
+              }
+
+              // 3) 其他兼容字段
+              if let Some(r) = delta.get("reasoning_content").and_then(|s| s.as_str()) { if !r.is_empty() { yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata { value: json!({"reasoning_delta": r}) }; } }
+              if let Some(r) = delta.get("reasoning").and_then(|s| s.as_str()) { if !r.is_empty() { yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata { value: json!({"reasoning_delta": r}) }; } }
+            }
+          }
+        }
+      }
+    };
+    Ok((None, Box::pin(s)))
   }
 }
 
@@ -272,17 +378,13 @@ impl ChatCloudService for ChatServiceMiddleware {
         }
       }
     } else {
-      // 如果配置了 OpenAI 兼容服务器，则优先直接调用
+      // 如果配置了 OpenAI 兼容服务器，则优先直接调用（SSE）
       if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
         let content = self.get_message_content(question_id)?;
-        let text = self
-          .openai_chat_once(&cfg, Some(&ai_model.name), content)
+        let (_init_reasoning, stream) = self
+          .openai_chat_stream(&cfg, Some(&ai_model.name), content)
           .await?;
-        // 将一次性结果转成单次消息流
-        let s = stream::once(async move {
-          Ok(flowy_ai_pub::cloud::QuestionStreamValue::Answer { value: text })
-        });
-        return Ok(Box::pin(s));
+        return Ok(stream);
       }
 
       // 默认：走现有 cloud_service（AppFlowy Cloud 或本地服务封装）
@@ -473,15 +575,18 @@ impl ChatCloudService for ChatServiceMiddleware {
         }
       }
     } else {
-      // 若配置了 OpenAI 兼容服务器，则直接调用
+      // 若配置了 OpenAI 兼容服务器，则直接调用（SSE -> 写作流）
       if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
-        let text = self
-          .openai_chat_once(&cfg, Some(&ai_model.name), params.text.clone())
+        let (_init_reasoning, s) = self
+          .openai_chat_stream(&cfg, Some(&ai_model.name), params.text.clone())
           .await?;
-        let s = stream::once(async move {
-          Ok(flowy_ai_pub::cloud::CompletionStreamValue::Answer { value: text })
+        let mapped = s.map(|item| match item {
+          Ok(flowy_ai_pub::cloud::QuestionStreamValue::Answer { value }) => Ok(flowy_ai_pub::cloud::CompletionStreamValue::Answer { value }),
+          Ok(flowy_ai_pub::cloud::QuestionStreamValue::Metadata { value }) => Ok(flowy_ai_pub::cloud::CompletionStreamValue::Comment { value: value.get("reasoning_delta").and_then(|s| s.as_str()).unwrap_or("").to_string() }),
+          Ok(_) => Ok(flowy_ai_pub::cloud::CompletionStreamValue::Answer { value: String::new() }),
+          Err(e) => Err(e),
         });
-        return Ok(Box::pin(s));
+        return Ok(Box::pin(mapped));
       }
 
       match self
