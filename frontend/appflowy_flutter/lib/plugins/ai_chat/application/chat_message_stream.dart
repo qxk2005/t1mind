@@ -114,6 +114,31 @@ class AnswerStream {
     _onError?.call(_error!);
   }
 
+  /// Inject a raw event into the stream pipeline. This is primarily used by
+  /// local/mock executors to simulate streaming without a backend.
+  /// Supported prefixes are defined in [AIStreamEventPrefix].
+  void injectRaw(String event) {
+    _handleEvent(event);
+  }
+
+  /// Convenience method to inject a text delta. Equivalent to
+  /// `injectRaw('${AIStreamEventPrefix.data}$text')`.
+  void injectData(String text) {
+    _handleEvent('${AIStreamEventPrefix.data}$text');
+  }
+
+  /// Convenience method to inject metadata as a json-encoded string.
+  /// The json should match either AIChatProgress or ChatMessageRefSource.
+  void injectMetadataJson(String json) {
+    _handleEvent('${AIStreamEventPrefix.metadata}$json');
+  }
+
+  /// Signal completion to listeners without closing underlying controllers.
+  /// Consumers typically switch UI state when the stream ends.
+  void signalEnd() {
+    _onEnd?.call();
+  }
+
   /// Registers listeners for various events.
   ///
   /// If certain events have already occurred (e.g. AI_MAX_REQUIRED or LOCAL_AI_NOT_READY),

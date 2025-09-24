@@ -20,6 +20,7 @@ import 'chat_message_listener.dart';
 import 'chat_message_stream.dart';
 import 'chat_settings_manager.dart';
 import 'chat_stream_manager.dart';
+import 'package:appflowy/ai/agent/agent_service.dart';
 
 part 'chat_bloc.freezed.dart';
 
@@ -60,6 +61,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   late final ChatMessageHandler _messageHandler;
   late final ChatStreamManager _streamManager;
   late final ChatSettingsManager _settingsManager;
+  final AgentService _agentService = AgentService();
+  AgentRun? _agentRun;
 
   ChatMessagePB? lastSentMessage;
 
@@ -231,6 +234,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
 
   // Stream control handlers
   Future<void> _handleStopStream(Emitter<ChatState> emit) async {
+    // Cancel agent-run if any
+    _agentRun?.cancel();
+    _agentRun = null;
     await _streamManager.stopStream();
 
     // Allow user input
@@ -463,7 +469,37 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     );
     add(ChatEvent.receiveMessage(questionStreamMessage));
 
-    // Send stream request
+    // If user selected MCP endpoints, let Agent take over with mock executor.
+    final List<String> selectedMcpNames = (metadata?[messageSelectedMcpNamesKey]
+                as List?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        const [];
+    if (selectedMcpNames.isNotEmpty) {
+      if (!isClosed) {
+        final streamAnswer = _messageHandler.createAnswerStreamMessage(
+          stream: _streamManager.answerStream!,
+          questionMessageId: Int64(0),
+          fakeQuestionMessageId: questionStreamMessage.id,
+        );
+        add(const ChatEvent.finishSending());
+        add(ChatEvent.receiveMessage(streamAnswer));
+
+        _agentRun = _agentService.run(
+          answerStream: _streamManager.answerStream!,
+          userMessage: message,
+          selectedMcpNames: selectedMcpNames,
+        );
+        unawaited(_agentRun!.done.then((_) {
+          if (!isClosed) {
+            add(const ChatEvent.didFinishAnswerStream());
+          }
+        }));
+      }
+      return;
+    }
+
+    // Otherwise, send to backend as usual
     await _streamManager.sendStreamRequest(message, format, promptId).fold(
       (question) {
         if (!isClosed) {

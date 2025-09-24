@@ -64,7 +64,7 @@
     - _Requirements: R-3.1。
     - Success: 可多选 MCP，发送消息后携带所选端点列表。
 
-- [ ] T5 Agent 执行最小链路（模拟工具）
+- [x] T5 Agent 执行最小链路（模拟工具）
   - 文件：
     - `appflowy_flutter/lib/ai/agent/agent_service.dart`（新建）
     - `appflowy_flutter/lib/ai/agent/planner.dart`、`executor.dart`（新建）
