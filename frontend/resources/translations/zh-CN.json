@@ -526,6 +526,19 @@
       "newTitle": "新建 MCP 端点",
       "editTitle": "编辑 MCP 端点"
     },
+    "agentsPage": {
+      "menuLabel": "助手智能体",
+      "title": "助手智能体管理",
+      "description": "创建和管理助手智能体，并为其选择可用的 MCP 端点范围",
+      "emptyHint": "暂无智能体，点击【创建】添加。",
+      "field": {
+        "name": "称呼",
+        "description": "个性描述",
+        "allowedEndpoints": "可用端点范围"
+      },
+      "newTitle": "新建助手智能体",
+      "editTitle": "编辑助手智能体"
+    },
     "title": "设置",
     "popupMenuItem": {
       "settings": "设置",

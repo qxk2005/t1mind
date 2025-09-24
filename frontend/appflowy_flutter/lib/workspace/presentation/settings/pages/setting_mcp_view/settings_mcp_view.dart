@@ -470,9 +470,25 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
                   ),
                 _LabeledField(
                   label: LocaleKeys.settings_mcpPage_field_description.tr(),
-                  child: FlowyTextField(
+                  height: 120,
+                  child: TextField(
                     controller: _description,
-                    maxLines: 2,
+                    minLines: 3,
+                    maxLines: 10,
+                    keyboardType: TextInputType.multiline,
+                    scrollPhysics: const ClampingScrollPhysics(),
+                    decoration: InputDecoration(
+                      isDense: false,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: AppFlowyTheme.of(context).borderColorScheme.primary),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(color: AppFlowyTheme.of(context).textColorScheme.primary),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -580,10 +596,11 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
 }
 
 class _LabeledField extends StatelessWidget {
-  const _LabeledField({required this.label, required this.child});
+  const _LabeledField({required this.label, required this.child, this.height});
 
   final String label;
   final Widget child;
+  final double? height;
 
   @override
   Widget build(BuildContext context) {
@@ -597,7 +614,7 @@ class _LabeledField extends StatelessWidget {
               .standard(color: theme.textColorScheme.secondary),
         ),
         const SizedBox(height: 6),
-        SizedBox(height: 36, child: child),
+        if (height != null) SizedBox(height: height, child: child) else SizedBox(height: 36, child: child),
       ],
     );
   }

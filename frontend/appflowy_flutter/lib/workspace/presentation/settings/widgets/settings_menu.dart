@@ -110,6 +110,15 @@ class SettingsMenu extends StatelessWidget {
               changeSelectedPage: changeSelectedPage,
             ),
             SettingsMenuElement(
+              page: SettingsPage.agents,
+              selectedPage: currentPage,
+              label: 'settings.agentsPage.menuLabel'.tr(),
+              icon: const FlowySvg(
+                FlowySvgs.settings_page_ai_m,
+              ),
+              changeSelectedPage: changeSelectedPage,
+            ),
+            SettingsMenuElement(
               page: SettingsPage.mcp,
               selectedPage: currentPage,
               label: LocaleKeys.settings_mcpPage_menuLabel.tr(),

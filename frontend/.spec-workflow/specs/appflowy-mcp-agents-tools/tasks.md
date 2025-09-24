@@ -35,7 +35,7 @@
     - _Requirements: R-1.4/1.5、R-4。
     - Success: 弹窗显示完整 I/O 与解析结果；列表状态与工具数量更新。
 
-- [ ] T3 助手智能体设置（桌面/工作区/移动）：新增独立“助手智能体管理”配置页面（与 AI 同级）
+- [x] T3 助手智能体设置（桌面/工作区/移动）：新增独立“助手智能体管理”配置页面（与 AI 同级）
   - 文件：
     - 桌面/工作区导航：`appflowy_flutter/lib/workspace/application/settings/settings_dialog_bloc.dart`（在 `SettingsPage` 中新增 `agents` 枚举）
     - 桌面/工作区路由：`appflowy_flutter/lib/workspace/presentation/settings/settings_dialog.dart`（新增 `SettingsPage.agents` case）

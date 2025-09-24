@@ -582,6 +582,19 @@
       "newTitle": "New MCP Endpoint",
       "editTitle": "Edit MCP Endpoint"
     },
+    "agentsPage": {
+      "menuLabel": "Agents",
+      "title": "Assistant Agents",
+      "description": "Create and manage assistant agents, and choose allowed MCP endpoints",
+      "emptyHint": "No agents yet. Click Create to add one.",
+      "field": {
+        "name": "Name",
+        "description": "Persona",
+        "allowedEndpoints": "Allowed endpoints"
+      },
+      "newTitle": "New Agent",
+      "editTitle": "Edit Agent"
+    },
     "title": "Settings",
     "popupMenuItem": {
       "settings": "Settings",

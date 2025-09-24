@@ -19,6 +19,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flowy_infra_ui/flowy_infra_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:appflowy/mobile/presentation/setting/mcp/mcp_settings_page.dart';
+import 'package:appflowy/mobile/presentation/setting/agent/agent_settings_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -113,6 +114,18 @@ class _MobileHomeSettingPageState extends State<MobileHomeSettingPage> {
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () => context.push(
                             McpSettingsMobilePage.routeName,
+                          ),
+                        ),
+                      ],
+                    ),
+                    MobileSettingGroup(
+                      groupTitle: 'settings.agentsPage.title'.tr(),
+                      settingItemList: [
+                        MobileSettingItem(
+                          name: 'settings.agentsPage.title'.tr(),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => context.push(
+                            AgentSettingsMobilePage.routeName,
                           ),
                         ),
                       ],

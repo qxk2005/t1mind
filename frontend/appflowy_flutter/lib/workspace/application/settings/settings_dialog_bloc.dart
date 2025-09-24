@@ -18,6 +18,7 @@ enum SettingsPage {
   manageData,
   shortcuts,
   ai,
+  agents,
   mcp,
   plan,
   billing,
