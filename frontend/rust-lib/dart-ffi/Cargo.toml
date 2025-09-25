@@ -25,6 +25,7 @@ lazy_static = "1.4.0"
 tracing.workspace = true
 lib-log.workspace = true
 semver = "1.0.22"
+chrono = { version = "0.4.38", default-features = false, features = ["clock"] }
 
 # workspace
 lib-dispatch = { workspace = true, features = ["local_set"] }
@@ -33,6 +34,7 @@ lib-dispatch = { workspace = true, features = ["local_set"] }
 #flowy-core = { workspace = true, features = ["profiling"] }
 #flowy-core = { workspace = true, features = ["verbose_log"] }
 flowy-core = { workspace = true }
+flowy-ai = { workspace = true, features = ["mcp_stdio"] }
 
 flowy-notification = { workspace = true, features = ["dart"] }
 flowy-document = { workspace = true, features = ["dart"] }
@@ -45,13 +47,15 @@ flowy-derive.workspace = true
 serde_yaml = "0.9.27"
 flowy-error = { workspace = true, features = ["impl_from_sqlite", "impl_from_dispatch_error", "impl_from_appflowy_cloud", "impl_from_reqwest", "impl_from_serde", "dart"] }
 futures = "0.3.31"
+af_mcp = { path = "../af_mcp", optional = true }
 
 [features]
-default = ["dart"]
+default = ["dart", "mcp_stdio"]
 dart = ["flowy-core/dart"]
 http_sync = ["flowy-core/http_sync"]
 openssl_vendored = ["flowy-core/openssl_vendored"]
 verbose_log = []
+mcp_stdio = ["af_mcp"]
 
 [build-dependencies]
 flowy-codegen = { workspace = true, features = ["dart"] }

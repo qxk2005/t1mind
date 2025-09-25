@@ -137,6 +137,122 @@ final _link_me_please_Dart _link_me_please = _dart_ffi_lib
 typedef _link_me_please_C = Void Function();
 typedef _link_me_please_Dart = void Function();
 
+/// free bytes returned by rust (length-prefixed with 4 bytes)
+void free_bytes(
+  Pointer<Uint8> ptr,
+  int len,
+) {
+  _free_bytes(ptr, len);
+}
+
+final _free_bytes_Dart _free_bytes = _dart_ffi_lib
+    .lookupFunction<_free_bytes_C, _free_bytes_Dart>('free_bytes');
+typedef _free_bytes_C = Void Function(
+  Pointer<Uint8> ptr,
+  Uint32 len,
+);
+typedef _free_bytes_Dart = void Function(
+  Pointer<Uint8> ptr,
+  int len,
+);
+
+/// MCP: check over SSE
+Pointer<Uint8> mcp_check_sse(
+  Pointer<ffi.Utf8> url,
+  Pointer<ffi.Utf8> headersJson,
+) {
+  return _mcp_check_sse(url, headersJson);
+}
+
+final _mcp_check_sse_Dart _mcp_check_sse = _dart_ffi_lib
+    .lookupFunction<_mcp_check_sse_C, _mcp_check_sse_Dart>('mcp_check_sse');
+typedef _mcp_check_sse_C = Pointer<Uint8> Function(
+  Pointer<ffi.Utf8> url,
+  Pointer<ffi.Utf8> headersJson,
+);
+typedef _mcp_check_sse_Dart = Pointer<Uint8> Function(
+  Pointer<ffi.Utf8> url,
+  Pointer<ffi.Utf8> headersJson,
+);
+
+/// MCP: check streamable HTTP
+Pointer<Uint8> mcp_check_streamable_http(
+  Pointer<ffi.Utf8> url,
+  Pointer<ffi.Utf8> headersJson,
+) {
+  return _mcp_check_streamable_http(url, headersJson);
+}
+
+final _mcp_check_streamable_http_Dart _mcp_check_streamable_http = _dart_ffi_lib
+    .lookupFunction<_mcp_check_streamable_http_C, _mcp_check_streamable_http_Dart>('mcp_check_streamable_http');
+typedef _mcp_check_streamable_http_C = Pointer<Uint8> Function(
+  Pointer<ffi.Utf8> url,
+  Pointer<ffi.Utf8> headersJson,
+);
+typedef _mcp_check_streamable_http_Dart = Pointer<Uint8> Function(
+  Pointer<ffi.Utf8> url,
+  Pointer<ffi.Utf8> headersJson,
+);
+/// MCP: connect SSE
+int mcp_connect_sse(
+  Pointer<ffi.Utf8> id,
+  Pointer<ffi.Utf8> url,
+  Pointer<ffi.Utf8> headersJson,
+) {
+  return _mcp_connect_sse(id, url, headersJson);
+}
+
+final _mcp_connect_sse_Dart _mcp_connect_sse = _dart_ffi_lib
+    .lookupFunction<_mcp_connect_sse_C, _mcp_connect_sse_Dart>('mcp_connect_sse');
+typedef _mcp_connect_sse_C = Int32 Function(
+  Pointer<ffi.Utf8> id,
+  Pointer<ffi.Utf8> url,
+  Pointer<ffi.Utf8> headersJson,
+);
+typedef _mcp_connect_sse_Dart = int Function(
+  Pointer<ffi.Utf8> id,
+  Pointer<ffi.Utf8> url,
+  Pointer<ffi.Utf8> headersJson,
+);
+
+/// MCP: disconnect SSE
+int mcp_disconnect_sse(
+  Pointer<ffi.Utf8> id,
+) {
+  return _mcp_disconnect_sse(id);
+}
+
+final _mcp_disconnect_sse_Dart _mcp_disconnect_sse = _dart_ffi_lib
+    .lookupFunction<_mcp_disconnect_sse_C, _mcp_disconnect_sse_Dart>('mcp_disconnect_sse');
+typedef _mcp_disconnect_sse_C = Int32 Function(
+  Pointer<ffi.Utf8> id,
+);
+typedef _mcp_disconnect_sse_Dart = int Function(
+  Pointer<ffi.Utf8> id,
+);
+
+/// MCP: check over STDIO
+Pointer<Uint8> mcp_check_stdio(
+  Pointer<ffi.Utf8> command,
+  Pointer<ffi.Utf8> argsJson,
+  Pointer<ffi.Utf8> envJson,
+) {
+  return _mcp_check_stdio(command, argsJson, envJson);
+}
+
+final _mcp_check_stdio_Dart _mcp_check_stdio = _dart_ffi_lib
+    .lookupFunction<_mcp_check_stdio_C, _mcp_check_stdio_Dart>('mcp_check_stdio');
+typedef _mcp_check_stdio_C = Pointer<Uint8> Function(
+  Pointer<ffi.Utf8> command,
+  Pointer<ffi.Utf8> argsJson,
+  Pointer<ffi.Utf8> envJson,
+);
+typedef _mcp_check_stdio_Dart = Pointer<Uint8> Function(
+  Pointer<ffi.Utf8> command,
+  Pointer<ffi.Utf8> argsJson,
+  Pointer<ffi.Utf8> envJson,
+);
+
 /// Binding to `allo-isolate` crate
 void store_dart_post_cobject(
   Pointer<NativeFunction<Int8 Function(Int64, Pointer<Dart_CObject>)>> ptr,

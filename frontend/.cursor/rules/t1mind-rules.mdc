@@ -1,0 +1,5 @@
+---
+i18n的正确文件目录：AI在生成i18n内容的时候，请检查和更新frontend/resources/translations/这个目录下面的内容，而不是frontend/appflowy_flutter/assets/translations/这个目录，因为frontend/appflowy_flutter/assets/translations/这个目录后期会由脚本自动生成
+globs:正确的i18n目录
+alwaysApply: true
+---

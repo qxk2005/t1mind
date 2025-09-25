@@ -567,6 +567,17 @@
       "description": "Manage MCP endpoints and basic settings",
       "emptyHint": "No endpoints yet. Click Create to add one.",
       "androidDisabled": "Disable on Android",
+      "actions": {
+        "checkOne": "Check",
+        "checkAll": "Check All"
+      },
+      "dialog": {
+        "checkAllTitle": "Checking all MCP endpoints…",
+        "progress": "Progress: {done}/{total}"
+      },
+      "result": {
+        "checkAllDone": "Check all done: {ok}/{total} succeeded (failed {failed})"
+      },
       "field": {
         "name": "Name",
         "transport": "Transport",

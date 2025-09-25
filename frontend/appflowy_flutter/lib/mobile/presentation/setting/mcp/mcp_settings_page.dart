@@ -95,8 +95,11 @@ class _McpSettingsMobilePageState extends State<McpSettingsMobilePage> {
     final ep = _items[index];
     final cfg = McpEndpointConfig(
       name: ep.name,
-      transport:
-          ep.transport == _McpTransport.sse ? McpTransport.sse : McpTransport.stdio,
+      transport: ep.transport == _McpTransport.sseHttp
+          ? McpTransport.sse
+          : ep.transport == _McpTransport.streamableHttp
+          ? McpTransport.streamableHttp
+          : McpTransport.stdio,
       url: ep.url,
       command: ep.command,
       args: ep.args,
@@ -337,13 +340,24 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
     return Map<String, String>.fromEntries(entries);
   }
 
+  String _getTransportDisplayName(_McpTransport transport) {
+    switch (transport) {
+      case _McpTransport.stdio:
+        return 'STDIO';
+      case _McpTransport.sseHttp:
+        return 'SSE';
+      case _McpTransport.streamableHttp:
+        return 'STREAMABLE-HTTP';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final allowedTransports = defaultTargetPlatform == TargetPlatform.android
-        ? const [_McpTransport.sse]
+        ? const [_McpTransport.sseHttp]
         : _McpTransport.values;
     if (!allowedTransports.contains(_transport)) {
-      _transport = _McpTransport.sse;
+      _transport = _McpTransport.sseHttp;
     }
     return FlowyDialog(
       child: ConstrainedBox(
@@ -386,18 +400,18 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
                         items: allowedTransports
                             .map((e) => DropdownMenuItem<_McpTransport>(
                                   value: e,
-                                  child: Text(e.name.toUpperCase()),
+                                  child: Text(_getTransportDisplayName(e)),
                                 ))
                             .toList(),
                         onChanged: (v) => setState(() => _transport = v!),
                       ),
                     ),
-                    if (_transport == _McpTransport.sse)
+                    if (_transport == _McpTransport.sseHttp || _transport == _McpTransport.streamableHttp)
                       _LabeledField(
                         label: LocaleKeys.settings_mcpPage_field_url.tr(),
                         child: FlowyTextField(
                           controller: _url,
-                          hintText: 'https://example.com/sse',
+                          hintText: _transport == _McpTransport.sseHttp ? 'https://example.com/sse' : 'https://example.com/api',
                         ),
                       ),
                     if (_transport == _McpTransport.stdio) ...[
@@ -425,7 +439,7 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
                         onAdd: () => setState(() => _envRows.add(_KVRow.empty())),
                         onRemove: (i) => setState(() => _envRows.removeAt(i)),
                       ),
-                    if (_transport == _McpTransport.sse)
+                    if (_transport == _McpTransport.sseHttp || _transport == _McpTransport.streamableHttp)
                       _KVEditor(
                         title: LocaleKeys.settings_mcpPage_field_headers.tr(),
                         keyPlaceholder: LocaleKeys.settings_mcpPage_field_key.tr(),
@@ -470,8 +484,10 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
                             .toList();
                         final cfg = McpEndpointConfig(
                           name: _name.text.trim(),
-                          transport: _transport == _McpTransport.sse
+                          transport: _transport == _McpTransport.sseHttp
                               ? McpTransport.sse
+                              : _transport == _McpTransport.streamableHttp
+                              ? McpTransport.streamableHttp
                               : McpTransport.stdio,
                           url: _url.text.trim().isEmpty ? null : _url.text.trim(),
                           command: _command.text.trim().isEmpty
@@ -481,7 +497,7 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
                           env: _transport == _McpTransport.stdio
                               ? _mapFromRows(_envRows)
                               : null,
-                          headers: _transport == _McpTransport.sse
+                          headers: (_transport == _McpTransport.sseHttp || _transport == _McpTransport.streamableHttp)
                               ? _mapFromRows(_headerRows)
                               : null,
                         );
@@ -522,7 +538,7 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
                           env: _transport == _McpTransport.stdio
                               ? _mapFromRows(_envRows)
                               : null,
-                          headers: _transport == _McpTransport.sse
+                          headers: (_transport == _McpTransport.sseHttp || _transport == _McpTransport.streamableHttp)
                               ? _mapFromRows(_headerRows)
                               : null,
                           checkedOk: _checkedOk,
@@ -661,7 +677,7 @@ class _KVEditor extends StatelessWidget {
   }
 }
 
-enum _McpTransport { stdio, sse }
+enum _McpTransport { stdio, sseHttp, streamableHttp }
 
 class _McpEndpoint {
   _McpEndpoint({
@@ -707,10 +723,23 @@ class _McpEndpoint {
         if (lastCheckedAt != null) 'lastCheckedAt': lastCheckedAt,
       };
 
+  static _McpTransport _parseTransportFromJson(String transportStr) {
+    switch (transportStr) {
+      case 'sse': // backward compatibility
+        return _McpTransport.sseHttp;
+      case 'sseHttp':
+        return _McpTransport.sseHttp;
+      case 'streamableHttp':
+        return _McpTransport.streamableHttp;
+      case 'stdio':
+      default:
+        return _McpTransport.stdio;
+    }
+  }
+
   static _McpEndpoint fromJson(Map<String, dynamic> json) => _McpEndpoint(
         name: json['name'] as String,
-        transport: _McpTransport.values
-            .byName((json['transport'] as String?) ?? 'stdio'),
+        transport: _parseTransportFromJson((json['transport'] as String?) ?? 'stdio'),
         url: json['url'] as String?,
         command: json['command'] as String?,
         args: (json['args'] as List?)?.map((e) => e.toString()).toList(),

@@ -26,9 +26,14 @@ use crate::appflowy_yaml::save_appflowy_cloud_config;
 use crate::env_serde::AppFlowyDartConfiguration;
 use crate::notification::DartNotificationSender;
 use crate::{
-  c::{extend_front_four_bytes_into_bytes, forget_rust},
+  c::{extend_front_four_bytes_into_bytes, forget_rust, reclaim_rust},
   model::{FFIRequest, FFIResponse},
 };
+use flowy_ai::mcp::manager::MCPClientManager;
+use flowy_ai::mcp::sse::sse_tools_list;
+use tokio::runtime::Builder;
+use std::time::Duration;
+use std::sync::OnceLock;
 
 mod appflowy_yaml;
 mod c;
@@ -41,6 +46,8 @@ lazy_static! {
   static ref DART_APPFLOWY_CORE: DartAppFlowyCore = DartAppFlowyCore::new();
   static ref LOG_STREAM_ISOLATE: RwLock<Option<Isolate>> = RwLock::new(None);
 }
+
+static MCP_MANAGER: OnceLock<MCPClientManager> = OnceLock::new();
 
 pub struct Task {
   dispatcher: Arc<AFPluginDispatcher>,
@@ -167,6 +174,7 @@ pub extern "C" fn init_sdk(_port: i64, data: *mut c_char) -> i64 {
   let cloned_runtime = runtime.clone();
   *DART_APPFLOWY_CORE.core.write().unwrap() = runtime
     .block_on(async move { Some(AppFlowyCore::new(config, cloned_runtime, log_stream).await) });
+  MCP_MANAGER.get_or_init(|| MCPClientManager::new());
   0
 }
 
@@ -307,6 +315,218 @@ pub extern "C" fn rust_log(level: i64, data: *const c_char) {
 #[no_mangle]
 pub extern "C" fn set_env(_data: *const c_char) {
   // Deprecated
+}
+
+#[no_mangle]
+pub extern "C" fn free_bytes(ptr: *mut u8, len: u32) {
+  reclaim_rust(ptr, len);
+}
+
+#[no_mangle]
+pub extern "C" fn mcp_check_streamable_http(url: *const c_char, headers_json: *const c_char) -> *const u8 {
+  let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().to_string();
+  let headers_json = unsafe { CStr::from_ptr(headers_json) }.to_string_lossy().to_string();
+  let headers: Vec<(String, String)> = serde_json::from_str(&headers_json).unwrap_or_default();
+
+  let (ok, response_json, tool_count, server) = match flowy_ai::streamable_http_tools_list(url.clone(), headers.clone()) {
+    Ok(result) => (true, result.to_string(), result.get("tools").and_then(|t| t.as_array()).map(|arr| arr.len()).unwrap_or(0), Some("streamable-http-mcp".to_string())),
+    Err(e) => (false, format!(r#"{{"error":"code:Internal error, message:Streamable HTTP tools/list {}"}}"#, e), 0, None),
+  };
+
+  let request = serde_json::json!({
+    "transport": "streamableHttp",
+    "url": url,
+    "headers": headers,
+    "method": "tools/list",
+  });
+
+  let now = chrono::Utc::now().to_rfc3339();
+  let body = serde_json::json!({
+    "ok": ok,
+    "requestJson": request.to_string(),
+    "responseJson": response_json,
+    "toolCount": tool_count,
+    "server": server,
+    "checkedAtIso": now,
+  })
+  .to_string();
+
+  let bytes = body.into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+#[no_mangle]
+pub extern "C" fn mcp_check_sse(url: *const c_char, headers_json: *const c_char) -> *const u8 {
+  let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().to_string();
+  let headers_json = unsafe { CStr::from_ptr(headers_json) }.to_string_lossy().to_string();
+
+  // Parse headers_json which can be either a map {"k":"v"} or a vec [["k","v"], ...]
+  let headers_vec: Vec<(String, String)> = serde_json::from_str::<Vec<(String, String)>>(&headers_json)
+    .or_else(|_| {
+      serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&headers_json).map(|m| {
+        m.into_iter()
+          .map(|(k, v)| (k, v.as_str().unwrap_or(&v.to_string()).to_string()))
+          .collect::<Vec<(String, String)>>()
+      })
+    })
+    .unwrap_or_default();
+
+  // Build a lightweight tokio runtime to perform the network call
+  let rt = Builder::new_current_thread().enable_all().build();
+
+  let (ok, response_json, server, tool_count) = match rt {
+    Ok(rt) => {
+      let res = rt.block_on(sse_tools_list(&url, &headers_vec, Duration::from_secs(15)));
+      match res {
+        Ok(v) => {
+          // Try to extract server and tools count
+          let server = v.get("server").and_then(|s| s.as_str()).unwrap_or("").to_string();
+          let tool_count = v
+            .get("result")
+            .and_then(|r| r.get("tools"))
+            .and_then(|t| t.as_array())
+            .map(|a| a.len() as i32)
+            .unwrap_or(0);
+          (true, v.to_string(), server, tool_count)
+        },
+        Err(e) => {
+          let err = serde_json::json!({"error": e.to_string()}).to_string();
+          (false, err, String::new(), 0)
+        },
+      }
+    },
+    Err(e) => {
+      let err = serde_json::json!({"error": format!("failed to init runtime: {}", e)}).to_string();
+      (false, err, String::new(), 0)
+    },
+  };
+
+  let request = serde_json::json!({
+    "transport": "sse",
+    "url": url,
+    "headers": headers_vec,
+    "method": "tools/list",
+  });
+
+  let now = chrono::Utc::now().to_rfc3339();
+  let body = serde_json::json!({
+    "ok": ok,
+    "requestJson": request.to_string(),
+    "responseJson": response_json,
+    "toolCount": tool_count,
+    "server": server,
+    "checkedAtIso": now,
+  })
+  .to_string();
+
+  let bytes = body.into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+#[no_mangle]
+pub extern "C" fn mcp_connect_sse(id: *const c_char, url: *const c_char, headers_json: *const c_char) -> i32 {
+  let id = unsafe { CStr::from_ptr(id) }.to_string_lossy().to_string();
+  let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().to_string();
+  let headers_json = unsafe { CStr::from_ptr(headers_json) }.to_string_lossy().to_string();
+  let headers: Vec<(String, String)> = serde_json::from_str(&headers_json).unwrap_or_default();
+  let mgr = MCP_MANAGER.get().expect("MCP manager not initialized");
+  match futures::executor::block_on(mgr.connect_sse(id, url, headers)) {
+    Ok(_) => 0,
+    Err(_) => -1,
+  }
+}
+
+#[no_mangle]
+pub extern "C" fn mcp_disconnect_sse(id: *const c_char) -> i32 {
+  let id = unsafe { CStr::from_ptr(id) }.to_string_lossy().to_string();
+  let mgr = MCP_MANAGER.get().expect("MCP manager not initialized");
+  match futures::executor::block_on(mgr.remove_sse(&id)) {
+    Ok(_) => 0,
+    Err(_) => -1,
+  }
+}
+
+#[no_mangle]
+pub extern "C" fn mcp_check_stdio(command: *const c_char, args_json: *const c_char, env_json: *const c_char) -> *const u8 {
+  let cmd = unsafe { CStr::from_ptr(command) }.to_string_lossy().to_string();
+  let args_json = unsafe { CStr::from_ptr(args_json) }.to_string_lossy().to_string();
+  let env_json = unsafe { CStr::from_ptr(env_json) }.to_string_lossy().to_string();
+
+  let request = serde_json::json!({
+    "transport": "stdio",
+    "command": cmd,
+    "args": args_json,
+    "env": env_json,
+    "method": "tools/list",
+  });
+
+  #[cfg(feature = "mcp_stdio")]
+  {
+    use af_mcp::client::MCPServerConfig;
+    let mgr = MCP_MANAGER.get().expect("MCP manager not initialized");
+    let args_vec: Vec<String> = serde_json::from_str(&args_json).unwrap_or_default();
+    let env_map: std::collections::HashMap<String, String> = serde_json::from_str(&env_json).unwrap_or_default();
+    let cfg = MCPServerConfig { server_cmd: cmd.clone(), args: args_vec.clone(), env: env_map.clone() };
+    let rt = Builder::new_current_thread().enable_all().build();
+    let (ok, response_json, tool_count, server) = match rt {
+      Ok(rt) => {
+        let res = rt.block_on(async {
+          let fut = async {
+            let _ = mgr.connect_stdio(cfg.clone()).await?;
+            let v = mgr.tool_list_stdio(&cfg.server_cmd).await?;
+            let _ = mgr.remove_stdio(cfg.clone()).await;
+            // normalize into JSON
+            let obj = serde_json::to_value(&v).unwrap_or_else(|_| serde_json::json!({"server":"mcp-stdio","result":{"tools":[]}}));
+            let count = obj.get("result").and_then(|r| r.get("tools")).and_then(|a| a.as_array()).map(|a| a.len()).unwrap_or(0);
+            let server = obj.get("server").and_then(|s| s.as_str()).unwrap_or("").to_string();
+            tracing::debug!(?cfg, count, server, "mcp_check_stdio: tools listed");
+            Ok::<(serde_json::Value, usize, String), flowy_error::FlowyError>((obj, count, server))
+          };
+          match tokio::time::timeout(Duration::from_secs(30), fut).await {
+            Ok(r) => r,
+            Err(_) => Err(flowy_error::FlowyError::internal().with_context("mcp stdio timeout")),
+          }
+        });
+        match res {
+          Ok((obj, count, server)) => (true, obj.to_string(), count as i32, server),
+          Err(e) => (false, serde_json::json!({"error": e.to_string()}).to_string(), 0, String::new()),
+        }
+      },
+      Err(e) => (false, serde_json::json!({"error": format!("failed to init runtime: {}", e)}).to_string(), 0, String::new()),
+    };
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let body = serde_json::json!({
+      "ok": ok,
+      "requestJson": request.to_string(),
+      "responseJson": response_json,
+      "toolCount": tool_count,
+      "server": server,
+      "checkedAtIso": now,
+    }).to_string();
+
+    let bytes = body.into_bytes();
+    let result = extend_front_four_bytes_into_bytes(&bytes);
+    return forget_rust(result);
+  }
+
+  #[cfg(not(feature = "mcp_stdio"))]
+  {
+    let now = chrono::Utc::now().to_rfc3339();
+    let body = serde_json::json!({
+      "ok": false,
+      "requestJson": request.to_string(),
+      "responseJson": serde_json::json!({"error": "mcp_stdio feature not enabled"}).to_string(),
+      "toolCount": 0,
+      "server": "mcp-stdio",
+      "checkedAtIso": now,
+    }).to_string();
+    let bytes = body.into_bytes();
+    let result = extend_front_four_bytes_into_bytes(&bytes);
+    forget_rust(result)
+  }
 }
 
 struct LogStreamSenderImpl {

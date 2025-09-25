@@ -78,7 +78,7 @@
     - _Requirements: R-3.2。
     - Success: 聊天能看到“工具调用中…”提示，随后得到模拟结果与日志概要。
 
-- [ ] T6 FFI 与 Rust 实现：SSE + stdio（真实检查与调用）
+- [x] T6 FFI 与 Rust 实现：SSE + stdio（真实检查与调用）
   - 文件：
     - Rust：`rust-lib/flowy-ai/src/mcp/sse.rs`（新建）、扩展 `manager.rs`；
     - Dart：`appflowy_flutter/lib/ai/service/mcp_ffi.dart`（真实绑定）

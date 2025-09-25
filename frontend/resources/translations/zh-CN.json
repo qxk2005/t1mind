@@ -511,6 +511,17 @@
       "description": "管理 MCP 端点与基础设置",
       "emptyHint": "暂无端点，点击【创建】添加。",
       "androidDisabled": "在 Android 上禁用",
+      "actions": {
+        "checkOne": "检查",
+        "checkAll": "一键检查"
+      },
+      "dialog": {
+        "checkAllTitle": "正在检查所有 MCP 端点…",
+        "progress": "进度：{done}/{total}"
+      },
+      "result": {
+        "checkAllDone": "一键检查完成：成功 {ok}/{total}（失败 {failed}）"
+      },
       "field": {
         "name": "名称",
         "transport": "传输方式",

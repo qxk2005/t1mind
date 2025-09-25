@@ -14,6 +14,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:appflowy/ai/service/mcp_ffi.dart';
+import 'package:appflowy/ai/service/mcp_cache_service.dart';
 import 'package:appflowy/plugins/mcp/settings/mcp_check_dialog.dart';
 
 class SettingsMCPView extends StatefulWidget {
@@ -69,6 +70,7 @@ class _SettingsMCPViewState extends State<SettingsMCPView> {
   void _onCreate() async {
     final result = await showDialog<_McpEndpoint>(
       context: context,
+      barrierDismissible: false,
       builder: (context) => _EditMcpEndpointDialog(),
     );
     if (result != null) {
@@ -80,6 +82,7 @@ class _SettingsMCPViewState extends State<SettingsMCPView> {
   void _onEdit(int index) async {
     final result = await showDialog<_McpEndpoint>(
       context: context,
+      barrierDismissible: false,
       builder: (context) => _EditMcpEndpointDialog(initial: _items[index]),
     );
     if (result != null) {
@@ -97,12 +100,14 @@ class _SettingsMCPViewState extends State<SettingsMCPView> {
     await _save();
   }
 
-  void _onCheck(int index) async {
+  void _onCheck(int index, {bool forceRefresh = false}) async {
     final ep = _items[index];
     final cfg = McpEndpointConfig(
       name: ep.name,
-      transport: ep.transport == _McpTransport.sse
+      transport: ep.transport == _McpTransport.sseHttp
           ? McpTransport.sse
+          : ep.transport == _McpTransport.streamableHttp
+          ? McpTransport.streamableHttp
           : McpTransport.stdio,
       url: ep.url,
       command: ep.command,
@@ -110,9 +115,22 @@ class _SettingsMCPViewState extends State<SettingsMCPView> {
       env: ep.env,
       headers: ep.headers,
     );
+
+    // Check if we have existing AI descriptions cache for logging
+    if (!forceRefresh) {
+      final cacheService = McpCacheService();
+      final hasAiDescriptions = await cacheService.hasCachedAiDescriptions(cfg);
+      if (hasAiDescriptions) {
+        print('MCP Check: Found existing AI descriptions cache, dialog will use cached descriptions');
+      }
+    }
+
     final result = await showDialog<McpCheckResult>(
       context: context,
-      builder: (context) => McpCheckDialog(config: cfg),
+      builder: (context) => McpCheckDialog(
+        config: cfg,
+        forceRefresh: forceRefresh,
+      ),
     );
     if (result != null) {
       setState(() {
@@ -121,9 +139,100 @@ class _SettingsMCPViewState extends State<SettingsMCPView> {
             checkedOk: result.ok,
             toolsCount: result.toolCount,
             lastCheckedAt: result.checkedAtIso,
+            tools: result.parsed?.tools,
           );
       });
       await _save();
+    }
+  }
+
+  void _onRefreshCheck(int index) async {
+    _onCheck(index, forceRefresh: true);
+  }
+
+  void _onCheckAll() async {
+    if (_items.isEmpty) {
+      return;
+    }
+
+    int okCount = 0;
+    final total = _items.length;
+
+    // show simple loading dialog (no progress detail to keep implementation lightweight)
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return FlowyDialog(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 12),
+                Text('正在检查所有 MCP 端点…($total)')
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    // run checks sequentially
+    for (int i = 0; i < _items.length; i++) {
+      final ep = _items[i];
+      final cfg = McpEndpointConfig(
+        name: ep.name,
+        transport: ep.transport == _McpTransport.sseHttp
+            ? McpTransport.sse
+            : ep.transport == _McpTransport.streamableHttp
+            ? McpTransport.streamableHttp
+            : McpTransport.stdio,
+        url: ep.url,
+        command: ep.command,
+        args: ep.args,
+        env: ep.env,
+        headers: ep.headers,
+      );
+      try {
+        final result = await McpFfi.check(cfg);
+        okCount += result.ok ? 1 : 0;
+        setState(() {
+          _items = [..._items]
+            ..[i] = ep.copyWith(
+              checkedOk: result.ok,
+              toolsCount: result.toolCount,
+              lastCheckedAt: result.checkedAtIso,
+              tools: result.parsed?.tools,
+            );
+        });
+      } catch (_) {
+        setState(() {
+          _items = [..._items]
+            ..[i] = ep.copyWith(
+              checkedOk: false,
+              toolsCount: 0,
+              lastCheckedAt: DateTime.now().toUtc().toIso8601String(),
+            );
+        });
+      }
+      await _save();
+    }
+
+    if (mounted) {
+      Navigator.of(context).pop();
+      final failed = total - okCount;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('一键检查完成：成功 $okCount / $total' + (failed > 0 ? '（失败 $failed）' : '')),
+          duration: const Duration(seconds: 3),
+        ),
+      );
     }
   }
 
@@ -139,6 +248,11 @@ class _SettingsMCPViewState extends State<SettingsMCPView> {
               text: LocaleKeys.button_create.tr(),
               onTap: _onCreate,
             ),
+            const SizedBox(width: 8),
+            OutlinedRoundedButton(
+              text: '一键检查',
+              onTap: _onCheckAll,
+            ),
           ],
         ),
         const SizedBox(height: 8),
@@ -147,6 +261,7 @@ class _SettingsMCPViewState extends State<SettingsMCPView> {
           onEdit: _onEdit,
           onDelete: _onDelete,
           onCheck: _onCheck,
+          onRefreshCheck: _onRefreshCheck,
         ),
       ],
     );
@@ -159,12 +274,14 @@ class _McpEndpointList extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onCheck,
+    required this.onRefreshCheck,
   });
 
   final List<_McpEndpoint> items;
   final void Function(int index) onEdit;
   final void Function(int index) onDelete;
   final void Function(int index) onCheck;
+  final void Function(int index) onRefreshCheck;
 
   @override
   Widget build(BuildContext context) {
@@ -192,6 +309,7 @@ class _McpEndpointList extends StatelessWidget {
             onEdit: () => onEdit(i),
             onDelete: () => onDelete(i),
             onCheck: () => onCheck(i),
+            onRefreshCheck: () => onRefreshCheck(i),
           ),
       ],
     );
@@ -204,12 +322,14 @@ class _McpEndpointItem extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     required this.onCheck,
+    required this.onRefreshCheck,
   });
 
   final _McpEndpoint endpoint;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback onCheck;
+  final VoidCallback onRefreshCheck;
 
   @override
   Widget build(BuildContext context) {
@@ -237,8 +357,23 @@ class _McpEndpointItem extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               OutlinedRoundedButton(
-                text: 'Check',
+                text: 'settings.mcpPage.actions.checkOne'.tr(),
                 onTap: onCheck,
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                icon: Icon(
+                  Icons.refresh,
+                  size: 18,
+                  color: theme.textColorScheme.primary,
+                ),
+                onPressed: onRefreshCheck,
+                tooltip: '刷新检查',
+                padding: const EdgeInsets.all(4),
+                constraints: const BoxConstraints(
+                  minWidth: 28,
+                  minHeight: 28,
+                ),
               ),
               const SizedBox(width: 8),
               OutlinedRoundedButton(
@@ -266,6 +401,17 @@ class _McpEndpointItem extends StatelessWidget {
                 _Badge(text: LocaleKeys.settings_mcpPage_androidDisabled.tr()),
             ],
           ),
+          if (endpoint.tools != null && endpoint.tools!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final tool in endpoint.tools!)
+                  _ToolTag(tool: tool),
+              ],
+            ),
+          ],
           const SizedBox(height: 8),
           Text(
             endpoint.description ?? '',
@@ -301,6 +447,40 @@ class _Badge extends StatelessWidget {
   }
 }
 
+class _ToolTag extends StatelessWidget {
+  const _ToolTag({required this.tool});
+
+  final McpToolSchema tool;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = AppFlowyTheme.of(context);
+    return Tooltip(
+      message: tool.description ?? tool.name,
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: theme.spacing.s,
+          vertical: theme.spacing.xs,
+        ),
+        decoration: BoxDecoration(
+          color: theme.textColorScheme.primary.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: theme.textColorScheme.primary.withOpacity(0.3),
+            width: 1,
+          ),
+        ),
+        child: Text(
+          tool.name,
+          style: theme.textStyle.caption.standard(
+            color: theme.textColorScheme.primary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _EditMcpEndpointDialog extends StatefulWidget {
   const _EditMcpEndpointDialog({this.initial});
 
@@ -323,6 +503,8 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
   bool? _checkedOk;
   int? _toolsCount;
   String? _lastCheckedAt;
+  List<McpToolSchema>? _tools;
+  late _McpEndpoint _originalSnapshot;
 
   @override
   void initState() {
@@ -340,6 +522,8 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
     _checkedOk = widget.initial?.checkedOk;
     _toolsCount = widget.initial?.toolsCount;
     _lastCheckedAt = widget.initial?.lastCheckedAt;
+    _tools = widget.initial?.tools;
+    _originalSnapshot = _buildEndpoint();
   }
 
   List<_KVRow> _rowsFromMap(Map<String, String>? map) {
@@ -367,6 +551,70 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
     }
     if (entries.isEmpty) return null;
     return Map<String, String>.fromEntries(entries);
+  }
+
+  String _getTransportDisplayName(_McpTransport transport) {
+    switch (transport) {
+      case _McpTransport.stdio:
+        return 'STDIO';
+      case _McpTransport.sseHttp:
+        return 'SSE';
+      case _McpTransport.streamableHttp:
+        return 'STREAMABLE-HTTP';
+    }
+  }
+
+  _McpEndpoint _buildEndpoint() {
+    final args = _args.text
+        .split(' ')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    return _McpEndpoint(
+      name: _name.text.trim(),
+      transport: _transport,
+      url: _url.text.trim().isEmpty ? null : _url.text.trim(),
+      command: _command.text.trim().isEmpty ? null : _command.text.trim(),
+      args: args.isEmpty ? null : args,
+      disabledOnAndroid: _disabledOnAndroid,
+      description: _description.text.trim().isEmpty ? null : _description.text.trim(),
+      env: _transport == _McpTransport.stdio ? _mapFromRows(_envRows) : null,
+      headers: (_transport == _McpTransport.sseHttp || _transport == _McpTransport.streamableHttp) ? _mapFromRows(_headerRows) : null,
+      checkedOk: _checkedOk,
+      toolsCount: _toolsCount,
+      lastCheckedAt: _lastCheckedAt,
+      tools: _tools,
+    );
+  }
+
+  bool _endpointEquals(_McpEndpoint a, _McpEndpoint b) {
+    bool mapEq(Map<String, String>? x, Map<String, String>? y) {
+      if (x == null && y == null) return true;
+      if (x == null || y == null) return false;
+      if (x.length != y.length) return false;
+      for (final e in x.entries) {
+        if (y[e.key] != e.value) return false;
+      }
+      return true;
+    }
+    bool listEq(List<String>? x, List<String>? y) {
+      if (x == null && y == null) return true;
+      if (x == null || y == null) return false;
+      if (x.length != y.length) return false;
+      for (int i = 0; i < x.length; i++) {
+        if (x[i] != y[i]) return false;
+      }
+      return true;
+    }
+    return a.name == b.name &&
+        a.transport == b.transport &&
+        a.url == b.url &&
+        a.command == b.command &&
+        listEq(a.args, b.args) &&
+        a.disabledOnAndroid == b.disabledOnAndroid &&
+        a.description == b.description &&
+        mapEq(a.env, b.env) &&
+        mapEq(a.headers, b.headers);
   }
 
   @override
@@ -412,18 +660,18 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
                     items: _McpTransport.values
                         .map((e) => DropdownMenuItem<_McpTransport>(
                               value: e,
-                              child: Text(e.name.toUpperCase()),
+                              child: Text(_getTransportDisplayName(e)),
                             ))
                         .toList(),
                     onChanged: (v) => setState(() => _transport = v!),
                   ),
                 ),
-                if (_transport == _McpTransport.sse)
+                if (_transport == _McpTransport.sseHttp || _transport == _McpTransport.streamableHttp)
                   _LabeledField(
                     label: LocaleKeys.settings_mcpPage_field_url.tr(),
                     child: FlowyTextField(
                       controller: _url,
-                      hintText: 'https://example.com/sse',
+                      hintText: _transport == _McpTransport.sseHttp ? 'https://example.com/sse' : 'https://example.com/api',
                     ),
                   ),
                 if (_transport == _McpTransport.stdio) ...[
@@ -451,7 +699,7 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
                     onAdd: () => setState(() => _envRows.add(_KVRow.empty())),
                     onRemove: (i) => setState(() => _envRows.removeAt(i)),
                   ),
-                if (_transport == _McpTransport.sse)
+                if (_transport == _McpTransport.sseHttp || _transport == _McpTransport.streamableHttp)
                   _KVEditor(
                     title: LocaleKeys.settings_mcpPage_field_headers.tr(),
                     keyPlaceholder: LocaleKeys.settings_mcpPage_field_key.tr(),
@@ -499,7 +747,49 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
               children: [
                 OutlinedRoundedButton(
                   text: LocaleKeys.button_cancel.tr(),
-                  onTap: () => Navigator.of(context).pop(),
+                  onTap: () async {
+                    final current = _buildEndpoint();
+                    final changed = !_endpointEquals(current, _originalSnapshot);
+                    if (!changed) {
+                      Navigator.of(context).pop();
+                      return;
+                    }
+                    final shouldSave = await showDialog<bool>(
+                      context: context,
+                      builder: (context) => FlowyDialog(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('检测到未保存的更改，是否保存？'),
+                              const SizedBox(height: 16),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  OutlinedRoundedButton(
+                                    text: LocaleKeys.button_cancel.tr(),
+                                    onTap: () => Navigator.of(context).pop(false),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  AFFilledTextButton.primary(
+                                    text: LocaleKeys.button_save.tr(),
+                                    onTap: () => Navigator.of(context).pop(true),
+                                  ),
+                                ],
+                              )
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                    if (shouldSave == true) {
+                      Navigator.of(context).pop(current);
+                    } else if (shouldSave == false) {
+                      Navigator.of(context).pop();
+                    }
+                  },
                 ),
                 const SizedBox(width: 8),
                 OutlinedRoundedButton(
@@ -512,8 +802,10 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
                         .toList();
                     final cfg = McpEndpointConfig(
                       name: _name.text.trim(),
-                      transport: _transport == _McpTransport.sse
+                      transport: _transport == _McpTransport.sseHttp
                           ? McpTransport.sse
+                          : _transport == _McpTransport.streamableHttp
+                          ? McpTransport.streamableHttp
                           : McpTransport.stdio,
                       url: _url.text.trim().isEmpty ? null : _url.text.trim(),
                       command: _command.text.trim().isEmpty
@@ -523,19 +815,23 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
                       env: _transport == _McpTransport.stdio
                           ? _mapFromRows(_envRows)
                           : null,
-                      headers: _transport == _McpTransport.sse
+                      headers: (_transport == _McpTransport.sseHttp || _transport == _McpTransport.streamableHttp)
                           ? _mapFromRows(_headerRows)
                           : null,
                     );
                     final result = await showDialog<McpCheckResult>(
                       context: context,
-                      builder: (context) => McpCheckDialog(config: cfg),
+                      builder: (context) => McpCheckDialog(
+                        config: cfg,
+                        forceRefresh: false, // 编辑对话框中的检查不强制刷新
+                      ),
                     );
                     if (result != null && mounted) {
                       setState(() {
                         _checkedOk = result.ok;
                         _toolsCount = result.toolCount;
                         _lastCheckedAt = result.checkedAtIso;
+                        _tools = result.parsed?.tools;
                       });
                     }
                   },
@@ -544,34 +840,7 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
                 AFFilledTextButton.primary(
                   text: LocaleKeys.button_save.tr(),
                   onTap: () {
-                    final args = _args.text
-                        .split(' ')
-                        .map((e) => e.trim())
-                        .where((e) => e.isNotEmpty)
-                        .toList();
-                    final endpoint = _McpEndpoint(
-                      name: _name.text.trim(),
-                      transport: _transport,
-                      url: _url.text.trim().isEmpty ? null : _url.text.trim(),
-                      command: _command.text.trim().isEmpty
-                          ? null
-                          : _command.text.trim(),
-                      args: args.isEmpty ? null : args,
-                      disabledOnAndroid: _disabledOnAndroid,
-                      description: _description.text.trim().isEmpty
-                          ? null
-                          : _description.text.trim(),
-                      env: _transport == _McpTransport.stdio
-                          ? _mapFromRows(_envRows)
-                          : null,
-                      headers: _transport == _McpTransport.sse
-                          ? _mapFromRows(_headerRows)
-                          : null,
-                      checkedOk: _checkedOk,
-                      toolsCount: _toolsCount,
-                      lastCheckedAt: _lastCheckedAt,
-                    );
-                    Navigator.of(context).pop(endpoint);
+                    Navigator.of(context).pop(_buildEndpoint());
                   },
                 ),
               ],
@@ -704,7 +973,7 @@ class _KVEditor extends StatelessWidget {
   }
 }
 
-enum _McpTransport { stdio, sse }
+enum _McpTransport { stdio, sseHttp, streamableHttp }
 
 class _McpEndpoint {
   _McpEndpoint({
@@ -720,6 +989,7 @@ class _McpEndpoint {
     this.checkedOk,
     this.toolsCount,
     this.lastCheckedAt,
+    this.tools,
   });
 
   final String name;
@@ -734,6 +1004,7 @@ class _McpEndpoint {
   final bool? checkedOk;
   final int? toolsCount;
   final String? lastCheckedAt;
+  final List<McpToolSchema>? tools;
 
   Map<String, dynamic> toJson() => {
         'name': name,
@@ -748,12 +1019,26 @@ class _McpEndpoint {
         if (checkedOk != null) 'checkedOk': checkedOk,
         if (toolsCount != null) 'toolsCount': toolsCount,
         if (lastCheckedAt != null) 'lastCheckedAt': lastCheckedAt,
+        if (tools != null) 'tools': tools!.map((t) => t.toJson()).toList(),
       };
+
+  static _McpTransport _parseTransportFromJson(String transportStr) {
+    switch (transportStr) {
+      case 'sse': // backward compatibility
+        return _McpTransport.sseHttp;
+      case 'sseHttp':
+        return _McpTransport.sseHttp;
+      case 'streamableHttp':
+        return _McpTransport.streamableHttp;
+      case 'stdio':
+      default:
+        return _McpTransport.stdio;
+    }
+  }
 
   static _McpEndpoint fromJson(Map<String, dynamic> json) => _McpEndpoint(
         name: json['name'] as String,
-        transport: _McpTransport.values
-            .byName((json['transport'] as String?) ?? 'stdio'),
+        transport: _parseTransportFromJson((json['transport'] as String?) ?? 'stdio'),
         url: json['url'] as String?,
         command: json['command'] as String?,
         args: (json['args'] as List?)?.map((e) => e.toString()).toList(),
@@ -764,12 +1049,14 @@ class _McpEndpoint {
         checkedOk: json['checkedOk'] as bool?,
         toolsCount: (json['toolsCount'] as num?)?.toInt(),
         lastCheckedAt: json['lastCheckedAt'] as String?,
+        tools: (json['tools'] as List?)?.map((t) => McpToolSchema.fromJson(t as Map<String, dynamic>)).toList(),
       );
 
   _McpEndpoint copyWith({
     bool? checkedOk,
     int? toolsCount,
     String? lastCheckedAt,
+    List<McpToolSchema>? tools,
   }) {
     return _McpEndpoint(
       name: name,
@@ -784,6 +1071,7 @@ class _McpEndpoint {
       checkedOk: checkedOk ?? this.checkedOk,
       toolsCount: toolsCount ?? this.toolsCount,
       lastCheckedAt: lastCheckedAt ?? this.lastCheckedAt,
+      tools: tools ?? this.tools,
     );
   }
 }

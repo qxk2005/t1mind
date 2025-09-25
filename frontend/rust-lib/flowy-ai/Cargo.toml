@@ -36,6 +36,7 @@ anyhow = "1.0.86"
 tokio-stream.workspace = true
 tokio-util = { workspace = true, features = ["full"] }
 reqwest = { version = "0.11.27", features = ["json", "stream"] }
+ureq = { version = "2.10", features = ["json"] }
 sha2 = "0.10.7"
 base64 = "0.21.5"
 futures-util = "0.3.30"
@@ -49,6 +50,7 @@ flowy-database-pub = { workspace = true }
 langchain-rust = { version = "4.6.0", features = ["ollama"] }
 text-splitter = { version = "0.25.1" }
 flowy-sqlite-vec.workspace = true
+af_mcp = { path = "../af_mcp", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))'.dependencies]
 notify = "6.1.1"
@@ -73,3 +75,4 @@ dart = ["flowy-codegen/dart", "flowy-notification/dart"]
 local_ai = []
 file_reader = ["lopdf", "pulldown-cmark"]
 ai-tool = []
+mcp_stdio = ["af_mcp"]

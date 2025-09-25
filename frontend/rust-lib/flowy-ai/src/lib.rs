@@ -7,8 +7,11 @@ mod completion;
 pub mod entities;
 pub mod local_ai;
 
-// #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
-// pub mod mcp;
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux", target_os = "android"))]
+pub mod mcp;
+
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux", target_os = "android"))]
+pub use mcp::streamable_http::streamable_http_tools_list;
 
 #[cfg(feature = "ai-tool")]
 mod ai_tool;

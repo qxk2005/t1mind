@@ -4,6 +4,7 @@ members = [
   "lib-log",
   "flowy-core",
   "dart-ffi",
+  "af_mcp",
   "flowy-user",
   "flowy-user-pub",
   "event-integration-test",
