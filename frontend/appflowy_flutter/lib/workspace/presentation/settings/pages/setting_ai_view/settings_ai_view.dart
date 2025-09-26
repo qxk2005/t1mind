@@ -8,6 +8,7 @@ import 'package:appflowy/workspace/presentation/widgets/toggle/toggle.dart';
 import 'package:appflowy/plugins/ai_chat/application/agent_config_bloc.dart';
 import 'package:appflowy/plugins/ai_chat/application/task_planner_entities.dart';
 import 'package:appflowy/plugins/ai_chat/application/execution_log_entities.dart' as log_entities;
+import 'package:appflowy/plugins/ai_chat/application/mcp_tools_service.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/protobuf.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flowy_infra_ui/style_widget/text.dart';
@@ -446,6 +447,7 @@ class _McpToolsSection extends StatefulWidget {
 class _McpToolsSectionState extends State<_McpToolsSection> {
   List<log_entities.McpToolInfo> _availableTools = [];
   bool _isLoading = false;
+  final McpToolsService _mcpToolsService = McpToolsService();
 
   @override
   void initState() {
@@ -459,62 +461,15 @@ class _McpToolsSectionState extends State<_McpToolsSection> {
     });
 
     try {
-      // TODO: 从Rust层获取可用的MCP工具列表
-      // 这里暂时使用模拟数据
-      await Future.delayed(const Duration(milliseconds: 500));
-      
-      _availableTools = [
-        log_entities.McpToolInfo(
-          id: 'file-manager',
-          name: 'File Manager',
-          displayName: '文件管理器',
-          description: '管理文件和目录操作',
-          category: 'System',
-          status: log_entities.McpToolStatus.available,
-          provider: 'AppFlowy',
-          version: '1.0.0',
-          usageCount: 15,
-          successCount: 14,
-          failureCount: 1,
-          averageExecutionTimeMs: 250,
-          lastChecked: DateTime.now().subtract(const Duration(minutes: 5)),
-          lastUsed: DateTime.now().subtract(const Duration(hours: 2)),
-        ),
-        log_entities.McpToolInfo(
-          id: 'web-search',
-          name: 'Web Search',
-          displayName: '网络搜索',
-          description: '搜索互联网信息',
-          category: 'Search',
-          status: log_entities.McpToolStatus.available,
-          provider: 'Google',
-          version: '2.1.0',
-          usageCount: 42,
-          successCount: 40,
-          failureCount: 2,
-          averageExecutionTimeMs: 1200,
-          lastChecked: DateTime.now().subtract(const Duration(minutes: 1)),
-          lastUsed: DateTime.now().subtract(const Duration(minutes: 30)),
-        ),
-        log_entities.McpToolInfo(
-          id: 'code-analyzer',
-          name: 'Code Analyzer',
-          displayName: '代码分析器',
-          description: '分析和理解代码结构',
-          category: 'Development',
-          status: log_entities.McpToolStatus.unavailable,
-          provider: 'AppFlowy',
-          version: '1.5.0',
-          usageCount: 8,
-          successCount: 6,
-          failureCount: 2,
-          averageExecutionTimeMs: 800,
-          lastChecked: DateTime.now().subtract(const Duration(minutes: 10)),
-          lastUsed: DateTime.now().subtract(const Duration(days: 1)),
-        ),
-      ];
+      final tools = await _mcpToolsService.getAvailableTools();
+      setState(() {
+        _availableTools = tools;
+      });
     } catch (e) {
       // 处理错误
+      setState(() {
+        _availableTools = [];
+      });
     } finally {
       setState(() {
         _isLoading = false;
@@ -562,8 +517,8 @@ class _McpToolsSectionState extends State<_McpToolsSection> {
               ),
               const SizedBox(width: 8),
               FlowyButton(
-                text: FlowyText.regular('添加工具'),
-                onTap: () => _showAddToolDialog(context),
+                text: FlowyText.regular('管理MCP端点'),
+                onTap: () => _navigateToMcpSettings(context),
               ),
               const SizedBox(width: 8),
               FlowyButton(
@@ -577,17 +532,25 @@ class _McpToolsSectionState extends State<_McpToolsSection> {
     );
   }
 
-  void _showAddToolDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => const _AddMcpToolDialog(),
-    );
-  }
 
   void _showToolSettingsDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (context) => _McpToolSettingsDialog(tools: _availableTools),
+    );
+  }
+
+  void _navigateToMcpSettings(BuildContext context) {
+    // 通过显示提示信息引导用户到MCP设置页面
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('请在设置菜单中选择"MCP"页面来管理MCP端点配置'),
+        action: SnackBarAction(
+          label: '了解',
+          onPressed: () {},
+        ),
+        duration: const Duration(seconds: 4),
+      ),
     );
   }
 }
@@ -858,27 +821,6 @@ class _ImportConfigDialog extends StatelessWidget {
   }
 }
 
-class _AddMcpToolDialog extends StatelessWidget {
-  const _AddMcpToolDialog();
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('添加MCP工具'),
-      content: const Text('添加MCP工具对话框 - 待实现'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('取消'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('添加'),
-        ),
-      ],
-    );
-  }
-}
 
 class _McpToolSettingsDialog extends StatelessWidget {
   const _McpToolSettingsDialog({required this.tools});

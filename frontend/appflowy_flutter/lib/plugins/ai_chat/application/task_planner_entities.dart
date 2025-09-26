@@ -132,8 +132,8 @@ class TaskPlan with _$TaskPlan {
     required String overallStrategy,
     /// 任务步骤列表
     @Default([]) List<TaskStep> steps,
-    /// 所需的MCP工具ID列表
-    @Default([]) List<String> requiredMcpTools,
+    /// 所需的MCP端点ID列表
+    @Default([]) List<String> requiredMcpEndpoints,
     /// 创建时间
     required DateTime createdAt,
     /// 任务状态
@@ -162,8 +162,10 @@ class TaskStep with _$TaskStep {
     required String id,
     /// 步骤描述
     required String description,
-    /// 使用的MCP工具ID
-    required String mcpToolId,
+    /// 使用的MCP工具ID（可选，如果为null则由AI自动选择）
+    String? mcpToolId,
+    /// 使用的MCP端点ID（可选）
+    String? mcpEndpointId,
     /// 工具调用参数
     @Default({}) Map<String, dynamic> parameters,
     /// 依赖的步骤ID列表

@@ -107,56 +107,71 @@ class _McpToolSelectorState extends State<McpToolSelector> {
   }
 
   void _updateFilteredTools() {
-    _filteredTools = widget.availableTools.where((tool) {
-      // 搜索过滤
-      if (_searchKeyword.isNotEmpty) {
-        final keyword = _searchKeyword.toLowerCase();
-        final matchesName = tool.name.toLowerCase().contains(keyword);
-        final matchesDisplayName = 
-            tool.displayName?.toLowerCase().contains(keyword) ?? false;
-        final matchesDescription = tool.description.toLowerCase().contains(keyword);
-        final matchesProvider = tool.provider.toLowerCase().contains(keyword);
+    try {
+      _filteredTools = widget.availableTools.where((tool) {
+        // 搜索过滤
+        if (_searchKeyword.isNotEmpty) {
+          final keyword = _searchKeyword.toLowerCase();
+          final matchesName = tool.name.toLowerCase().contains(keyword);
+          final matchesDisplayName = 
+              tool.displayName?.toLowerCase().contains(keyword) ?? false;
+          final matchesDescription = tool.description.toLowerCase().contains(keyword);
+          final matchesProvider = tool.provider.toLowerCase().contains(keyword);
+          
+          if (!matchesName && !matchesDisplayName && !matchesDescription && !matchesProvider) {
+            return false;
+          }
+        }
         
-        if (!matchesName && !matchesDisplayName && !matchesDescription && !matchesProvider) {
-          return false;
+        // 分类过滤
+        if (_selectedCategory != null && _selectedCategory!.isNotEmpty) {
+          if (tool.category != _selectedCategory) {
+            return false;
+          }
         }
-      }
+        
+        return true;
+      }).toList();
       
-      // 分类过滤
-      if (_selectedCategory != null && _selectedCategory!.isNotEmpty) {
-        if (tool.category != _selectedCategory) {
-          return false;
+      // 按状态和使用频率排序
+      _filteredTools.sort((a, b) {
+        try {
+          // 首先按状态排序（可用的在前）
+          final aAvailable = a.status.isAvailable ? 1 : 0;
+          final bAvailable = b.status.isAvailable ? 1 : 0;
+          final statusCompare = bAvailable.compareTo(aAvailable);
+          if (statusCompare != 0) return statusCompare;
+          
+          // 然后按使用次数排序（使用多的在前）
+          final usageCompare = b.usageCount.compareTo(a.usageCount);
+          if (usageCompare != 0) return usageCompare;
+          
+          // 最后按名称排序
+          return a.name.compareTo(b.name);
+        } catch (e) {
+          // 如果排序出错，按名称排序
+          return a.name.compareTo(b.name);
         }
-      }
-      
-      return true;
-    }).toList();
-    
-    // 按状态和使用频率排序
-    _filteredTools.sort((a, b) {
-      // 首先按状态排序（可用的在前）
-      final aAvailable = a.status.isAvailable ? 1 : 0;
-      final bAvailable = b.status.isAvailable ? 1 : 0;
-      final statusCompare = bAvailable.compareTo(aAvailable);
-      if (statusCompare != 0) return statusCompare;
-      
-      // 然后按使用次数排序（使用多的在前）
-      final usageCompare = b.usageCount.compareTo(a.usageCount);
-      if (usageCompare != 0) return usageCompare;
-      
-      // 最后按名称排序
-      return a.name.compareTo(b.name);
-    });
+      });
+    } catch (e) {
+      // 如果过滤出错，使用原始列表
+      _filteredTools = List.from(widget.availableTools);
+    }
   }
 
   void _updateAvailableCategories() {
-    final categories = widget.availableTools
-        .map((tool) => tool.category)
-        .where((category) => category.isNotEmpty)
-        .toSet()
-        .toList();
-    categories.sort();
-    _availableCategories = categories;
+    try {
+      final categories = widget.availableTools
+          .map((tool) => tool.category)
+          .where((category) => category.isNotEmpty)
+          .toSet()
+          .toList();
+      categories.sort();
+      _availableCategories = categories;
+    } catch (e) {
+      // 如果出错，使用空列表
+      _availableCategories = [];
+    }
   }
 
   void _onSearchChanged(String keyword) {
@@ -496,21 +511,38 @@ class _McpToolSelectorState extends State<McpToolSelector> {
       );
     }
 
+    // 限制显示的工具数量，避免性能问题
+    final displayTools = _filteredTools.take(50).toList();
+    
     return Flexible(
       child: ListView.builder(
         shrinkWrap: true,
-        itemCount: _filteredTools.length,
+        physics: const ClampingScrollPhysics(),
+        itemCount: displayTools.length,
         itemBuilder: (context, index) {
-          final tool = _filteredTools[index];
-          return _buildToolItem(tool);
+          try {
+            final tool = displayTools[index];
+            return _buildToolItem(tool);
+          } catch (e) {
+            // 如果构建单个工具项出错，显示错误信息
+            return Container(
+              padding: const EdgeInsets.all(8),
+              child: FlowyText.regular(
+                '工具加载错误',
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.error,
+              ),
+            );
+          }
         },
       ),
     );
   }
 
   Widget _buildToolItem(log_entities.McpToolInfo tool) {
-    final isSelected = _selectedToolIds.contains(tool.id);
-    final statusInfo = _getToolStatusInfo(tool.status);
+    try {
+      final isSelected = _selectedToolIds.contains(tool.id);
+      final statusInfo = _getToolStatusInfo(tool.status);
     
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -622,6 +654,34 @@ class _McpToolSelectorState extends State<McpToolSelector> {
         ),
       ),
     );
+    } catch (e) {
+      // 如果构建工具项出错，返回简化版本
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(6),
+          color: Theme.of(context).colorScheme.error.withOpacity(0.1),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.error,
+              size: 16,
+              color: Theme.of(context).colorScheme.error,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: FlowyText.regular(
+                '工具 "${tool.name}" 加载错误',
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.error,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   Widget _buildStatusIndicator(_ToolStatusInfo statusInfo) {
@@ -700,34 +760,42 @@ class _McpToolSelectorState extends State<McpToolSelector> {
   }
 
   _ToolStatusInfo _getToolStatusInfo(log_entities.McpToolStatus status) {
-    switch (status) {
-      case log_entities.McpToolStatus.available:
-      case log_entities.McpToolStatus.connected:
-        return _ToolStatusInfo(
-          color: AFThemeExtension.of(context).success ?? Colors.green,
-          label: "可用",
-        );
-      case log_entities.McpToolStatus.connecting:
-        return _ToolStatusInfo(
-          color: Colors.orange,
-          label: "连接中",
-        );
-      case log_entities.McpToolStatus.unavailable:
-      case log_entities.McpToolStatus.disconnected:
-        return _ToolStatusInfo(
-          color: Theme.of(context).colorScheme.error,
-          label: "不可用",
-        );
-      case log_entities.McpToolStatus.error:
-        return _ToolStatusInfo(
-          color: Theme.of(context).colorScheme.error,
-          label: "错误",
-        );
-      case log_entities.McpToolStatus.unknown:
-        return _ToolStatusInfo(
-          color: AFThemeExtension.of(context).textColor,
-          label: "未知",
-        );
+    try {
+      switch (status) {
+        case log_entities.McpToolStatus.available:
+        case log_entities.McpToolStatus.connected:
+          return _ToolStatusInfo(
+            color: AFThemeExtension.of(context).success ?? Colors.green,
+            label: "可用",
+          );
+        case log_entities.McpToolStatus.connecting:
+          return _ToolStatusInfo(
+            color: Colors.orange,
+            label: "连接中",
+          );
+        case log_entities.McpToolStatus.unavailable:
+        case log_entities.McpToolStatus.disconnected:
+          return _ToolStatusInfo(
+            color: Theme.of(context).colorScheme.error,
+            label: "不可用",
+          );
+        case log_entities.McpToolStatus.error:
+          return _ToolStatusInfo(
+            color: Theme.of(context).colorScheme.error,
+            label: "错误",
+          );
+        case log_entities.McpToolStatus.unknown:
+          return _ToolStatusInfo(
+            color: AFThemeExtension.of(context).textColor,
+            label: "未知",
+          );
+      }
+    } catch (e) {
+      // 如果获取状态信息出错，返回默认状态
+      return _ToolStatusInfo(
+        color: Colors.grey,
+        label: "未知",
+      );
     }
   }
 }

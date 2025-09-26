@@ -5,8 +5,8 @@ import 'package:appflowy/plugins/ai_chat/presentation/layout_define.dart';
 import 'package:appflowy/plugins/mcp/chat/mcp_selector.dart';
 import 'package:appflowy/plugins/ai_chat/application/task_planner_bloc.dart';
 import 'package:appflowy/plugins/ai_chat/application/task_planner_entities.dart';
-import 'package:appflowy/plugins/ai_chat/application/execution_log_entities.dart' as log_entities;
-import 'package:appflowy/plugins/ai_chat/presentation/mcp_tool_selector.dart';
+import 'package:appflowy/plugins/ai_chat/application/mcp_endpoint_service.dart';
+import 'package:appflowy/plugins/ai_chat/presentation/mcp_endpoint_selector.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/task_confirmation_dialog.dart';
 import 'package:appflowy/workspace/presentation/home/home_stack.dart';
 import 'package:appflowy_backend/protobuf/flowy-folder/view.pb.dart';
@@ -32,18 +32,37 @@ class _ChatFooterState extends State<ChatFooter> {
   final ValueNotifier<List<String>> _selectedMcpNames = ValueNotifier([]);
   
   // 任务规划相关状态
-  final ValueNotifier<List<String>> _selectedToolIds = ValueNotifier([]);
+  final ValueNotifier<List<String>> _selectedEndpointIds = ValueNotifier([]);
   final ValueNotifier<bool> _enableTaskPlanning = ValueNotifier(false);
-  final List<log_entities.McpToolInfo> _availableTools = [];
+  final ValueNotifier<List<McpEndpointInfo>> _availableEndpoints = ValueNotifier([]);
+  final McpEndpointService _mcpEndpointService = McpEndpointService();
   TaskPlan? _pendingTaskPlan;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAvailableEndpoints();
+  }
 
   @override
   void dispose() {
     textController.dispose();
     _selectedMcpNames.dispose();
-    _selectedToolIds.dispose();
+    _selectedEndpointIds.dispose();
     _enableTaskPlanning.dispose();
+    _availableEndpoints.dispose();
     super.dispose();
+  }
+
+  /// 加载可用的MCP端点
+  Future<void> _loadAvailableEndpoints() async {
+    try {
+      final endpoints = await _mcpEndpointService.getAvailableEndpoints();
+      _availableEndpoints.value = endpoints;
+    } catch (e) {
+      Log.error('Failed to load MCP endpoints: $e');
+      _availableEndpoints.value = [];
+    }
   }
 
   @override
@@ -94,8 +113,8 @@ class _ChatFooterState extends State<ChatFooter> {
               if (_selectedMcpNames.value.isNotEmpty) {
                 metadata['mcpNames'] = _selectedMcpNames.value;
               }
-              if (_selectedToolIds.value.isNotEmpty) {
-                metadata['selectedToolIds'] = _selectedToolIds.value;
+              if (_selectedEndpointIds.value.isNotEmpty) {
+                metadata['selectedEndpointIds'] = _selectedEndpointIds.value;
               }
               
               // 隐藏加载提示
@@ -257,9 +276,9 @@ class _ChatFooterState extends State<ChatFooter> {
           valueListenable: _enableTaskPlanning,
           builder: (context, taskPlanningEnabled, child) {
             return ValueListenableBuilder<List<String>>(
-              valueListenable: _selectedToolIds,
-              builder: (context, selectedToolIds, child) {
-                final hasAdvancedFeatures = taskPlanningEnabled || selectedToolIds.isNotEmpty;
+              valueListenable: _selectedEndpointIds,
+              builder: (context, selectedEndpointIds, child) {
+                final hasAdvancedFeatures = taskPlanningEnabled || selectedEndpointIds.isNotEmpty;
                 
                 if (!hasAdvancedFeatures) {
                   return _buildAdvancedFeaturesButton(context, isMobile);
@@ -269,7 +288,7 @@ class _ChatFooterState extends State<ChatFooter> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const SizedBox(width: 8),
-                    _buildAdvancedFeaturesIndicator(context, isMobile, taskPlanningEnabled, selectedToolIds),
+                    _buildAdvancedFeaturesIndicator(context, isMobile, taskPlanningEnabled, selectedEndpointIds),
                   ],
                 );
               },
@@ -303,11 +322,11 @@ class _ChatFooterState extends State<ChatFooter> {
     BuildContext context, 
     bool isMobile, 
     bool taskPlanningEnabled, 
-    List<String> selectedToolIds,
+    List<String> selectedEndpointIds,
   ) {
     final features = <String>[];
     if (taskPlanningEnabled) features.add('任务规划');
-    if (selectedToolIds.isNotEmpty) features.add('${selectedToolIds.length}个工具');
+    if (selectedEndpointIds.isNotEmpty) features.add('${selectedEndpointIds.length}个端点');
     
     return Tooltip(
       message: '已启用: ${features.join(', ')}',
@@ -368,14 +387,14 @@ class _ChatFooterState extends State<ChatFooter> {
       m[messageSelectedMcpNamesKey] = _selectedMcpNames.value;
     }
     
-    // 添加选中的工具ID
-    if (_selectedToolIds.value.isNotEmpty) {
-      m['selectedToolIds'] = _selectedToolIds.value;
+    // 添加选中的端点ID
+    if (_selectedEndpointIds.value.isNotEmpty) {
+      m['selectedEndpointIds'] = _selectedEndpointIds.value;
     }
     
     // 如果启用了任务规划，先创建任务规划
     if (_enableTaskPlanning.value) {
-      _createTaskPlan(context, text, _selectedToolIds.value);
+      _createTaskPlan(context, text, _selectedEndpointIds.value);
     } else {
       // 直接发送消息
       chatBloc.add(
@@ -390,7 +409,7 @@ class _ChatFooterState extends State<ChatFooter> {
   }
 
   /// 创建任务规划
-  void _createTaskPlan(BuildContext context, String userQuery, List<String> toolIds) {
+  void _createTaskPlan(BuildContext context, String userQuery, List<String> endpointIds) {
     try {
       final taskPlannerBloc = context.read<TaskPlannerBloc>();
       
@@ -405,7 +424,7 @@ class _ChatFooterState extends State<ChatFooter> {
       taskPlannerBloc.add(
         TaskPlannerEvent.createTaskPlan(
           userQuery: userQuery,
-          mcpTools: toolIds,
+          mcpEndpoints: endpointIds,
         ),
       );
     } catch (error) {
@@ -488,15 +507,21 @@ class _ChatFooterState extends State<ChatFooter> {
   void _showAdvancedFeaturesDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => _AdvancedFeaturesDialog(
-        enableTaskPlanning: _enableTaskPlanning.value,
-        selectedToolIds: _selectedToolIds.value,
-        availableTools: _availableTools,
-        onTaskPlanningChanged: (enabled) {
-          _enableTaskPlanning.value = enabled;
-        },
-        onToolSelectionChanged: (toolIds) {
-          _selectedToolIds.value = toolIds;
+      builder: (context) => ValueListenableBuilder<List<McpEndpointInfo>>(
+        valueListenable: _availableEndpoints,
+        builder: (context, availableEndpoints, child) {
+          return _AdvancedFeaturesDialog(
+            enableTaskPlanning: _enableTaskPlanning.value,
+            selectedEndpointIds: _selectedEndpointIds.value,
+            availableEndpoints: availableEndpoints,
+            onTaskPlanningChanged: (enabled) {
+              _enableTaskPlanning.value = enabled;
+            },
+            onEndpointSelectionChanged: (endpointIds) {
+              _selectedEndpointIds.value = endpointIds;
+            },
+            onRefreshEndpoints: _loadAvailableEndpoints,
+          );
         },
       ),
     );
@@ -507,17 +532,19 @@ class _ChatFooterState extends State<ChatFooter> {
 class _AdvancedFeaturesDialog extends StatefulWidget {
   const _AdvancedFeaturesDialog({
     required this.enableTaskPlanning,
-    required this.selectedToolIds,
-    required this.availableTools,
+    required this.selectedEndpointIds,
+    required this.availableEndpoints,
     required this.onTaskPlanningChanged,
-    required this.onToolSelectionChanged,
+    required this.onEndpointSelectionChanged,
+    required this.onRefreshEndpoints,
   });
 
   final bool enableTaskPlanning;
-  final List<String> selectedToolIds;
-  final List<log_entities.McpToolInfo> availableTools;
+  final List<String> selectedEndpointIds;
+  final List<McpEndpointInfo> availableEndpoints;
   final ValueChanged<bool> onTaskPlanningChanged;
-  final ValueChanged<List<String>> onToolSelectionChanged;
+  final ValueChanged<List<String>> onEndpointSelectionChanged;
+  final VoidCallback onRefreshEndpoints;
 
   @override
   State<_AdvancedFeaturesDialog> createState() => _AdvancedFeaturesDialogState();
@@ -525,13 +552,13 @@ class _AdvancedFeaturesDialog extends StatefulWidget {
 
 class _AdvancedFeaturesDialogState extends State<_AdvancedFeaturesDialog> {
   late bool _enableTaskPlanning;
-  late List<String> _selectedToolIds;
+  late List<String> _selectedEndpointIds;
 
   @override
   void initState() {
     super.initState();
     _enableTaskPlanning = widget.enableTaskPlanning;
-    _selectedToolIds = List.from(widget.selectedToolIds);
+    _selectedEndpointIds = List.from(widget.selectedEndpointIds);
   }
 
   @override
@@ -559,7 +586,7 @@ class _AdvancedFeaturesDialogState extends State<_AdvancedFeaturesDialog> {
             
             // MCP工具选择
             const Text(
-              'MCP工具选择',
+              'MCP端点选择',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w500,
@@ -567,7 +594,7 @@ class _AdvancedFeaturesDialogState extends State<_AdvancedFeaturesDialog> {
             ),
             const SizedBox(height: 8),
             const Text(
-              '选择要在对话中使用的MCP工具',
+              'AI将从选中的端点中自动选择合适的工具来完成任务',
               style: TextStyle(
                 fontSize: 12,
                 color: Colors.grey,
@@ -575,18 +602,17 @@ class _AdvancedFeaturesDialogState extends State<_AdvancedFeaturesDialog> {
             ),
             const SizedBox(height: 12),
             
-            // 工具选择器
-            if (widget.availableTools.isNotEmpty)
-              McpToolSelector(
-                availableTools: widget.availableTools,
-                selectedToolIds: _selectedToolIds,
-                onSelectionChanged: (toolIds) {
+            // 端点选择器
+            if (widget.availableEndpoints.isNotEmpty)
+              McpEndpointSelector(
+                availableEndpoints: widget.availableEndpoints,
+                selectedEndpointIds: _selectedEndpointIds,
+                onSelectionChanged: (endpointIds) {
                   setState(() {
-                    _selectedToolIds = toolIds;
+                    _selectedEndpointIds = endpointIds;
                   });
                 },
                 maxHeight: 300,
-                compactMode: true,
               )
             else
               Container(
@@ -595,9 +621,19 @@ class _AdvancedFeaturesDialogState extends State<_AdvancedFeaturesDialog> {
                   color: Colors.grey.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Text(
-                  '暂无可用的MCP工具',
-                  style: TextStyle(color: Colors.grey),
+                child: Column(
+                  children: [
+                    const Text(
+                      '暂无可用的MCP端点',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: widget.onRefreshEndpoints,
+                      icon: const Icon(Icons.refresh, size: 16),
+                      label: const Text('刷新端点列表'),
+                    ),
+                  ],
                 ),
               ),
           ],
@@ -611,7 +647,7 @@ class _AdvancedFeaturesDialogState extends State<_AdvancedFeaturesDialog> {
         ElevatedButton(
           onPressed: () {
             widget.onTaskPlanningChanged(_enableTaskPlanning);
-            widget.onToolSelectionChanged(_selectedToolIds);
+            widget.onEndpointSelectionChanged(_selectedEndpointIds);
             Navigator.of(context).pop();
           },
           child: const Text('确定'),

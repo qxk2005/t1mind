@@ -10,7 +10,7 @@ void main() {
     const testUserId = 'test-user-456';
     const testUserQuery = '帮我分析这个文档并生成摘要';
     const testAgentId = 'test-agent-789';
-    final testMcpTools = ['file-reader', 'text-analyzer', 'summary-generator'];
+    final testMcpEndpoints = ['file-reader', 'text-analyzer', 'summary-generator'];
 
     late TaskPlannerBloc bloc;
 
@@ -72,7 +72,7 @@ void main() {
         act: (bloc) => bloc.add(
           TaskPlannerEvent.createTaskPlan(
             userQuery: testUserQuery,
-            mcpTools: testMcpTools,
+            mcpEndpoints: testMcpEndpoints,
             agentId: testAgentId,
           ),
         ),
@@ -87,7 +87,7 @@ void main() {
               .having((s) => s.status, 'status', TaskPlannerStatus.waitingConfirmation)
               .having((s) => s.currentTaskPlan, 'currentTaskPlan', isNotNull)
               .having((s) => s.currentTaskPlan!.userQuery, 'userQuery', testUserQuery)
-              .having((s) => s.currentTaskPlan!.requiredMcpTools, 'mcpTools', testMcpTools)
+              .having((s) => s.currentTaskPlan!.requiredMcpEndpoints, 'mcpEndpoints', testMcpEndpoints)
               .having((s) => s.currentTaskPlan!.agentId, 'agentId', testAgentId)
               .having((s) => s.currentTaskPlan!.sessionId, 'sessionId', testSessionId)
               .having((s) => s.currentTaskPlan!.status, 'planStatus', TaskPlanStatus.pendingConfirmation)
@@ -106,7 +106,7 @@ void main() {
         act: (bloc) => bloc.add(
           TaskPlannerEvent.createTaskPlan(
             userQuery: testUserQuery,
-            mcpTools: [],
+            mcpEndpoints: [],
           ),
         ),
         wait: const Duration(milliseconds: 600),
@@ -133,7 +133,7 @@ void main() {
         act: (bloc) => bloc.add(
           TaskPlannerEvent.createTaskPlan(
             userQuery: testUserQuery,
-            mcpTools: testMcpTools,
+            mcpEndpoints: testMcpEndpoints,
           ),
         ),
         wait: const Duration(milliseconds: 100),
@@ -153,7 +153,7 @@ void main() {
           bloc.add(
             TaskPlannerEvent.createTaskPlan(
               userQuery: testUserQuery,
-              mcpTools: testMcpTools,
+              mcpEndpoints: testMcpEndpoints,
               agentId: testAgentId,
             ),
           );
@@ -210,7 +210,7 @@ void main() {
           bloc.add(
             TaskPlannerEvent.createTaskPlan(
               userQuery: testUserQuery,
-              mcpTools: testMcpTools,
+              mcpEndpoints: testMcpEndpoints,
             ),
           );
           
@@ -273,7 +273,7 @@ void main() {
           bloc.add(
             TaskPlannerEvent.createTaskPlan(
               userQuery: testUserQuery,
-              mcpTools: testMcpTools,
+              mcpEndpoints: testMcpEndpoints,
             ),
           );
           
@@ -320,7 +320,7 @@ void main() {
           bloc.add(
             TaskPlannerEvent.createTaskPlan(
               userQuery: testUserQuery,
-              mcpTools: testMcpTools,
+              mcpEndpoints: testMcpEndpoints,
             ),
           );
           
@@ -368,7 +368,7 @@ void main() {
           bloc.add(
             TaskPlannerEvent.createTaskPlan(
               userQuery: testUserQuery,
-              mcpTools: testMcpTools,
+              mcpEndpoints: testMcpEndpoints,
             ),
           );
           
@@ -449,7 +449,7 @@ void main() {
         act: (bloc) => bloc.add(
           TaskPlannerEvent.createTaskPlan(
             userQuery: '',
-            mcpTools: testMcpTools,
+            mcpEndpoints: testMcpEndpoints,
           ),
         ),
         wait: const Duration(milliseconds: 600),
@@ -472,7 +472,7 @@ void main() {
         testBloc.add(
           TaskPlannerEvent.createTaskPlan(
             userQuery: testUserQuery,
-            mcpTools: testMcpTools,
+            mcpEndpoints: testMcpEndpoints,
           ),
         );
 
@@ -496,13 +496,13 @@ void main() {
           bloc.add(
             TaskPlannerEvent.createTaskPlan(
               userQuery: '第一个查询',
-              mcpTools: ['tool1'],
+              mcpEndpoints: ['tool1'],
             ),
           );
           bloc.add(
             TaskPlannerEvent.createTaskPlan(
               userQuery: '第二个查询',
-              mcpTools: ['tool2'],
+              mcpEndpoints: ['tool2'],
             ),
           );
         },

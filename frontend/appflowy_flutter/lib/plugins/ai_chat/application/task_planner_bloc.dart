@@ -47,8 +47,8 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
     on<TaskPlannerEvent>((event, emit) async {
       await event.when(
         // 任务规划相关事件
-        createTaskPlan: (userQuery, mcpTools, agentId) async =>
-            _handleCreateTaskPlan(userQuery, mcpTools, agentId, emit),
+        createTaskPlan: (userQuery, mcpEndpoints, agentId) async =>
+            _handleCreateTaskPlan(userQuery, mcpEndpoints, agentId, emit),
         updateTaskPlan: (taskPlan) async =>
             _handleUpdateTaskPlan(taskPlan, emit),
         confirmTaskPlan: (taskPlanId) async =>
@@ -96,7 +96,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
   // 创建任务规划
   Future<void> _handleCreateTaskPlan(
     String userQuery,
-    List<String> mcpTools,
+    List<String> mcpEndpoints,
     String? agentId,
     Emitter<TaskPlannerState> emit,
   ) async {
@@ -119,7 +119,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
         id: nanoid(),
         userQuery: userQuery,
         overallStrategy: '', // 将由AI生成
-        requiredMcpTools: mcpTools,
+        requiredMcpEndpoints: mcpEndpoints,
         createdAt: DateTime.now(),
         agentId: agentId,
         sessionId: sessionId,
@@ -137,7 +137,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       }
 
       // 模拟生成的任务规划（实际应该从后端获取）
-      final steps = _generateMockSteps(mcpTools);
+      final steps = _generateMockSteps(mcpEndpoints);
       final totalEstimatedTime = steps.fold<int>(
         0, 
         (sum, step) => sum + step.estimatedDurationSeconds,
@@ -590,29 +590,58 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
   }
 
   // 生成模拟任务步骤（用于测试）
-  List<TaskStep> _generateMockSteps(List<String> mcpTools) {
+  // 注意：这里改为基于端点生成智能化的任务步骤
+  List<TaskStep> _generateMockSteps(List<String> mcpEndpoints) {
     final steps = <TaskStep>[];
     
-    if (mcpTools.isNotEmpty) {
-      // 如果有选择的MCP工具，为每个工具生成步骤
-      for (int i = 0; i < mcpTools.length; i++) {
-        final toolId = mcpTools[i];
+    if (mcpEndpoints.isNotEmpty) {
+      // 基于选择的MCP端点，AI智能选择合适的工具和步骤
+      // 这里是模拟逻辑，实际应该由AI根据用户问题意图来决定
+      
+      // 步骤1：分析用户需求
+      steps.add(TaskStep(
+        id: nanoid(),
+        description: '分析用户查询意图，确定所需的工具和操作',
+        mcpToolId: 'ai-assistant',
+        parameters: {'step': 1, 'action': 'analyze_intent'},
+        order: 0,
+        estimatedDurationSeconds: 15,
+      ));
+      
+      // 步骤2-N：根据端点智能选择工具
+      for (int i = 0; i < mcpEndpoints.length; i++) {
+        final endpointId = mcpEndpoints[i];
+        
+        // AI会从该端点中自动选择最合适的工具
         steps.add(TaskStep(
           id: nanoid(),
-          description: '使用 $toolId 工具执行步骤 ${i + 1}',
-          mcpToolId: toolId,
-          parameters: {'step': i + 1, 'tool': toolId},
-          order: i,
+          description: '从 $endpointId 端点中选择合适的工具执行任务',
+          mcpEndpointId: endpointId, // 使用端点ID而不是具体工具ID
+          mcpToolId: null, // 工具将由AI在执行时动态选择
+          parameters: {
+            'step': i + 2, 
+            'endpoint': endpointId,
+            'auto_select_tool': true, // 标记为自动选择工具
+          },
+          order: i + 1,
           estimatedDurationSeconds: 30,
-        ),);
+        ));
       }
+      
+      // 最后步骤：整合结果
+      steps.add(TaskStep(
+        id: nanoid(),
+        description: '整合所有步骤的结果，生成最终回答',
+        mcpToolId: 'ai-assistant',
+        parameters: {'step': 'final', 'action': 'integrate_results'},
+        order: mcpEndpoints.length + 1,
+        estimatedDurationSeconds: 20,
+      ));
     } else {
-      // 如果没有选择MCP工具，生成默认的通用步骤
+      // 如果没有选择MCP端点，生成默认的AI助手步骤
       final defaultSteps = [
         '分析用户查询内容',
-        '搜索相关信息和资源',
-        '处理和整理数据',
-        '生成回答内容',
+        '基于内置知识生成回答',
         '验证和优化结果',
       ];
       
@@ -620,11 +649,11 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
         steps.add(TaskStep(
           id: nanoid(),
           description: defaultSteps[i],
-          mcpToolId: 'ai-assistant', // 默认使用AI助手
+          mcpToolId: 'ai-assistant',
           parameters: {'step': i + 1, 'description': defaultSteps[i]},
           order: i,
-          estimatedDurationSeconds: 15 + (i * 5), // 递增的预估时间
-        ),);
+          estimatedDurationSeconds: 15 + (i * 5),
+        ));
       }
     }
 
@@ -638,7 +667,7 @@ class TaskPlannerEvent with _$TaskPlannerEvent {
   // 任务规划管理
   const factory TaskPlannerEvent.createTaskPlan({
     required String userQuery,
-    required List<String> mcpTools,
+    required List<String> mcpEndpoints,
     String? agentId,
   }) = _CreateTaskPlan;
 

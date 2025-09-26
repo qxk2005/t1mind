@@ -341,7 +341,7 @@ class TaskConfirmationDialog extends StatelessWidget {
                       color: AFThemeExtension.of(context).secondaryTextColor,
                     ),
                     FlowyText.medium(
-                      step.mcpToolId,
+                      step.mcpToolId ?? step.mcpEndpointId ?? 'AI自动选择',
                       fontSize: 12,
                       color: Theme.of(context).colorScheme.primary,
                     ),
@@ -368,9 +368,9 @@ class TaskConfirmationDialog extends StatelessWidget {
     );
   }
 
-  /// 构建所需工具段落
+  /// 构建所需端点段落
   Widget _buildRequiredToolsSection(BuildContext context) {
-    if (taskPlan.requiredMcpTools.isEmpty) {
+    if (taskPlan.requiredMcpEndpoints.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -378,7 +378,7 @@ class TaskConfirmationDialog extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         FlowyText.medium(
-          '所需工具',
+          '所需端点',
           fontSize: 14,
           color: AFThemeExtension.of(context).strongText,
         ),
@@ -386,7 +386,7 @@ class TaskConfirmationDialog extends StatelessWidget {
         Wrap(
           spacing: 8,
           runSpacing: 8,
-          children: taskPlan.requiredMcpTools.map((toolId) {
+          children: taskPlan.requiredMcpEndpoints.map((endpointId) {
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
@@ -398,7 +398,7 @@ class TaskConfirmationDialog extends StatelessWidget {
                 ),
               ),
               child: FlowyText.medium(
-                toolId,
+                endpointId,
                 fontSize: 12,
                 color: Theme.of(context).colorScheme.primary,
               ),
