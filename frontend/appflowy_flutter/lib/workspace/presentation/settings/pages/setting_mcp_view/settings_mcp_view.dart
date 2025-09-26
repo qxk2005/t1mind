@@ -619,248 +619,290 @@ class _EditMcpEndpointDialogState extends State<_EditMcpEndpointDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = AppFlowyTheme.of(context);
     return FlowyDialog(
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxHeight: MediaQuery.of(context).size.height * 0.8,
+          minWidth: 600,
         ),
-        child: SingleChildScrollView(
-          physics: const ClampingScrollPhysics(),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-            Text(
-              widget.initial == null
-                  ? LocaleKeys.settings_mcpPage_newTitle.tr()
-                  : LocaleKeys.settings_mcpPage_editTitle.tr(),
-              style: AppFlowyTheme.of(context)
-                  .textStyle
-                  .heading4
-                  .standard(color: AppFlowyTheme.of(context).textColorScheme.primary),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 标题层
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: theme.surfaceContainerColorScheme.layer01,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
+                ),
+                border: Border(
+                  bottom: BorderSide(
+                    color: theme.borderColorScheme.primary,
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Text(
+                widget.initial == null
+                    ? LocaleKeys.settings_mcpPage_newTitle.tr()
+                    : LocaleKeys.settings_mcpPage_editTitle.tr(),
+                style: theme.textStyle.heading4.standard(
+                  color: theme.textColorScheme.primary,
+                ),
+              ),
             ),
-            const SizedBox(height: 16),
-            SeparatedColumn(
-              separatorBuilder: () => const SizedBox(height: 12),
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _LabeledField(
-                  label: LocaleKeys.settings_mcpPage_field_name.tr(),
-                  child: FlowyTextField(
-                    controller: _name,
-                    autoFocus: true,
-                  ),
-                ),
-                _LabeledField(
-                  label: LocaleKeys.settings_mcpPage_field_transport.tr(),
-                  child: DropdownButton<_McpTransport>(
-                    value: _transport,
-                    items: _McpTransport.values
-                        .map((e) => DropdownMenuItem<_McpTransport>(
-                              value: e,
-                              child: Text(_getTransportDisplayName(e)),
-                            ))
-                        .toList(),
-                    onChanged: (v) => setState(() => _transport = v!),
-                  ),
-                ),
-                if (_transport == _McpTransport.sseHttp || _transport == _McpTransport.streamableHttp)
-                  _LabeledField(
-                    label: LocaleKeys.settings_mcpPage_field_url.tr(),
-                    child: FlowyTextField(
-                      controller: _url,
-                      hintText: _transport == _McpTransport.sseHttp ? 'https://example.com/sse' : 'https://example.com/api',
-                    ),
-                  ),
-                if (_transport == _McpTransport.stdio) ...[
-                  _LabeledField(
-                    label: LocaleKeys.settings_mcpPage_field_command.tr(),
-                    child: FlowyTextField(
-                      controller: _command,
-                      hintText: 'node',
-                    ),
-                  ),
-                  _LabeledField(
-                    label: LocaleKeys.settings_mcpPage_field_args.tr(),
-                    child: FlowyTextField(
-                      controller: _args,
-                      hintText: 'server.js --port 8080',
-                    ),
-                  ),
-                ],
-                if (_transport == _McpTransport.stdio)
-                  _KVEditor(
-                    title: LocaleKeys.settings_mcpPage_field_env.tr(),
-                    keyPlaceholder: LocaleKeys.settings_mcpPage_field_key.tr(),
-                    valuePlaceholder: LocaleKeys.settings_mcpPage_field_value.tr(),
-                    rows: _envRows,
-                    onAdd: () => setState(() => _envRows.add(_KVRow.empty())),
-                    onRemove: (i) => setState(() => _envRows.removeAt(i)),
-                  ),
-                if (_transport == _McpTransport.sseHttp || _transport == _McpTransport.streamableHttp)
-                  _KVEditor(
-                    title: LocaleKeys.settings_mcpPage_field_headers.tr(),
-                    keyPlaceholder: LocaleKeys.settings_mcpPage_field_key.tr(),
-                    valuePlaceholder: LocaleKeys.settings_mcpPage_field_value.tr(),
-                    rows: _headerRows,
-                    onAdd: () => setState(() => _headerRows.add(_KVRow.empty())),
-                    onRemove: (i) => setState(() => _headerRows.removeAt(i)),
-                  ),
-                if (defaultTargetPlatform == TargetPlatform.android)
-                  _LabeledField(
-                    label: LocaleKeys.settings_mcpPage_androidDisabled.tr(),
-                    child: Switch(
-                      value: _disabledOnAndroid,
-                      onChanged: (v) => setState(() => _disabledOnAndroid = v),
-                    ),
-                  ),
-                _LabeledField(
-                  label: LocaleKeys.settings_mcpPage_field_description.tr(),
-                  height: 120,
-                  child: TextField(
-                    controller: _description,
-                    minLines: 3,
-                    maxLines: 10,
-                    keyboardType: TextInputType.multiline,
-                    scrollPhysics: const ClampingScrollPhysics(),
-                    decoration: InputDecoration(
-                      isDense: false,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: AppFlowyTheme.of(context).borderColorScheme.primary),
+            // 配置内容层（可滚动）
+            Flexible(
+              child: SingleChildScrollView(
+                physics: const ClampingScrollPhysics(),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: SeparatedColumn(
+                    separatorBuilder: () => const SizedBox(height: 12),
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _LabeledField(
+                        label: LocaleKeys.settings_mcpPage_field_name.tr(),
+                        child: FlowyTextField(
+                          controller: _name,
+                          autoFocus: true,
+                        ),
                       ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(color: AppFlowyTheme.of(context).textColorScheme.primary),
+                      _LabeledField(
+                        label: LocaleKeys.settings_mcpPage_field_transport.tr(),
+                        child: DropdownButton<_McpTransport>(
+                          value: _transport,
+                          items: _McpTransport.values
+                              .map((e) => DropdownMenuItem<_McpTransport>(
+                                    value: e,
+                                    child: Text(_getTransportDisplayName(e)),
+                                  ))
+                              .toList(),
+                          onChanged: (v) => setState(() => _transport = v!),
+                        ),
                       ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                OutlinedRoundedButton(
-                  text: LocaleKeys.button_cancel.tr(),
-                  onTap: () async {
-                    final current = _buildEndpoint();
-                    final changed = !_endpointEquals(current, _originalSnapshot);
-                    if (!changed) {
-                      Navigator.of(context).pop();
-                      return;
-                    }
-                    final shouldSave = await showDialog<bool>(
-                      context: context,
-                      builder: (context) => FlowyDialog(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('检测到未保存的更改，是否保存？'),
-                              const SizedBox(height: 16),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  OutlinedRoundedButton(
-                                    text: LocaleKeys.button_cancel.tr(),
-                                    onTap: () => Navigator.of(context).pop(false),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  AFFilledTextButton.primary(
-                                    text: LocaleKeys.button_save.tr(),
-                                    onTap: () => Navigator.of(context).pop(true),
-                                  ),
-                                ],
-                              )
-                            ],
+                      if (_transport == _McpTransport.sseHttp || _transport == _McpTransport.streamableHttp)
+                        _LabeledField(
+                          label: LocaleKeys.settings_mcpPage_field_url.tr(),
+                          child: FlowyTextField(
+                            controller: _url,
+                            hintText: _transport == _McpTransport.sseHttp ? 'https://example.com/sse' : 'https://example.com/api',
+                          ),
+                        ),
+                      if (_transport == _McpTransport.stdio) ...[
+                        _LabeledField(
+                          label: LocaleKeys.settings_mcpPage_field_command.tr(),
+                          child: FlowyTextField(
+                            controller: _command,
+                            hintText: 'node',
+                          ),
+                        ),
+                        _LabeledField(
+                          label: LocaleKeys.settings_mcpPage_field_args.tr(),
+                          child: FlowyTextField(
+                            controller: _args,
+                            hintText: 'server.js --port 8080',
+                          ),
+                        ),
+                      ],
+                      if (_transport == _McpTransport.stdio)
+                        _KVEditor(
+                          title: LocaleKeys.settings_mcpPage_field_env.tr(),
+                          keyPlaceholder: LocaleKeys.settings_mcpPage_field_key.tr(),
+                          valuePlaceholder: LocaleKeys.settings_mcpPage_field_value.tr(),
+                          rows: _envRows,
+                          onAdd: () => setState(() => _envRows.add(_KVRow.empty())),
+                          onRemove: (i) => setState(() => _envRows.removeAt(i)),
+                        ),
+                      if (_transport == _McpTransport.sseHttp || _transport == _McpTransport.streamableHttp)
+                        _KVEditor(
+                          title: LocaleKeys.settings_mcpPage_field_headers.tr(),
+                          keyPlaceholder: LocaleKeys.settings_mcpPage_field_key.tr(),
+                          valuePlaceholder: LocaleKeys.settings_mcpPage_field_value.tr(),
+                          rows: _headerRows,
+                          onAdd: () => setState(() => _headerRows.add(_KVRow.empty())),
+                          onRemove: (i) => setState(() => _headerRows.removeAt(i)),
+                        ),
+                      if (defaultTargetPlatform == TargetPlatform.android)
+                        _LabeledField(
+                          label: LocaleKeys.settings_mcpPage_androidDisabled.tr(),
+                          child: Switch(
+                            value: _disabledOnAndroid,
+                            onChanged: (v) => setState(() => _disabledOnAndroid = v),
+                          ),
+                        ),
+                      _LabeledField(
+                        label: LocaleKeys.settings_mcpPage_field_description.tr(),
+                        height: 120,
+                        child: TextField(
+                          controller: _description,
+                          minLines: 3,
+                          maxLines: 10,
+                          keyboardType: TextInputType.multiline,
+                          scrollPhysics: const ClampingScrollPhysics(),
+                          decoration: InputDecoration(
+                            isDense: false,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(color: theme.borderColorScheme.primary),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: BorderSide(color: theme.textColorScheme.primary),
+                            ),
                           ),
                         ),
                       ),
-                    );
-                    if (shouldSave == true) {
-                      Navigator.of(context).pop(current);
-                    } else if (shouldSave == false) {
-                      Navigator.of(context).pop();
-                    }
-                  },
+                      if (_toolsCount != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: theme.surfaceContainerColorScheme.layer02,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '工具: ${_toolsCount} · ${_checkedOk == true ? 'OK' : '未通过'}' +
+                                (_lastCheckedAt != null ? ' · ${_lastCheckedAt}' : ''),
+                            style: theme.textStyle.caption.standard(
+                              color: theme.textColorScheme.secondary,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-                const SizedBox(width: 8),
-                OutlinedRoundedButton(
-                  text: '检查',
-                  onTap: () async {
-                    final args = _args.text
-                        .split(' ')
-                        .map((e) => e.trim())
-                        .where((e) => e.isNotEmpty)
-                        .toList();
-                    final cfg = McpEndpointConfig(
-                      name: _name.text.trim(),
-                      transport: _transport == _McpTransport.sseHttp
-                          ? McpTransport.sse
-                          : _transport == _McpTransport.streamableHttp
-                          ? McpTransport.streamableHttp
-                          : McpTransport.stdio,
-                      url: _url.text.trim().isEmpty ? null : _url.text.trim(),
-                      command: _command.text.trim().isEmpty
-                          ? null
-                          : _command.text.trim(),
-                      args: args.isEmpty ? null : args,
-                      env: _transport == _McpTransport.stdio
-                          ? _mapFromRows(_envRows)
-                          : null,
-                      headers: (_transport == _McpTransport.sseHttp || _transport == _McpTransport.streamableHttp)
-                          ? _mapFromRows(_headerRows)
-                          : null,
-                    );
-                    final result = await showDialog<McpCheckResult>(
-                      context: context,
-                      builder: (context) => McpCheckDialog(
-                        config: cfg,
-                        forceRefresh: false, // 编辑对话框中的检查不强制刷新
-                      ),
-                    );
-                    if (result != null && mounted) {
-                      setState(() {
-                        _checkedOk = result.ok;
-                        _toolsCount = result.toolCount;
-                        _lastCheckedAt = result.checkedAtIso;
-                        _tools = result.parsed?.tools;
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(width: 8),
-                AFFilledTextButton.primary(
-                  text: LocaleKeys.button_save.tr(),
-                  onTap: () {
-                    Navigator.of(context).pop(_buildEndpoint());
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (_toolsCount != null)
-              Text(
-                '工具: ${_toolsCount} · ${_checkedOk == true ? 'OK' : '未通过'}' +
-                    (_lastCheckedAt != null ? ' · ${_lastCheckedAt}' : ''),
-                style: AppFlowyTheme.of(context)
-                    .textStyle
-                    .caption
-                    .standard(color: AppFlowyTheme.of(context).textColorScheme.secondary),
               ),
+            ),
+            // 按钮层
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: theme.surfaceContainerColorScheme.layer01,
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(12),
+                  bottomRight: Radius.circular(12),
+                ),
+                border: Border(
+                  top: BorderSide(
+                    color: theme.borderColorScheme.primary,
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedRoundedButton(
+                    text: LocaleKeys.button_cancel.tr(),
+                    onTap: () async {
+                      final current = _buildEndpoint();
+                      final changed = !_endpointEquals(current, _originalSnapshot);
+                      if (!changed) {
+                        Navigator.of(context).pop();
+                        return;
+                      }
+                      final shouldSave = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => FlowyDialog(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('检测到未保存的更改，是否保存？'),
+                                const SizedBox(height: 16),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    OutlinedRoundedButton(
+                                      text: LocaleKeys.button_cancel.tr(),
+                                      onTap: () => Navigator.of(context).pop(false),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    AFFilledTextButton.primary(
+                                      text: LocaleKeys.button_save.tr(),
+                                      onTap: () => Navigator.of(context).pop(true),
+                                    ),
+                                  ],
+                                )
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                      if (shouldSave == true) {
+                        Navigator.of(context).pop(current);
+                      } else if (shouldSave == false) {
+                        Navigator.of(context).pop();
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedRoundedButton(
+                    text: '检查',
+                    onTap: () async {
+                      final args = _args.text
+                          .split(' ')
+                          .map((e) => e.trim())
+                          .where((e) => e.isNotEmpty)
+                          .toList();
+                      final cfg = McpEndpointConfig(
+                        name: _name.text.trim(),
+                        transport: _transport == _McpTransport.sseHttp
+                            ? McpTransport.sse
+                            : _transport == _McpTransport.streamableHttp
+                            ? McpTransport.streamableHttp
+                            : McpTransport.stdio,
+                        url: _url.text.trim().isEmpty ? null : _url.text.trim(),
+                        command: _command.text.trim().isEmpty
+                            ? null
+                            : _command.text.trim(),
+                        args: args.isEmpty ? null : args,
+                        env: _transport == _McpTransport.stdio
+                            ? _mapFromRows(_envRows)
+                            : null,
+                        headers: (_transport == _McpTransport.sseHttp || _transport == _McpTransport.streamableHttp)
+                            ? _mapFromRows(_headerRows)
+                            : null,
+                      );
+                      final result = await showDialog<McpCheckResult>(
+                        context: context,
+                        builder: (context) => McpCheckDialog(
+                          config: cfg,
+                          forceRefresh: false, // 编辑对话框中的检查不强制刷新
+                        ),
+                      );
+                      if (result != null && mounted) {
+                        setState(() {
+                          _checkedOk = result.ok;
+                          _toolsCount = result.toolCount;
+                          _lastCheckedAt = result.checkedAtIso;
+                          _tools = result.parsed?.tools;
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  AFFilledTextButton.primary(
+                    text: LocaleKeys.button_save.tr(),
+                    onTap: () {
+                      Navigator.of(context).pop(_buildEndpoint());
+                    },
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
-    ),
-  ),
-);
+    );
   }
 }
 

@@ -134,6 +134,10 @@ class TaskPlan with _$TaskPlan {
     @Default([]) List<TaskStep> steps,
     /// 所需的MCP端点ID列表
     @Default([]) List<String> requiredMcpEndpoints,
+    /// 可用的MCP工具信息映射（端点ID -> 工具列表）
+    @Default({}) Map<String, List<McpToolSchema>> availableMcpTools,
+    /// AI选择的工具分配（步骤ID -> 工具ID）
+    @Default({}) Map<String, String> toolAssignments,
     /// 创建时间
     required DateTime createdAt,
     /// 任务状态
@@ -148,6 +152,8 @@ class TaskPlan with _$TaskPlan {
     String? errorMessage,
     /// 更新时间
     DateTime? updatedAt,
+    /// 执行通知列表
+    @Default([]) List<TaskExecutionNotification> notifications,
   }) = _TaskPlan;
 
   factory TaskPlan.fromJson(Map<String, dynamic> json) =>
@@ -162,10 +168,14 @@ class TaskStep with _$TaskStep {
     required String id,
     /// 步骤描述
     required String description,
+    /// 步骤目标（用于AI理解和执行）
+    @Default('') String objective,
     /// 使用的MCP工具ID（可选，如果为null则由AI自动选择）
     String? mcpToolId,
     /// 使用的MCP端点ID（可选）
     String? mcpEndpointId,
+    /// 可用的MCP工具列表（从端点获取）
+    @Default([]) List<McpToolSchema> availableTools,
     /// 工具调用参数
     @Default({}) Map<String, dynamic> parameters,
     /// 依赖的步骤ID列表
@@ -184,6 +194,14 @@ class TaskStep with _$TaskStep {
     DateTime? startTime,
     /// 结束时间
     DateTime? endTime,
+    /// 当前重试次数
+    @Default(0) int retryCount,
+    /// 最大重试次数
+    @Default(3) int maxRetries,
+    /// 执行历史记录（包含每次尝试的详情）
+    @Default([]) List<StepExecutionAttempt> executionHistory,
+    /// 是否允许自动选择替代工具
+    @Default(true) bool allowToolSubstitution,
   }) = _TaskStep;
 
   factory TaskStep.fromJson(Map<String, dynamic> json) =>
@@ -569,4 +587,126 @@ class ExecutionResult extends Equatable {
       executionLog: executionLog ?? this.executionLog,
     );
   }
+}
+
+/// MCP工具Schema定义
+@freezed
+class McpToolSchema with _$McpToolSchema {
+  const factory McpToolSchema({
+    /// 工具名称
+    required String name,
+    /// 工具描述
+    @Default('') String description,
+    /// 输入参数schema
+    @Default({}) Map<String, dynamic> inputSchema,
+    /// 输出结果schema
+    @Default({}) Map<String, dynamic> outputSchema,
+    /// 工具类型
+    @Default('function') String type,
+    /// 是否必需参数
+    @Default([]) List<String> required,
+    /// 工具示例
+    @Default([]) List<Map<String, dynamic>> examples,
+    /// 工具标签
+    @Default([]) List<String> tags,
+    /// 工具版本
+    @Default('1.0.0') String version,
+  }) = _McpToolSchema;
+
+  factory McpToolSchema.fromJson(Map<String, dynamic> json) =>
+      _$McpToolSchemaFromJson(json);
+}
+
+/// 步骤执行尝试记录
+@freezed
+class StepExecutionAttempt with _$StepExecutionAttempt {
+  const factory StepExecutionAttempt({
+    /// 尝试ID
+    required String attemptId,
+    /// 尝试次数（从1开始）
+    required int attemptNumber,
+    /// 使用的工具ID
+    required String toolId,
+    /// 工具名称
+    required String toolName,
+    /// 输入参数
+    @Default({}) Map<String, dynamic> inputParameters,
+    /// 输出结果
+    Map<String, dynamic>? outputResult,
+    /// 执行状态
+    @Default(StepStatus.pending) StepStatus status,
+    /// 开始时间
+    DateTime? startTime,
+    /// 结束时间
+    DateTime? endTime,
+    /// 执行时长（毫秒）
+    int? durationMs,
+    /// 错误信息
+    String? errorMessage,
+    /// 错误类型
+    String? errorType,
+    /// 是否可重试
+    @Default(true) bool canRetry,
+    /// 重试原因
+    String? retryReason,
+  }) = _StepExecutionAttempt;
+
+  factory StepExecutionAttempt.fromJson(Map<String, dynamic> json) =>
+      _$StepExecutionAttemptFromJson(json);
+}
+
+/// 任务执行通知
+@freezed
+class TaskExecutionNotification with _$TaskExecutionNotification {
+  const factory TaskExecutionNotification({
+    /// 通知ID
+    required String id,
+    /// 任务规划ID
+    required String taskPlanId,
+    /// 步骤ID（可选）
+    String? stepId,
+    /// 通知类型
+    required TaskNotificationType type,
+    /// 通知标题
+    required String title,
+    /// 通知内容
+    required String message,
+    /// 通知时间
+    required DateTime timestamp,
+    /// 附加数据
+    @Default({}) Map<String, dynamic> data,
+    /// 是否已读
+    @Default(false) bool isRead,
+  }) = _TaskExecutionNotification;
+
+  factory TaskExecutionNotification.fromJson(Map<String, dynamic> json) =>
+      _$TaskExecutionNotificationFromJson(json);
+}
+
+/// 任务通知类型
+enum TaskNotificationType {
+  /// 步骤开始
+  stepStarted,
+  /// 步骤完成
+  stepCompleted,
+  /// 步骤失败
+  stepFailed,
+  /// 工具调用开始
+  toolCallStarted,
+  /// 工具调用完成
+  toolCallCompleted,
+  /// 工具调用失败
+  toolCallFailed,
+  /// 任务完成
+  taskCompleted,
+  /// 任务失败
+  taskFailed,
+  /// 需要用户确认
+  userConfirmationRequired,
+  /// 信息提示
+  info,
+  /// 警告
+  warning,
+  /// 错误
+  error,
 }

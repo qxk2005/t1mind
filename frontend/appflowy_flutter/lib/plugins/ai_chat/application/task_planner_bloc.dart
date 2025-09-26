@@ -6,6 +6,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:nanoid/nanoid.dart';
 
 import 'task_planner_entities.dart';
+import 'mcp_endpoint_service.dart';
 
 part 'task_planner_bloc.freezed.dart';
 
@@ -136,8 +137,8 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
         return; // 操作已被取消
       }
 
-      // 模拟生成的任务规划（实际应该从后端获取）
-      final steps = _generateMockSteps(mcpEndpoints);
+      // 生成智能化的任务规划步骤
+      final steps = await _generateIntelligentSteps(userQuery, mcpEndpoints);
       final totalEstimatedTime = steps.fold<int>(
         0, 
         (sum, step) => sum + step.estimatedDurationSeconds,
@@ -589,68 +590,124 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
     ),);
   }
 
-  // 生成模拟任务步骤（用于测试）
-  // 注意：这里改为基于端点生成智能化的任务步骤
-  List<TaskStep> _generateMockSteps(List<String> mcpEndpoints) {
+  // 生成智能化任务步骤，基于MCP端点工具进行分析和选择
+  Future<List<TaskStep>> _generateIntelligentSteps(
+    String userQuery,
+    List<String> mcpEndpoints,
+  ) async {
     final steps = <TaskStep>[];
     
     if (mcpEndpoints.isNotEmpty) {
-      // 基于选择的MCP端点，AI智能选择合适的工具和步骤
-      // 这里是模拟逻辑，实际应该由AI根据用户问题意图来决定
+      // 获取所有端点的工具信息
+      final mcpEndpointService = McpEndpointService();
+      final availableToolsMap = <String, List<McpToolSchema>>{};
       
-      // 步骤1：分析用户需求
+      for (final endpointId in mcpEndpoints) {
+        try {
+          final tools = await mcpEndpointService.getEndpointTools(endpointId);
+          availableToolsMap[endpointId] = tools.map((tool) => McpToolSchema(
+            name: tool.name,
+            description: tool.description ?? '',
+            inputSchema: {}, // 从tool.fields转换而来
+            outputSchema: {}, // 目前为空，可以后续扩展
+            type: 'function',
+            required: tool.fields.where((f) => f.required).map((f) => f.name).toList(),
+            examples: [],
+            tags: [],
+            version: '1.0.0',
+          )).toList();
+        } catch (e) {
+          Log.warn('Failed to get tools for endpoint $endpointId: $e');
+          availableToolsMap[endpointId] = [];
+        }
+      }
+      
+      // 步骤1：分析用户需求和工具匹配
       steps.add(TaskStep(
         id: nanoid(),
-        description: '分析用户查询意图，确定所需的工具和操作',
+        description: '分析用户查询意图，理解任务需求',
+        objective: '理解用户的具体需求，确定需要完成的任务类型和目标',
         mcpToolId: 'ai-assistant',
-        parameters: {'step': 1, 'action': 'analyze_intent'},
+        availableTools: [], // AI助手不需要外部工具
+        parameters: {
+          'step': 1, 
+          'action': 'analyze_intent',
+          'user_query': userQuery,
+          'available_endpoints': mcpEndpoints,
+          'available_tools': availableToolsMap,
+        },
         order: 0,
         estimatedDurationSeconds: 15,
       ));
       
-      // 步骤2-N：根据端点智能选择工具
-      for (int i = 0; i < mcpEndpoints.length; i++) {
-        final endpointId = mcpEndpoints[i];
+      // 步骤2-N：为每个端点创建智能化的任务步骤
+      int stepOrder = 1;
+      for (final endpointId in mcpEndpoints) {
+        final endpointTools = availableToolsMap[endpointId] ?? [];
         
-        // AI会从该端点中自动选择最合适的工具
-        steps.add(TaskStep(
-          id: nanoid(),
-          description: '从 $endpointId 端点中选择合适的工具执行任务',
-          mcpEndpointId: endpointId, // 使用端点ID而不是具体工具ID
-          mcpToolId: null, // 工具将由AI在执行时动态选择
-          parameters: {
-            'step': i + 2, 
-            'endpoint': endpointId,
-            'auto_select_tool': true, // 标记为自动选择工具
-          },
-          order: i + 1,
-          estimatedDurationSeconds: 30,
-        ));
+        if (endpointTools.isNotEmpty) {
+          // 根据用户查询和可用工具，AI智能选择最合适的工具
+          final selectedTool = _selectBestToolForQuery(userQuery, endpointTools);
+          final stepObjective = _generateStepObjective(userQuery, endpointId, endpointTools);
+          
+          steps.add(TaskStep(
+            id: nanoid(),
+            description: '使用 ${selectedTool.name} 工具完成特定任务',
+            objective: stepObjective,
+            mcpEndpointId: endpointId,
+            mcpToolId: selectedTool.name, // AI预选的具体工具
+            availableTools: endpointTools,
+            parameters: {
+              'step': stepOrder + 1,
+              'endpoint': endpointId,
+              'selected_tool': selectedTool.name,
+              'user_query': userQuery,
+              'step_objective': stepObjective,
+            },
+            order: stepOrder,
+            estimatedDurationSeconds: 45,
+            allowToolSubstitution: true,
+          ));
+          stepOrder++;
+        }
       }
       
-      // 最后步骤：整合结果
+      // 最后步骤：整合和总结结果
       steps.add(TaskStep(
         id: nanoid(),
-        description: '整合所有步骤的结果，生成最终回答',
+        description: '整合所有步骤的执行结果，生成最终回答',
+        objective: '将各个步骤的执行结果进行整合，形成完整、准确的最终回答',
         mcpToolId: 'ai-assistant',
-        parameters: {'step': 'final', 'action': 'integrate_results'},
-        order: mcpEndpoints.length + 1,
+        availableTools: [],
+        parameters: {
+          'step': 'final', 
+          'action': 'integrate_results',
+          'user_query': userQuery,
+        },
+        order: stepOrder,
         estimatedDurationSeconds: 20,
       ));
     } else {
       // 如果没有选择MCP端点，生成默认的AI助手步骤
       final defaultSteps = [
-        '分析用户查询内容',
-        '基于内置知识生成回答',
-        '验证和优化结果',
+        ('分析用户查询内容', '理解用户的问题和需求'),
+        ('基于内置知识生成回答', '使用AI的内置知识库来回答用户问题'),
+        ('验证和优化结果', '检查回答的准确性和完整性，进行必要的优化'),
       ];
       
       for (int i = 0; i < defaultSteps.length; i++) {
+        final (description, objective) = defaultSteps[i];
         steps.add(TaskStep(
           id: nanoid(),
-          description: defaultSteps[i],
+          description: description,
+          objective: objective,
           mcpToolId: 'ai-assistant',
-          parameters: {'step': i + 1, 'description': defaultSteps[i]},
+          availableTools: [],
+          parameters: {
+            'step': i + 1, 
+            'description': description,
+            'user_query': userQuery,
+          },
           order: i,
           estimatedDurationSeconds: 15 + (i * 5),
         ));
@@ -658,6 +715,87 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
     }
 
     return steps;
+  }
+
+  // 根据用户查询智能选择最合适的MCP工具
+  McpToolSchema _selectBestToolForQuery(String userQuery, List<McpToolSchema> tools) {
+    if (tools.isEmpty) {
+      throw Exception('No tools available for selection');
+    }
+    
+    if (tools.length == 1) {
+      return tools.first;
+    }
+    
+    // 简化的工具选择逻辑 - 基于关键词匹配
+    final queryLower = userQuery.toLowerCase();
+    
+    // 优先级匹配规则
+    final priorityRules = <String, List<String>>{
+      'excel': [],
+      'file': [],
+      'search': [],
+      'data': [],
+      'analysis': [],
+    };
+    
+    // 计算每个工具的匹配分数
+    var bestTool = tools.first;
+    var bestScore = 0;
+    
+    for (final tool in tools) {
+      var score = 0;
+      final toolNameLower = tool.name.toLowerCase();
+      final toolDescLower = tool.description.toLowerCase();
+      
+      // 检查工具名称和描述中的关键词匹配
+      for (final entry in priorityRules.entries) {
+        final keywords = entry.value;
+        for (final keyword in keywords) {
+          if (queryLower.contains(keyword)) {
+            if (toolNameLower.contains(entry.key) || toolDescLower.contains(entry.key)) {
+              score += 10; // 高优先级匹配
+            }
+            if (toolNameLower.contains(keyword) || toolDescLower.contains(keyword)) {
+              score += 5; // 直接关键词匹配
+            }
+          }
+        }
+      }
+      
+      // 如果用户查询中包含工具名称，给予额外分数
+      if (queryLower.contains(toolNameLower) || toolNameLower.contains(queryLower.split(' ').first)) {
+        score += 15;
+      }
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestTool = tool;
+      }
+    }
+    
+    // 如果没有明显的匹配，选择第一个工具
+    return bestTool;
+  }
+
+  // 根据用户查询和可用工具生成步骤目标
+  String _generateStepObjective(String userQuery, String endpointId, List<McpToolSchema> tools) {
+    // 这里可以使用更智能的逻辑来分析用户查询和工具能力
+    // 目前使用简化的逻辑
+    
+    if (tools.isEmpty) {
+      return '使用 $endpointId 端点完成相关任务';
+    }
+    
+    // 分析工具类型和描述，生成合适的目标
+    final toolDescriptions = tools.map((t) => t.description).where((d) => d.isNotEmpty).toList();
+    
+    if (toolDescriptions.isNotEmpty) {
+      final combinedDescription = toolDescriptions.take(3).join('、');
+      return '使用 $endpointId 端点的工具（如：$combinedDescription）来处理用户请求的相关部分';
+    }
+    
+    return '使用 $endpointId 端点的可用工具来完成任务的特定部分';
   }
 }
 

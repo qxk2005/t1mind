@@ -6,6 +6,7 @@ import 'package:appflowy/plugins/ai_chat/application/chat_entity.dart';
 import 'package:appflowy/plugins/ai_chat/application/chat_message_height_manager.dart';
 import 'package:appflowy/plugins/ai_chat/application/chat_message_stream.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/widgets/message_height_calculator.dart';
+import 'package:appflowy/plugins/ai_chat/presentation/task_execution_progress_widget.dart';
 import 'package:appflowy_backend/protobuf/flowy-ai/protobuf.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:fixnum/fixnum.dart';
@@ -295,6 +296,15 @@ class _NonEmptyMessage extends StatelessWidget {
             SelectionContainer.disabled(
               child: ExecutionLogWidget(
                 executionLog: state.executionLog!,
+              ),
+            ),
+          // 添加任务执行进度显示
+          if (message.metadata?['taskPlanId'] != null)
+            SelectionContainer.disabled(
+              child: TaskExecutionProgressWidget(
+                taskPlanId: message.metadata!['taskPlanId'] as String,
+                showNotifications: true,
+                showDetailedProgress: true,
               ),
             ),
           if ((state.sources.isNotEmpty || state.executionLog != null) && !isLastMessage) 
