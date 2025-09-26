@@ -502,7 +502,32 @@
         "failed": "失败",
         "latency": "耗时",
         "vectorDim": "向量维度",
-        "errorLabel": "错误"
+        "errorLabel": "错误",
+        "agentConfigTitle": "智能体配置",
+        "agentConfigEmptyHint": "暂无智能体配置，点击右上角添加按钮创建。",
+        "createAgentTitle": "创建智能体",
+        "editAgentTitle": "编辑智能体",
+        "deleteAgentTitle": "删除智能体",
+        "deleteAgentConfirm": "确定要删除智能体「{0}」吗？此操作无法撤销。",
+        "editAgent": "编辑",
+        "deleteAgent": "删除",
+        "setAsDefault": "设为默认",
+        "defaultAgent": "默认",
+        "enabled": "已启用",
+        "disabled": "已禁用",
+        "agentName": "智能体名称",
+        "agentNameHint": "请输入智能体名称",
+        "agentNameRequired": "智能体名称不能为空",
+        "agentDescription": "描述",
+        "agentDescriptionHint": "请输入智能体描述（可选）",
+        "agentPersonality": "个性特征",
+        "agentPersonalityHint": "描述智能体的个性特征和行为风格",
+        "systemPrompt": "系统提示词",
+        "systemPromptHint": "定义智能体的行为指令和角色设定",
+        "languagePreference": "语言偏好",
+        "enableAgent": "启用智能体",
+        "maxConcurrentTools": "最大并发工具数",
+        "toolTimeout": "工具超时时间（秒）"
       }
     },
     "mcpPage": {
@@ -2178,5 +2203,61 @@
   ,
   "agent": {
     "toolCalling": "工具调用中…"
+  },
+  "taskPlanning": {
+    "confirmationDialog": {
+      "title": "任务确认",
+      "description": "请查看AI生成的任务规划，确认是否执行：",
+      "userQuery": "用户查询",
+      "executionStrategy": "执行策略",
+      "executionSteps": "执行步骤",
+      "requiredTools": "所需工具",
+      "estimatedTotalTime": "预计总时长",
+      "estimatedDuration": "预计时长",
+      "modifyTask": "修改任务",
+      "cancel": "取消",
+      "confirmExecution": "确认执行"
+    },
+    "executionProgress": {
+      "executionSteps": "执行步骤",
+      "statusReady": "准备就绪",
+      "statusRunning": "执行中",
+      "statusPaused": "已暂停",
+      "statusCompleted": "执行完成",
+      "statusFailed": "执行失败",
+      "statusCancelled": "已取消",
+      "statusUnknown": "未知状态",
+      "controlPause": "暂停",
+      "controlCancel": "取消",
+      "controlContinue": "继续",
+      "controlRetry": "重试",
+      "cancelDialogTitle": "取消执行",
+      "cancelDialogContent": "确定要取消当前执行吗？此操作无法撤销。",
+      "cancelDialogCancel": "取消",
+      "cancelDialogConfirm": "确定取消",
+      "userCancelReason": "用户取消"
+    },
+    "errors": {
+      "planningFailed": "任务规划失败",
+      "unknownError": "未知错误"
+    },
+    "messages": {
+      "generatingTaskPlan": "正在生成任务规划...",
+      "createTaskPlanFailed": "创建任务规划失败"
+    },
+    "mcpToolSelector": {
+      "title": "选择MCP工具",
+      "selectedCount": "已选择 {count} 个工具，共 {total} 个可用",
+      "selectAll": "全选",
+      "clearAll": "清空",
+      "searchPlaceholder": "搜索工具...",
+      "noToolsFound": "未找到匹配的工具",
+      "noToolsAvailable": "暂无可用工具",
+      "selectedToolsCount": "已选择 {count} 个工具",
+      "pleaseSelectTools": "请选择要使用的工具",
+      "confirm": "确定",
+      "cancel": "取消",
+      "noMcpToolsAvailable": "暂无可用的MCP工具"
+    }
   }
 }

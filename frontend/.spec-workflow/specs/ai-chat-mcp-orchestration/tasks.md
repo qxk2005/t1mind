@@ -138,7 +138,7 @@
 
 ## 设置界面扩展
 
-- [ ] 15. 扩展工作空间AI设置页面
+- [x] 15. 扩展工作空间AI设置页面
   - 文件: appflowy_flutter/lib/workspace/presentation/settings/pages/setting_ai_view/settings_ai_view.dart (修改现有文件)
   - 添加智能体配置管理界面
   - 集成MCP工具管理功能
@@ -147,7 +147,7 @@
   - _Requirements: 需求5, 需求6_
   - _Prompt: 为规格ai-chat-mcp-orchestration实现任务，首先运行spec-workflow-guide获取工作流程指南然后实现任务：Role: Flutter设置界面专家，专精配置管理和表单设计 | Task: 扩展工作空间AI设置页面，添加智能体和MCP工具的完整配置管理功能 | Restrictions: 必须保持现有设置页面的结构，确保配置项组织清晰，支持不同权限级别 | Success: 设置界面功能完整，配置项组织合理，用户可以方便管理所有AI相关设置_
 
-- [ ] 16. 扩展移动端AI设置
+- [x] 16. 扩展移动端AI设置
   - 文件: appflowy_flutter/lib/mobile/presentation/setting/ai/ai_settings_group.dart (修改现有文件)
   - 适配移动端界面，添加智能体配置选项
   - 简化复杂配置，提供快捷设置
@@ -158,7 +158,7 @@
 
 ## 国际化和本地化
 
-- [ ] 17. 添加中文本地化资源
+- [x] 17. 添加中文本地化资源
   - 文件: resources/translations/zh-CN.json (修改现有文件)
   - 添加所有新功能的中文翻译
   - 确保术语一致性和表达准确性
@@ -167,7 +167,7 @@
   - _Requirements: 需求5_
   - _Prompt: 为规格ai-chat-mcp-orchestration实现任务，首先运行spec-workflow-guide获取工作流程指南然后实现任务：Role: 本地化专家，专精中文技术术语翻译 | Task: 为所有新功能添加准确的中文翻译，确保术语一致性和用户理解 | Restrictions: 必须保持现有翻译风格，确保术语准确，避免歧义表达 | Success: 中文界面完整，术语准确一致，用户理解无障碍，翻译质量高_
 
-- [ ] 18. 添加英文本地化资源
+- [x] 18. 添加英文本地化资源
   - 文件: resources/translations/en-US.json (修改现有文件)
   - 添加所有新功能的英文翻译
   - 确保专业术语的准确使用
@@ -178,7 +178,7 @@
 
 ## 测试和质量保证
 
-- [ ] 19. 编写核心功能单元测试
+- [x] 19. 编写核心功能单元测试
   - 文件: appflowy_flutter/test/plugins/ai_chat/task_planner_test.dart
   - 为TaskPlannerBloc和相关逻辑编写单元测试
   - 覆盖所有状态转换和错误场景
@@ -187,7 +187,7 @@
   - _Requirements: 需求1, 需求3_
   - _Prompt: 为规格ai-chat-mcp-orchestration实现任务，首先运行spec-workflow-guide获取工作流程指南然后实现任务：Role: Flutter测试专家，专精BLoC测试和状态验证 | Task: 编写TaskPlannerBloc的完整单元测试，覆盖所有状态转换和边界情况，参考现有聊天测试模式 | Restrictions: 必须测试所有状态转换，包含错误场景，确保测试独立性和可重复性 | Success: 测试覆盖率高，所有状态转换被验证，边界情况处理正确，测试运行稳定_
 
-- [ ] 20. 编写集成测试
+- [x] 20. 编写集成测试
   - 文件: appflowy_flutter/integration_test/ai_chat_mcp_test.dart
   - 编写端到端的功能集成测试
   - 测试完整的用户工作流程

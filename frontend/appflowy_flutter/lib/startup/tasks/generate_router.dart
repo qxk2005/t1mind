@@ -45,6 +45,7 @@ import '../../shared/icon_emoji_picker/tab.dart';
 import 'af_navigator_observer.dart';
 import 'package:appflowy/mobile/presentation/setting/mcp/mcp_settings_page.dart';
 import 'package:appflowy/mobile/presentation/setting/agent/agent_settings_page.dart';
+import 'package:appflowy/mobile/presentation/setting/ai/mobile_agent_config_page.dart';
 
 GoRouter generateRouter(Widget child) {
   return GoRouter(
@@ -71,6 +72,7 @@ GoRouter generateRouter(Widget child) {
         _mobileLaunchSettingsPageRoute(),
         _mobileFeatureFlagPageRoute(),
         _mobileOpenAICompatSettingPageRoute(),
+        _mobileAgentConfigPageRoute(),
 
         // view page
         _mobileEditorScreenRoute(),
@@ -154,6 +156,23 @@ GoRoute _mobileAgentSettingsPageRoute() {
       return const MaterialExtendedPage(
         child: AgentSettingsMobilePage(),
         name: AgentSettingsMobilePage.routeName,
+      );
+    },
+  );
+}
+
+GoRoute _mobileAgentConfigPageRoute() {
+  return GoRoute(
+    parentNavigatorKey: AppGlobals.rootNavKey,
+    path: MobileAgentConfigPage.routeName,
+    pageBuilder: (context, state) {
+      final extra = state.extra as Map<String, dynamic>;
+      return MaterialExtendedPage(
+        child: MobileAgentConfigPage(
+          userProfile: extra['userProfile'],
+          workspaceId: extra['workspaceId'],
+        ),
+        name: MobileAgentConfigPage.routeName,
       );
     },
   );

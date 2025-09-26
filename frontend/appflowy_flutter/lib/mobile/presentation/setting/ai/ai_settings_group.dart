@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:appflowy/mobile/presentation/setting/ai/openai_compat_setting_page.dart';
+import 'package:appflowy/mobile/presentation/setting/ai/mobile_agent_config_page.dart';
 
 class AiSettingsGroup extends StatelessWidget {
   const AiSettingsGroup({
@@ -47,6 +48,14 @@ class AiSettingsGroup extends StatelessWidget {
                 onTap: () => context.push(
                   OpenAICompatSettingMobilePage.routeName,
                   extra: workspaceId,
+                ),
+              ),
+              MobileSettingItem(
+                name: 'settings.aiPage.keys.agentConfigTitle'.tr(),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push(
+                  MobileAgentConfigPage.routeName,
+                  extra: {'userProfile': userProfile, 'workspaceId': workspaceId},
                 ),
               ),
               // enable AI search if needed

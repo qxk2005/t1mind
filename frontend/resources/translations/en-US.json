@@ -995,7 +995,32 @@
         "instructions": "instructions",
         "installOllamaLai": "to set up Ollama and AppFlowy Local AI.",
         "modelsMissing": "Cannot find the required models: ",
-        "downloadModel": "to download them."
+        "downloadModel": "to download them.",
+        "agentConfigTitle": "Agent Configuration",
+        "agentConfigEmptyHint": "No agent configurations yet. Click the add button in the top right to create one.",
+        "createAgentTitle": "Create Agent",
+        "editAgentTitle": "Edit Agent",
+        "deleteAgentTitle": "Delete Agent",
+        "deleteAgentConfirm": "Are you sure you want to delete agent '{0}'? This action cannot be undone.",
+        "editAgent": "Edit",
+        "deleteAgent": "Delete",
+        "setAsDefault": "Set as Default",
+        "defaultAgent": "Default",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "agentName": "Agent Name",
+        "agentNameHint": "Enter agent name",
+        "agentNameRequired": "Agent name is required",
+        "agentDescription": "Description",
+        "agentDescriptionHint": "Enter agent description (optional)",
+        "agentPersonality": "Personality",
+        "agentPersonalityHint": "Describe the agent's personality traits and behavior style",
+        "systemPrompt": "System Prompt",
+        "systemPromptHint": "Define the agent's behavior instructions and role settings",
+        "languagePreference": "Language Preference",
+        "enableAgent": "Enable Agent",
+        "maxConcurrentTools": "Max Concurrent Tools",
+        "toolTimeout": "Tool Timeout (seconds)"
       }
     },
     "planPage": {
@@ -3527,5 +3552,61 @@
   },
   "shareSection": {
     "shared": "Shared with me"
+  },
+  "taskPlanning": {
+    "confirmationDialog": {
+      "title": "Task Confirmation",
+      "description": "Please review the AI-generated task plan and confirm execution:",
+      "userQuery": "User Query",
+      "executionStrategy": "Execution Strategy",
+      "executionSteps": "Execution Steps",
+      "requiredTools": "Required Tools",
+      "estimatedTotalTime": "Estimated Total Time",
+      "estimatedDuration": "Estimated Duration",
+      "modifyTask": "Modify Task",
+      "cancel": "Cancel",
+      "confirmExecution": "Confirm Execution"
+    },
+    "executionProgress": {
+      "executionSteps": "Execution Steps",
+      "statusReady": "Ready",
+      "statusRunning": "Running",
+      "statusPaused": "Paused",
+      "statusCompleted": "Completed",
+      "statusFailed": "Failed",
+      "statusCancelled": "Cancelled",
+      "statusUnknown": "Unknown Status",
+      "controlPause": "Pause",
+      "controlCancel": "Cancel",
+      "controlContinue": "Continue",
+      "controlRetry": "Retry",
+      "cancelDialogTitle": "Cancel Execution",
+      "cancelDialogContent": "Are you sure you want to cancel the current execution? This action cannot be undone.",
+      "cancelDialogCancel": "Cancel",
+      "cancelDialogConfirm": "Confirm Cancel",
+      "userCancelReason": "User cancelled"
+    },
+    "errors": {
+      "planningFailed": "Task planning failed",
+      "unknownError": "Unknown error"
+    },
+    "messages": {
+      "generatingTaskPlan": "Generating task plan...",
+      "createTaskPlanFailed": "Failed to create task plan"
+    },
+    "mcpToolSelector": {
+      "title": "Select MCP Tools",
+      "selectedCount": "Selected {count} tools out of {total} available",
+      "selectAll": "Select All",
+      "clearAll": "Clear All",
+      "searchPlaceholder": "Search tools...",
+      "noToolsFound": "No matching tools found",
+      "noToolsAvailable": "No tools available",
+      "selectedToolsCount": "Selected {count} tools",
+      "pleaseSelectTools": "Please select tools to use",
+      "confirm": "Confirm",
+      "cancel": "Cancel",
+      "noMcpToolsAvailable": "No MCP tools available"
+    }
   }
 }
