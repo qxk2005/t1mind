@@ -333,20 +333,12 @@ class TaskConfirmationDialog extends StatelessWidget {
                   color: AFThemeExtension.of(context).textColor,
                 ),
                 const VSpace(4),
-                Row(
-                  children: [
-                    FlowyText.regular(
-                      '工具: ',
-                      fontSize: 12,
-                      color: AFThemeExtension.of(context).secondaryTextColor,
-                    ),
-                    FlowyText.medium(
-                      step.mcpToolId ?? step.mcpEndpointId ?? 'AI自动选择',
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    if (step.estimatedDurationSeconds > 0) ...[
-                      const HSpace(16),
+                // 显示工具信息
+                _buildToolInfo(context, step),
+                if (step.estimatedDurationSeconds > 0) ...[
+                  const VSpace(4),
+                  Row(
+                    children: [
                       FlowyText.regular(
                         '预计时长: ',
                         fontSize: 12,
@@ -358,8 +350,8 @@ class TaskConfirmationDialog extends StatelessWidget {
                         color: AFThemeExtension.of(context).textColor,
                       ),
                     ],
-                  ],
-                ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -458,6 +450,97 @@ class TaskConfirmationDialog extends StatelessWidget {
       }
       return '${hours}h ${remainingMinutes}m';
     }
+  }
+  
+  /// 构建工具信息显示
+  Widget _buildToolInfo(BuildContext context, TaskStep step) {
+    // 从步骤参数中获取工具选择信息
+    final selectionReason = step.parameters['selection_reason'] as String?;
+    final awaitAISelection = step.parameters['await_ai_selection'] as bool? ?? false;
+    
+    // 确定显示的工具名称
+    String toolDisplay;
+    if (step.mcpToolId != null) {
+      toolDisplay = step.mcpToolId!;
+    } else if (step.mcpEndpointId != null) {
+      if (awaitAISelection) {
+        toolDisplay = '${step.mcpEndpointId} (待AI选择具体工具)';
+      } else {
+        toolDisplay = step.mcpEndpointId!;
+      }
+    } else {
+      toolDisplay = 'AI助手';
+    }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            FlowyText.regular(
+              '工具: ',
+              fontSize: 12,
+              color: AFThemeExtension.of(context).secondaryTextColor,
+            ),
+            Expanded(
+              child: FlowyText.medium(
+                toolDisplay,
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.primary,
+                maxLines: null,
+              ),
+            ),
+          ],
+        ),
+        
+        // 如果有选择理由，显示理由
+        if (selectionReason != null && selectionReason.isNotEmpty) ...[
+          const VSpace(4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FlowyText.regular(
+                '选择理由: ',
+                fontSize: 11,
+                color: AFThemeExtension.of(context).secondaryTextColor,
+              ),
+              Expanded(
+                child: FlowyText.regular(
+                  selectionReason,
+                  fontSize: 11,
+                  color: AFThemeExtension.of(context).textColor.withValues(alpha: 0.8),
+                  maxLines: null,
+                ),
+              ),
+            ],
+          ),
+        ],
+        
+        // 如果有具体目标，显示目标
+        if (step.objective.isNotEmpty) ...[
+          const VSpace(4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FlowyText.regular(
+                '目标: ',
+                fontSize: 11,
+                color: AFThemeExtension.of(context).secondaryTextColor,
+              ),
+              Expanded(
+                child: FlowyText.regular(
+                  step.objective,
+                  fontSize: 11,
+                  color: AFThemeExtension.of(context).textColor.withValues(alpha: 0.8),
+                  maxLines: null,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
   }
 }
 

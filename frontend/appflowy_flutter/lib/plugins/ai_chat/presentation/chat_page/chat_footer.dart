@@ -8,6 +8,7 @@ import 'package:appflowy/plugins/ai_chat/application/task_planner_entities.dart'
 import 'package:appflowy/plugins/ai_chat/application/mcp_endpoint_service.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/mcp_endpoint_selector.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/task_confirmation_dialog.dart';
+import 'package:appflowy/plugins/ai_chat/presentation/streaming_task_confirmation_dialog.dart';
 import 'package:appflowy/workspace/presentation/home/home_stack.dart';
 import 'package:appflowy_backend/protobuf/flowy-folder/view.pb.dart';
 import 'package:appflowy_backend/log.dart';
@@ -72,23 +73,32 @@ class _ChatFooterState extends State<ChatFooter> {
         // 记录状态变化
         Log.debug('TaskPlannerBloc状态变化: ${state.status}');
         
-        // 处理规划中状态
-        if (state.status == TaskPlannerStatus.planning) {
-          Log.debug('正在生成任务规划...');
+        // 处理规划中状态 - 立即显示流式对话框
+        if (state.status == TaskPlannerStatus.planning && 
+            _pendingTaskPlan == null) {
+          Log.debug('开始任务规划，显示流式对话框...');
+          
+          // 标记已显示对话框，避免重复显示
+          _pendingTaskPlan = TaskPlan(
+            id: 'planning-${DateTime.now().millisecondsSinceEpoch}',
+            userQuery: '',
+            overallStrategy: '',
+            requiredMcpEndpoints: [],
+            createdAt: DateTime.now(),
+            sessionId: widget.view.id,
+          );
+          
+          // 显示流式任务确认对话框
+          _showStreamingTaskConfirmationDialog(context);
         }
         
-        // 处理等待确认状态
+        // 处理等待确认状态 - 如果流式对话框还没有显示，则显示普通对话框
         if (state.status == TaskPlannerStatus.waitingConfirmation && 
             state.currentTaskPlan != null &&
-            _pendingTaskPlan?.id != state.currentTaskPlan!.id) {
-          Log.debug('显示任务确认对话框: ${state.currentTaskPlan!.id}');
+            _pendingTaskPlan?.id == 'planning-${_pendingTaskPlan?.createdAt.millisecondsSinceEpoch}') {
+          // 更新待处理的任务计划
           _pendingTaskPlan = state.currentTaskPlan;
-          
-          // 隐藏加载提示
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          
-          // 显示任务确认对话框
-          _showTaskConfirmationDialog(context, state.currentTaskPlan!);
+          Log.debug('任务规划完成: ${state.currentTaskPlan!.id}');
         }
         
         // 处理规划完成状态
@@ -434,7 +444,35 @@ class _ChatFooterState extends State<ChatFooter> {
     }
   }
 
-  /// 显示任务确认对话框
+  /// 显示流式任务确认对话框
+  void _showStreamingTaskConfirmationDialog(BuildContext context) {
+    Log.debug('准备显示流式任务确认对话框');
+    
+    // 确保在下一帧显示对话框，避免构建过程中的冲突
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        Log.debug('显示流式任务确认对话框');
+        final taskPlannerBloc = context.read<TaskPlannerBloc>();
+        
+        showStreamingTaskConfirmationDialog(
+          context: context,
+          taskPlannerBloc: taskPlannerBloc,
+        ).then((action) {
+          if (action != null && mounted) {
+            // 获取最终的任务规划
+            final finalTaskPlan = taskPlannerBloc.state.currentTaskPlan;
+            if (finalTaskPlan != null) {
+              _handleTaskConfirmationAction(context, finalTaskPlan, action);
+            }
+          }
+          // 重置待处理任务
+          _pendingTaskPlan = null;
+        });
+      }
+    });
+  }
+  
+  /// 显示任务确认对话框（旧版本，作为后备）
   void _showTaskConfirmationDialog(BuildContext context, TaskPlan taskPlan) {
     Log.debug('准备显示任务确认对话框');
     
