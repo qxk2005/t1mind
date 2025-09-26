@@ -19,6 +19,7 @@ import 'ai_markdown_text.dart';
 import 'ai_message_bubble.dart';
 import 'ai_metadata.dart';
 import 'error_text_message.dart';
+import 'execution_log_widget.dart';
 
 /// [ChatAIMessageWidget] includes both the text of the AI response as well as
 /// the avatar, decorations and hover effects that are also rendered. This is
@@ -290,7 +291,14 @@ class _NonEmptyMessage extends StatelessWidget {
                 onSelectedMetadata: onSelectedMetadata,
               ),
             ),
-          if (state.sources.isNotEmpty && !isLastMessage) const VSpace(8.0),
+          if (state.executionLog != null)
+            SelectionContainer.disabled(
+              child: ExecutionLogWidget(
+                executionLog: state.executionLog!,
+              ),
+            ),
+          if ((state.sources.isNotEmpty || state.executionLog != null) && !isLastMessage) 
+            const VSpace(8.0),
         ],
       ),
     );

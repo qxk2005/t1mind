@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:appflowy_backend/log.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
-import 'package:uuid/uuid.dart';
+import 'package:nanoid/nanoid.dart';
 
 import 'task_planner_entities.dart';
 
@@ -26,7 +26,6 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
 
   final String sessionId;
   final String userId;
-  final Uuid _uuid = const Uuid();
 
   // 当前活动的任务规划
   TaskPlan? _currentTaskPlan;
@@ -109,7 +108,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
     emit(state.copyWith(
       status: TaskPlannerStatus.planning,
       errorMessage: null,
-    ));
+    ),);
 
     try {
       // 取消之前的操作
@@ -117,7 +116,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       _currentOperation = Completer<void>();
 
       final taskPlan = TaskPlan(
-        id: _uuid.v4(),
+        id: nanoid(),
         userQuery: userQuery,
         overallStrategy: '', // 将由AI生成
         requiredMcpTools: mcpTools,
@@ -138,10 +137,16 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       }
 
       // 模拟生成的任务规划（实际应该从后端获取）
+      final steps = _generateMockSteps(mcpTools);
+      final totalEstimatedTime = steps.fold<int>(
+        0, 
+        (sum, step) => sum + step.estimatedDurationSeconds,
+      );
+      
       final generatedPlan = taskPlan.copyWith(
         overallStrategy: '基于用户查询"$userQuery"生成的任务规划策略',
-        steps: _generateMockSteps(mcpTools),
-        estimatedDurationSeconds: 120,
+        steps: steps,
+        estimatedDurationSeconds: totalEstimatedTime,
         status: TaskPlanStatus.pendingConfirmation,
       );
 
@@ -153,7 +158,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
         currentTaskPlan: generatedPlan,
         planHistory: List.from(_planHistory),
         errorMessage: null,
-      ));
+      ),);
 
       _currentOperation = null;
     } catch (error) {
@@ -161,7 +166,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       emit(state.copyWith(
         status: TaskPlannerStatus.planFailed,
         errorMessage: '创建任务规划失败: $error',
-      ));
+      ),);
       _currentOperation = null;
     }
   }
@@ -192,12 +197,12 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       emit(state.copyWith(
         currentTaskPlan: updatedPlan,
         planHistory: List.from(_planHistory),
-      ));
+      ),);
     } catch (error) {
       Log.error('TaskPlannerBloc: Failed to update task plan: $error');
       emit(state.copyWith(
         errorMessage: '更新任务规划失败: $error',
-      ));
+      ),);
     }
   }
 
@@ -235,12 +240,12 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
         currentTaskPlan: confirmedPlan,
         planHistory: List.from(_planHistory),
         errorMessage: null,
-      ));
+      ),);
     } catch (error) {
       Log.error('TaskPlannerBloc: Failed to confirm task plan: $error');
       emit(state.copyWith(
         errorMessage: '确认任务规划失败: $error',
-      ));
+      ),);
     }
   }
 
@@ -275,12 +280,12 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
         currentTaskPlan: rejectedPlan,
         planHistory: List.from(_planHistory),
         errorMessage: null,
-      ));
+      ),);
     } catch (error) {
       Log.error('TaskPlannerBloc: Failed to reject task plan: $error');
       emit(state.copyWith(
         errorMessage: '拒绝任务规划失败: $error',
-      ));
+      ),);
     }
   }
 
@@ -309,7 +314,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       Log.error('TaskPlannerBloc: Failed to add task step: $error');
       emit(state.copyWith(
         errorMessage: '添加任务步骤失败: $error',
-      ));
+      ),);
     }
   }
 
@@ -345,7 +350,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       Log.error('TaskPlannerBloc: Failed to update task step: $error');
       emit(state.copyWith(
         errorMessage: '更新任务步骤失败: $error',
-      ));
+      ),);
     }
   }
 
@@ -380,7 +385,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       Log.error('TaskPlannerBloc: Failed to remove task step: $error');
       emit(state.copyWith(
         errorMessage: '删除任务步骤失败: $error',
-      ));
+      ),);
     }
   }
 
@@ -415,7 +420,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       Log.error('TaskPlannerBloc: Failed to reorder task steps: $error');
       emit(state.copyWith(
         errorMessage: '重新排序任务步骤失败: $error',
-      ));
+      ),);
     }
   }
 
@@ -449,7 +454,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       Log.error('TaskPlannerBloc: Failed to start execution: $error');
       emit(state.copyWith(
         errorMessage: '开始执行失败: $error',
-      ));
+      ),);
     }
   }
 
@@ -499,7 +504,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       Log.error('TaskPlannerBloc: Failed to cancel execution: $error');
       emit(state.copyWith(
         errorMessage: '取消执行失败: $error',
-      ));
+      ),);
     }
   }
 
@@ -512,7 +517,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       status: TaskPlannerStatus.idle,
       currentTaskPlan: null,
       errorMessage: null,
-    ));
+    ),);
   }
 
   // 加载规划历史
@@ -527,12 +532,12 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       
       emit(state.copyWith(
         planHistory: List.from(_planHistory),
-      ));
+      ),);
     } catch (error) {
       Log.error('TaskPlannerBloc: Failed to load plan history: $error');
       emit(state.copyWith(
         errorMessage: '加载规划历史失败: $error',
-      ));
+      ),);
     }
   }
 
@@ -551,7 +556,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       emit(state.copyWith(
         currentTaskPlan: _currentTaskPlan,
         planHistory: List.from(_planHistory),
-      ));
+      ),);
 
       // TODO: 从数据库删除
       // await _taskPlanRepository.delete(taskPlanId);
@@ -560,7 +565,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
       Log.error('TaskPlannerBloc: Failed to delete plan: $error');
       emit(state.copyWith(
         errorMessage: '删除规划失败: $error',
-      ));
+      ),);
     }
   }
 
@@ -572,7 +577,7 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
     Log.info('TaskPlannerBloc: Retry last operation not yet implemented');
     emit(state.copyWith(
       errorMessage: null,
-    ));
+    ),);
   }
 
   // 清除错误
@@ -581,23 +586,46 @@ class TaskPlannerBloc extends Bloc<TaskPlannerEvent, TaskPlannerState> {
   ) async {
     emit(state.copyWith(
       errorMessage: null,
-    ));
+    ),);
   }
 
   // 生成模拟任务步骤（用于测试）
   List<TaskStep> _generateMockSteps(List<String> mcpTools) {
     final steps = <TaskStep>[];
     
-    for (int i = 0; i < mcpTools.length; i++) {
-      final toolId = mcpTools[i];
-      steps.add(TaskStep(
-        id: _uuid.v4(),
-        description: '使用 $toolId 工具执行步骤 ${i + 1}',
-        mcpToolId: toolId,
-        parameters: {'step': i + 1, 'tool': toolId},
-        order: i,
-        estimatedDurationSeconds: 30,
-      ));
+    if (mcpTools.isNotEmpty) {
+      // 如果有选择的MCP工具，为每个工具生成步骤
+      for (int i = 0; i < mcpTools.length; i++) {
+        final toolId = mcpTools[i];
+        steps.add(TaskStep(
+          id: nanoid(),
+          description: '使用 $toolId 工具执行步骤 ${i + 1}',
+          mcpToolId: toolId,
+          parameters: {'step': i + 1, 'tool': toolId},
+          order: i,
+          estimatedDurationSeconds: 30,
+        ),);
+      }
+    } else {
+      // 如果没有选择MCP工具，生成默认的通用步骤
+      final defaultSteps = [
+        '分析用户查询内容',
+        '搜索相关信息和资源',
+        '处理和整理数据',
+        '生成回答内容',
+        '验证和优化结果',
+      ];
+      
+      for (int i = 0; i < defaultSteps.length; i++) {
+        steps.add(TaskStep(
+          id: nanoid(),
+          description: defaultSteps[i],
+          mcpToolId: 'ai-assistant', // 默认使用AI助手
+          parameters: {'step': i + 1, 'description': defaultSteps[i]},
+          order: i,
+          estimatedDurationSeconds: 15 + (i * 5), // 递增的预估时间
+        ),);
+      }
     }
 
     return steps;

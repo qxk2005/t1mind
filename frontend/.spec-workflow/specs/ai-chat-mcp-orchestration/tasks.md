@@ -127,7 +127,7 @@
   - _Requirements: 需求1, 需求2_
   - _Prompt: 为规格ai-chat-mcp-orchestration实现任务，首先运行spec-workflow-guide获取工作流程指南然后实现任务：Role: Flutter UI集成专家，专精现有组件扩展 | Task: 扩展现有聊天输入区域，无缝集成MCP工具选择和任务规划功能，保持现有用户体验 | Restrictions: 不要破坏现有聊天功能，确保向后兼容，保持界面简洁 | Success: 新功能集成无缝，现有功能不受影响，用户界面保持一致性，交互逻辑清晰_
 
-- [ ] 14. 扩展AI消息显示组件
+- [x] 14. 扩展AI消息显示组件
   - 文件: appflowy_flutter/lib/plugins/ai_chat/presentation/message/ai_text_message.dart (修改现有文件)
   - 添加执行日志和引用信息显示
   - 实现展开/折叠详细信息功能

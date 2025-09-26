@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:appflowy/plugins/ai_chat/application/chat_entity.dart';
+import 'package:appflowy/plugins/ai_chat/application/execution_log_entities.dart';
 import 'package:appflowy/workspace/application/view/view_ext.dart';
 import 'package:appflowy_backend/dispatch/dispatch.dart';
 import 'package:appflowy_backend/log.dart';
@@ -70,9 +71,11 @@ class MetadataCollection {
   MetadataCollection({
     required this.sources,
     this.progress,
+    this.executionLog,
   });
   final List<ChatMessageRefSource> sources;
   final AIChatProgress? progress;
+  final ExecutionLog? executionLog;
 }
 
 MetadataCollection parseMetadata(String? s) {
@@ -82,6 +85,7 @@ MetadataCollection parseMetadata(String? s) {
 
   final List<ChatMessageRefSource> metadata = [];
   AIChatProgress? progress;
+  ExecutionLog? executionLog;
 
   try {
     final dynamic decodedJson = jsonDecode(s);
@@ -93,7 +97,18 @@ MetadataCollection parseMetadata(String? s) {
       if (map.containsKey("step") && map["step"] != null) {
         progress = AIChatProgress.fromJson(map);
       } else if (map.containsKey("id") && map["id"] != null) {
-        metadata.add(ChatMessageRefSource.fromJson(map));
+        // 检查是否是执行日志
+        if (map.containsKey("sessionId") && map.containsKey("userQuery")) {
+          try {
+            executionLog = ExecutionLog.fromJson(map);
+          } catch (e) {
+            Log.error("Failed to parse execution log: $e");
+            // 如果解析执行日志失败，尝试作为引用源处理
+            metadata.add(ChatMessageRefSource.fromJson(map));
+          }
+        } else {
+          metadata.add(ChatMessageRefSource.fromJson(map));
+        }
       } else {
         Log.info("Unsupported metadata format: $map");
       }
@@ -117,7 +132,7 @@ MetadataCollection parseMetadata(String? s) {
     Log.debug(stacktrace.toString());
   }
 
-  return MetadataCollection(sources: metadata, progress: progress);
+  return MetadataCollection(sources: metadata, progress: progress, executionLog: executionLog);
 }
 
 Future<List<ChatMessageMetaPB>> metadataPBFromMetadata(

@@ -1,5 +1,6 @@
 import 'package:appflowy/plugins/ai_chat/application/chat_entity.dart';
 import 'package:appflowy/plugins/ai_chat/application/chat_message_stream.dart';
+import 'package:appflowy/plugins/ai_chat/application/execution_log_entities.dart';
 import 'package:appflowy_backend/dispatch/dispatch.dart';
 import 'package:appflowy_backend/log.dart';
 import 'package:appflowy_backend/protobuf/flowy-ai/entities.pb.dart';
@@ -114,6 +115,7 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
         state.copyWith(
           sources: event.metadata.sources,
           progress: event.metadata.progress,
+          executionLog: event.metadata.executionLog,
         ),
       );
     });
@@ -198,6 +200,7 @@ class ChatAIMessageState with _$ChatAIMessageState {
     required MessageState messageState,
     required List<ChatMessageRefSource> sources,
     required AIChatProgress? progress,
+    ExecutionLog? executionLog,
   }) = _ChatAIMessageState;
 
   factory ChatAIMessageState.initial(
@@ -210,6 +213,7 @@ class ChatAIMessageState with _$ChatAIMessageState {
       messageState: const MessageState.ready(),
       sources: metadata.sources,
       progress: metadata.progress,
+      executionLog: metadata.executionLog,
     );
   }
 }

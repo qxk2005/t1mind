@@ -423,18 +423,14 @@ class _ChatFooterState extends State<ChatFooter> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         Log.debug('显示任务确认对话框: ${taskPlan.userQuery}');
-        showDialog(
+        showTaskConfirmationDialog(
           context: context,
-          barrierDismissible: false,
-          builder: (dialogContext) => TaskConfirmationDialog(
-            taskPlan: taskPlan,
-            onAction: (action) {
-              // ConfirmPopup会自动关闭对话框，所以我们不需要手动关闭
-              // 直接处理动作，不使用延迟以避免BuildContext跨异步间隙问题
-              _handleTaskConfirmationAction(context, taskPlan, action);
-            },
-          ),
-        );
+          taskPlan: taskPlan,
+        ).then((action) {
+          if (action != null && mounted) {
+            _handleTaskConfirmationAction(context, taskPlan, action);
+          }
+        });
       }
     });
   }
