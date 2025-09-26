@@ -40,7 +40,7 @@ impl SseClient {
     tokio::spawn(async move {
       let mut event_name: Option<String> = None;
       let mut data_lines: Vec<String> = Vec::new();
-      let mut flush_event = |tx: &UnboundedSender<SseEvent>, name: &mut Option<String>, data_lines: &mut Vec<String>| {
+      let flush_event = |tx: &UnboundedSender<SseEvent>, name: &mut Option<String>, data_lines: &mut Vec<String>| {
         if !data_lines.is_empty() {
           let data = data_lines.join("\n");
           let _ = tx.send(SseEvent { event: name.clone(), data });
@@ -177,7 +177,7 @@ pub async fn sse_tools_list(url: &str, headers: &[(String, String)], timeout: Du
     if let Some(ev) = frame.event.as_deref() {
       if ev.eq_ignore_ascii_case("endpoint") {
         let data = frame.data.trim();
-        if let Some(mut url2) = base_url.clone() {
+        if let Some(url2) = base_url.clone() {
           if data.starts_with("http://") || data.starts_with("https://") {
             post_url = data.to_string();
           } else if let Ok(joined) = url2.join(data) { post_url = joined.to_string(); }
@@ -199,7 +199,7 @@ pub async fn sse_tools_list(url: &str, headers: &[(String, String)], timeout: Du
       // Special handshake: event: endpoint -> update post url dynamically
       if let Some(ev) = frame.event.as_deref() {
         if ev.eq_ignore_ascii_case("endpoint") {
-          if let Some(mut url2) = base_url.clone() {
+          if let Some(url2) = base_url.clone() {
             if data.starts_with("http://") || data.starts_with("https://") {
               post_url = data.to_string();
             } else {

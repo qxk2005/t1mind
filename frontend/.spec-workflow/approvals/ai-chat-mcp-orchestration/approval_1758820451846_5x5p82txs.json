@@ -1,0 +1,27 @@
+{
+  "id": "approval_1758820451846_5x5p82txs",
+  "title": "AI聊天MCP工具编排功能设计文档审批",
+  "filePath": ".spec-workflow/specs/ai-chat-mcp-orchestration/design.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2025-09-25T17:14:11.846Z",
+  "category": "spec",
+  "categoryName": "ai-chat-mcp-orchestration",
+  "response": "Feedback Summary (1 comments):\n\nSpecific Text Comments:\n1. \"资源文件：`assets/translations/`\": i18n的资源文件在 frontend/resources/translations/ 这个目录\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"selection\",\n      \"comment\": \"i18n的资源文件在 frontend/resources/translations/ 这个目录\",\n      \"timestamp\": \"2025-09-25T17:15:25.865Z\",\n      \"selectedText\": \"资源文件：`assets/translations/`\",\n      \"highlightColor\": {\n        \"bg\": \"rgba(255, 235, 59, 0.3)\",\n        \"border\": \"#FFEB3B\",\n        \"name\": \"#ffeb3b\"\n      },\n      \"id\": \"comment_1758820525865_5pbcc12ps\"\n    }\n  ],\n  \"summary\": \"Feedback Summary (1 comments):\\n\\nSpecific Text Comments:\\n1. \\\"资源文件：`assets/translations/`\\\": i18n的资源文件在 frontend/resources/translations/ 这个目录\\n\",\n  \"timestamp\": \"2025-09-25T17:15:45.519Z\"\n}",
+  "respondedAt": "2025-09-25T17:15:45.524Z",
+  "comments": [
+    {
+      "type": "selection",
+      "comment": "i18n的资源文件在 frontend/resources/translations/ 这个目录",
+      "timestamp": "2025-09-25T17:15:25.865Z",
+      "selectedText": "资源文件：`assets/translations/`",
+      "highlightColor": {
+        "bg": "rgba(255, 235, 59, 0.3)",
+        "border": "#FFEB3B",
+        "name": "#ffeb3b"
+      },
+      "id": "comment_1758820525865_5pbcc12ps"
+    }
+  ]
+}

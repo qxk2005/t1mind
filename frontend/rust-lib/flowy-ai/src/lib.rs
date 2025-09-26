@@ -5,6 +5,8 @@ pub mod ai_manager;
 mod chat;
 mod completion;
 pub mod entities;
+pub mod execution_logger;
+pub mod task_orchestrator;
 pub mod local_ai;
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux", target_os = "android"))]

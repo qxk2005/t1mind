@@ -170,12 +170,121 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    execution_log_table (id) {
+        id -> Text,
+        session_id -> Text,
+        task_plan_id -> Nullable<Text>,
+        user_query -> Text,
+        start_time -> BigInt,
+        end_time -> Nullable<BigInt>,
+        status -> Integer,
+        error_message -> Nullable<Text>,
+        error_type -> Nullable<Integer>,
+        agent_id -> Nullable<Text>,
+        user_id -> Nullable<Text>,
+        workspace_id -> Nullable<Text>,
+        total_steps -> Integer,
+        completed_steps -> Integer,
+        failed_steps -> Integer,
+        skipped_steps -> Integer,
+        context -> Text,
+        result_summary -> Nullable<Text>,
+        used_mcp_tools -> Text,
+        tags -> Text,
+        retry_count -> Integer,
+        max_retries -> Integer,
+        parent_execution_id -> Nullable<Text>,
+        child_execution_ids -> Text,
+        created_at -> BigInt,
+        updated_at -> BigInt,
+    }
+}
+
+diesel::table! {
+    execution_step_table (id) {
+        id -> Text,
+        execution_log_id -> Text,
+        name -> Text,
+        description -> Text,
+        mcp_tool_id -> Text,
+        mcp_tool_name -> Text,
+        mcp_tool_config -> Text,
+        input_parameters -> Text,
+        output_result -> Nullable<Text>,
+        execution_time_ms -> Integer,
+        status -> Integer,
+        start_time -> Nullable<BigInt>,
+        end_time -> Nullable<BigInt>,
+        error_message -> Nullable<Text>,
+        error_type -> Nullable<Integer>,
+        error_stack -> Nullable<Text>,
+        step_order -> Integer,
+        retry_count -> Integer,
+        max_retries -> Integer,
+        dependencies -> Text,
+        tags -> Text,
+        metadata -> Text,
+        can_skip -> Bool,
+        is_critical -> Bool,
+        created_at -> BigInt,
+        updated_at -> BigInt,
+    }
+}
+
+diesel::table! {
+    execution_reference_table (id) {
+        id -> Text,
+        execution_step_id -> Text,
+        reference_type -> Integer,
+        title -> Text,
+        content -> Nullable<Text>,
+        url -> Nullable<Text>,
+        source -> Nullable<Text>,
+        timestamp -> BigInt,
+        metadata -> Text,
+        relevance_score -> Double,
+        created_at -> BigInt,
+    }
+}
+
+diesel::table! {
+    mcp_tool_info_table (id) {
+        id -> Text,
+        name -> Text,
+        display_name -> Nullable<Text>,
+        description -> Text,
+        version -> Text,
+        provider -> Text,
+        category -> Text,
+        status -> Integer,
+        config -> Text,
+        schema -> Text,
+        requires_auth -> Bool,
+        auth_config -> Nullable<Text>,
+        icon_url -> Nullable<Text>,
+        documentation_url -> Nullable<Text>,
+        last_checked -> Nullable<BigInt>,
+        last_used -> Nullable<BigInt>,
+        usage_count -> Integer,
+        success_count -> Integer,
+        failure_count -> Integer,
+        average_execution_time_ms -> Integer,
+        created_at -> BigInt,
+        updated_at -> BigInt,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(
   af_collab_metadata,
   chat_local_setting_table,
   chat_message_table,
   chat_table,
   collab_snapshot,
+  execution_log_table,
+  execution_step_table,
+  execution_reference_table,
+  mcp_tool_info_table,
   index_collab_record_table,
   local_ai_model_table,
   upload_file_part,

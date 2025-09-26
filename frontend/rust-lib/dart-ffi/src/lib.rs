@@ -31,6 +31,8 @@ use crate::{
 };
 use flowy_ai::mcp::manager::MCPClientManager;
 use flowy_ai::mcp::sse::sse_tools_list;
+use flowy_ai::task_orchestrator::{TaskOrchestrator, ExecutionContext, AgentConfig, ExecutionProgress};
+use flowy_ai::execution_logger::{ExecutionLogger, ExecutionLogSearchCriteria, ExecutionLogExportOptions};
 use tokio::runtime::Builder;
 use std::time::Duration;
 use std::sync::OnceLock;
@@ -48,6 +50,8 @@ lazy_static! {
 }
 
 static MCP_MANAGER: OnceLock<MCPClientManager> = OnceLock::new();
+static TASK_ORCHESTRATOR: OnceLock<Arc<TaskOrchestrator>> = OnceLock::new();
+static EXECUTION_LOGGER: OnceLock<Arc<ExecutionLogger>> = OnceLock::new();
 
 pub struct Task {
   dispatcher: Arc<AFPluginDispatcher>,
@@ -174,7 +178,29 @@ pub extern "C" fn init_sdk(_port: i64, data: *mut c_char) -> i64 {
   let cloned_runtime = runtime.clone();
   *DART_APPFLOWY_CORE.core.write().unwrap() = runtime
     .block_on(async move { Some(AppFlowyCore::new(config, cloned_runtime, log_stream).await) });
-  MCP_MANAGER.get_or_init(|| MCPClientManager::new());
+  
+  // 初始化MCP管理器
+  let mcp_manager = Arc::new(MCPClientManager::new());
+  MCP_MANAGER.get_or_init(|| mcp_manager.as_ref().clone());
+  
+  // 初始化任务编排器和执行日志记录器
+  if let Some(core) = DART_APPFLOWY_CORE.core.read().unwrap().as_ref() {
+    let ai_manager = core.ai_manager.clone();
+    let user_service = core.user_manager.cloud_service().ok();
+    
+    let task_orchestrator = Arc::new(TaskOrchestrator::new(
+      ai_manager,
+      mcp_manager.clone(),
+      5, // 最大并发执行数
+    ));
+    
+    TASK_ORCHESTRATOR.get_or_init(|| task_orchestrator);
+    
+    // TODO: 初始化执行日志记录器需要正确的用户服务类型
+    // let execution_logger = Arc::new(ExecutionLogger::new(user_service));
+    // EXECUTION_LOGGER.get_or_init(|| execution_logger);
+  }
+  
   0
 }
 
@@ -535,5 +561,684 @@ struct LogStreamSenderImpl {
 impl StreamLogSender for LogStreamSenderImpl {
   fn send(&self, message: &[u8]) {
     self.isolate.post(message.to_vec());
+  }
+}
+
+// ============================================================================
+// 任务编排相关FFI函数
+// ============================================================================
+
+/// 创建任务规划
+#[no_mangle]
+pub extern "C" fn task_create_plan(
+  user_query: *const c_char,
+  session_id: *const c_char,
+  agent_id: *const c_char,
+) -> *const u8 {
+  let user_query = unsafe { CStr::from_ptr(user_query) }.to_string_lossy().to_string();
+  let session_id = if session_id.is_null() {
+    None
+  } else {
+    Some(unsafe { CStr::from_ptr(session_id) }.to_string_lossy().to_string())
+  };
+  let agent_id = if agent_id.is_null() {
+    None
+  } else {
+    Some(unsafe { CStr::from_ptr(agent_id) }.to_string_lossy().to_string())
+  };
+
+  let orchestrator = match TASK_ORCHESTRATOR.get() {
+    Some(orchestrator) => orchestrator,
+    None => {
+      let error = serde_json::json!({"error": "Task orchestrator not initialized"});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Failed to create runtime: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let result = rt.block_on(async {
+    match orchestrator.create_task_plan(user_query, session_id, agent_id).await {
+      Ok(plan) => serde_json::to_value(&plan).unwrap_or_else(|_| serde_json::json!({"error": "Failed to serialize plan"})),
+      Err(e) => serde_json::json!({"error": e.to_string()}),
+    }
+  });
+
+  let bytes = result.to_string().into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+/// 确认任务规划
+#[no_mangle]
+pub extern "C" fn task_confirm_plan(plan_id: *const c_char) -> *const u8 {
+  let plan_id = unsafe { CStr::from_ptr(plan_id) }.to_string_lossy().to_string();
+
+  let orchestrator = match TASK_ORCHESTRATOR.get() {
+    Some(orchestrator) => orchestrator,
+    None => {
+      let error = serde_json::json!({"error": "Task orchestrator not initialized"});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Failed to create runtime: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let result = rt.block_on(async {
+    match orchestrator.confirm_task_plan(&plan_id).await {
+      Ok(_) => serde_json::json!({"success": true}),
+      Err(e) => serde_json::json!({"error": e.to_string()}),
+    }
+  });
+
+  let bytes = result.to_string().into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+/// 执行任务规划
+#[no_mangle]
+pub extern "C" fn task_execute_plan(
+  plan_id: *const c_char,
+  context_json: *const c_char,
+) -> *const u8 {
+  let plan_id = unsafe { CStr::from_ptr(plan_id) }.to_string_lossy().to_string();
+  let context_json = unsafe { CStr::from_ptr(context_json) }.to_string_lossy().to_string();
+
+  let context: ExecutionContext = match serde_json::from_str(&context_json) {
+    Ok(context) => context,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Invalid context JSON: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let orchestrator = match TASK_ORCHESTRATOR.get() {
+    Some(orchestrator) => orchestrator,
+    None => {
+      let error = serde_json::json!({"error": "Task orchestrator not initialized"});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Failed to create runtime: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let result = rt.block_on(async {
+    match orchestrator.execute_task_plan(&plan_id, context).await {
+      Ok(execution_result) => serde_json::to_value(&execution_result).unwrap_or_else(|_| serde_json::json!({"error": "Failed to serialize result"})),
+      Err(e) => serde_json::json!({"error": e.to_string()}),
+    }
+  });
+
+  let bytes = result.to_string().into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+/// 取消任务执行
+#[no_mangle]
+pub extern "C" fn task_cancel_execution(plan_id: *const c_char) -> *const u8 {
+  let plan_id = unsafe { CStr::from_ptr(plan_id) }.to_string_lossy().to_string();
+
+  let orchestrator = match TASK_ORCHESTRATOR.get() {
+    Some(orchestrator) => orchestrator,
+    None => {
+      let error = serde_json::json!({"error": "Task orchestrator not initialized"});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Failed to create runtime: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let result = rt.block_on(async {
+    match orchestrator.cancel_task_execution(&plan_id).await {
+      Ok(_) => serde_json::json!({"success": true}),
+      Err(e) => serde_json::json!({"error": e.to_string()}),
+    }
+  });
+
+  let bytes = result.to_string().into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+/// 获取任务规划
+#[no_mangle]
+pub extern "C" fn task_get_plan(plan_id: *const c_char) -> *const u8 {
+  let plan_id = unsafe { CStr::from_ptr(plan_id) }.to_string_lossy().to_string();
+
+  let orchestrator = match TASK_ORCHESTRATOR.get() {
+    Some(orchestrator) => orchestrator,
+    None => {
+      let error = serde_json::json!({"error": "Task orchestrator not initialized"});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Failed to create runtime: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let result = rt.block_on(async {
+    match orchestrator.get_task_plan(&plan_id).await {
+      Ok(plan) => serde_json::to_value(&plan).unwrap_or_else(|_| serde_json::json!({"error": "Failed to serialize plan"})),
+      Err(e) => serde_json::json!({"error": e.to_string()}),
+    }
+  });
+
+  let bytes = result.to_string().into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+/// 获取所有活跃的任务规划
+#[no_mangle]
+pub extern "C" fn task_get_active_plans() -> *const u8 {
+  let orchestrator = match TASK_ORCHESTRATOR.get() {
+    Some(orchestrator) => orchestrator,
+    None => {
+      let error = serde_json::json!({"error": "Task orchestrator not initialized"});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Failed to create runtime: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let result = rt.block_on(async {
+    let plans = orchestrator.get_active_task_plans().await;
+    serde_json::to_value(&plans).unwrap_or_else(|_| serde_json::json!({"error": "Failed to serialize plans"}))
+  });
+
+  let bytes = result.to_string().into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+// ============================================================================
+// 智能体配置相关FFI函数
+// ============================================================================
+
+/// 添加智能体配置
+#[no_mangle]
+pub extern "C" fn agent_add_config(config_json: *const c_char) -> *const u8 {
+  let config_json = unsafe { CStr::from_ptr(config_json) }.to_string_lossy().to_string();
+
+  let config: AgentConfig = match serde_json::from_str(&config_json) {
+    Ok(config) => config,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Invalid config JSON: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let orchestrator = match TASK_ORCHESTRATOR.get() {
+    Some(orchestrator) => orchestrator,
+    None => {
+      let error = serde_json::json!({"error": "Task orchestrator not initialized"});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Failed to create runtime: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let result = rt.block_on(async {
+    match orchestrator.add_agent_config(config).await {
+      Ok(_) => serde_json::json!({"success": true}),
+      Err(e) => serde_json::json!({"error": e.to_string()}),
+    }
+  });
+
+  let bytes = result.to_string().into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+/// 获取智能体配置
+#[no_mangle]
+pub extern "C" fn agent_get_config(agent_id: *const c_char) -> *const u8 {
+  let agent_id = unsafe { CStr::from_ptr(agent_id) }.to_string_lossy().to_string();
+
+  let orchestrator = match TASK_ORCHESTRATOR.get() {
+    Some(orchestrator) => orchestrator,
+    None => {
+      let error = serde_json::json!({"error": "Task orchestrator not initialized"});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Failed to create runtime: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let result = rt.block_on(async {
+    match orchestrator.get_agent_config(&agent_id).await {
+      Ok(config) => serde_json::to_value(&config).unwrap_or_else(|_| serde_json::json!({"error": "Failed to serialize config"})),
+      Err(e) => serde_json::json!({"error": e.to_string()}),
+    }
+  });
+
+  let bytes = result.to_string().into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+// ============================================================================
+// 执行日志相关FFI函数
+// ============================================================================
+
+/// 创建执行日志
+#[no_mangle]
+pub extern "C" fn execution_log_create(
+  session_id: *const c_char,
+  user_query: *const c_char,
+  task_plan_id: *const c_char,
+  agent_id: *const c_char,
+  user_id: *const c_char,
+  workspace_id: *const c_char,
+) -> *const u8 {
+  let session_id = unsafe { CStr::from_ptr(session_id) }.to_string_lossy().to_string();
+  let user_query = unsafe { CStr::from_ptr(user_query) }.to_string_lossy().to_string();
+  let task_plan_id = if task_plan_id.is_null() {
+    None
+  } else {
+    Some(unsafe { CStr::from_ptr(task_plan_id) }.to_string_lossy().to_string())
+  };
+  let agent_id = if agent_id.is_null() {
+    None
+  } else {
+    Some(unsafe { CStr::from_ptr(agent_id) }.to_string_lossy().to_string())
+  };
+  let user_id = if user_id.is_null() {
+    None
+  } else {
+    Some(unsafe { CStr::from_ptr(user_id) }.to_string_lossy().to_string())
+  };
+  let workspace_id = if workspace_id.is_null() {
+    None
+  } else {
+    Some(unsafe { CStr::from_ptr(workspace_id) }.to_string_lossy().to_string())
+  };
+
+  let logger = match EXECUTION_LOGGER.get() {
+    Some(logger) => logger,
+    None => {
+      let error = serde_json::json!({"error": "Execution logger not initialized"});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Failed to create runtime: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let result = rt.block_on(async {
+    match logger.create_execution_log(session_id, user_query, task_plan_id, agent_id, user_id, workspace_id).await {
+      Ok(execution_id) => serde_json::json!({"execution_id": execution_id}),
+      Err(e) => serde_json::json!({"error": e.to_string()}),
+    }
+  });
+
+  let bytes = result.to_string().into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+/// 搜索执行日志
+#[no_mangle]
+pub extern "C" fn execution_log_search(criteria_json: *const c_char) -> *const u8 {
+  let criteria_json = unsafe { CStr::from_ptr(criteria_json) }.to_string_lossy().to_string();
+
+  let criteria: ExecutionLogSearchCriteria = match serde_json::from_str(&criteria_json) {
+    Ok(criteria) => criteria,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Invalid criteria JSON: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let logger = match EXECUTION_LOGGER.get() {
+    Some(logger) => logger,
+    None => {
+      let error = serde_json::json!({"error": "Execution logger not initialized"});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Failed to create runtime: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let result = rt.block_on(async {
+    match logger.search_execution_logs(criteria).await {
+      Ok(logs) => serde_json::to_value(&logs).unwrap_or_else(|_| serde_json::json!({"error": "Failed to serialize logs"})),
+      Err(e) => serde_json::json!({"error": e.to_string()}),
+    }
+  });
+
+  let bytes = result.to_string().into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+/// 获取执行日志详情
+#[no_mangle]
+pub extern "C" fn execution_log_get_details(execution_id: *const c_char) -> *const u8 {
+  let execution_id = unsafe { CStr::from_ptr(execution_id) }.to_string_lossy().to_string();
+
+  let logger = match EXECUTION_LOGGER.get() {
+    Some(logger) => logger,
+    None => {
+      let error = serde_json::json!({"error": "Execution logger not initialized"});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Failed to create runtime: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let result = rt.block_on(async {
+    match logger.get_execution_log_with_details(&execution_id).await {
+      Ok(details) => serde_json::to_value(&details).unwrap_or_else(|_| serde_json::json!({"error": "Failed to serialize details"})),
+      Err(e) => serde_json::json!({"error": e.to_string()}),
+    }
+  });
+
+  let bytes = result.to_string().into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+/// 导出执行日志
+#[no_mangle]
+pub extern "C" fn execution_log_export(
+  criteria_json: *const c_char,
+  options_json: *const c_char,
+) -> *const u8 {
+  let criteria_json = unsafe { CStr::from_ptr(criteria_json) }.to_string_lossy().to_string();
+  let options_json = unsafe { CStr::from_ptr(options_json) }.to_string_lossy().to_string();
+
+  let criteria: ExecutionLogSearchCriteria = match serde_json::from_str(&criteria_json) {
+    Ok(criteria) => criteria,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Invalid criteria JSON: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let options: ExecutionLogExportOptions = match serde_json::from_str(&options_json) {
+    Ok(options) => options,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Invalid options JSON: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let logger = match EXECUTION_LOGGER.get() {
+    Some(logger) => logger,
+    None => {
+      let error = serde_json::json!({"error": "Execution logger not initialized"});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Failed to create runtime: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let result = rt.block_on(async {
+    match logger.export_execution_logs(criteria, options).await {
+      Ok(export_data) => serde_json::json!({"data": export_data}),
+      Err(e) => serde_json::json!({"error": e.to_string()}),
+    }
+  });
+
+  let bytes = result.to_string().into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+/// 获取执行统计信息
+#[no_mangle]
+pub extern "C" fn execution_log_get_statistics(
+  start_time: i64,
+  end_time: i64,
+  workspace_id: *const c_char,
+) -> *const u8 {
+  let workspace_id = if workspace_id.is_null() {
+    None
+  } else {
+    Some(unsafe { CStr::from_ptr(workspace_id) }.to_string_lossy().to_string())
+  };
+
+  let logger = match EXECUTION_LOGGER.get() {
+    Some(logger) => logger,
+    None => {
+      let error = serde_json::json!({"error": "Execution logger not initialized"});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(e) => {
+      let error = serde_json::json!({"error": format!("Failed to create runtime: {}", e)});
+      let bytes = error.to_string().into_bytes();
+      let result = extend_front_four_bytes_into_bytes(&bytes);
+      return forget_rust(result);
+    }
+  };
+
+  let start_time_opt = if start_time == 0 { None } else { Some(start_time) };
+  let end_time_opt = if end_time == 0 { None } else { Some(end_time) };
+
+  let result = rt.block_on(async {
+    match logger.get_execution_statistics(start_time_opt, end_time_opt, workspace_id).await {
+      Ok(stats) => serde_json::to_value(&stats).unwrap_or_else(|_| serde_json::json!({"error": "Failed to serialize statistics"})),
+      Err(e) => serde_json::json!({"error": e.to_string()}),
+    }
+  });
+
+  let bytes = result.to_string().into_bytes();
+  let result = extend_front_four_bytes_into_bytes(&bytes);
+  forget_rust(result)
+}
+
+// ============================================================================
+// 事件通知相关FFI函数
+// ============================================================================
+
+/// 设置任务执行进度通知端口
+#[no_mangle]
+pub extern "C" fn task_set_progress_port(port: i64) -> i32 {
+  let orchestrator = match TASK_ORCHESTRATOR.get() {
+    Some(orchestrator) => orchestrator,
+    None => return -1,
+  };
+
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(_) => return -1,
+  };
+
+  let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<ExecutionProgress>();
+  
+  // 设置进度接收器
+  rt.block_on(async {
+    orchestrator.set_progress_receiver(sender).await;
+  });
+
+  // 启动进度通知任务
+  tokio::spawn(async move {
+    while let Some(progress) = receiver.recv().await {
+      let isolate = allo_isolate::Isolate::new(port);
+      let progress_json = match serde_json::to_string(&progress) {
+        Ok(json) => json,
+        Err(_) => continue,
+      };
+      
+      let _ = isolate.catch_unwind(async {
+        progress_json.into_bytes()
+      }).await;
+    }
+  });
+
+  0
+}
+
+/// 发送自定义事件通知
+#[no_mangle]
+pub extern "C" fn task_send_notification(
+  port: i64,
+  event_type: *const c_char,
+  data_json: *const c_char,
+) -> i32 {
+  let event_type = unsafe { CStr::from_ptr(event_type) }.to_string_lossy().to_string();
+  let data_json = unsafe { CStr::from_ptr(data_json) }.to_string_lossy().to_string();
+
+  let isolate = allo_isolate::Isolate::new(port);
+  let rt = match Builder::new_current_thread().enable_all().build() {
+    Ok(rt) => rt,
+    Err(_) => return -1,
+  };
+
+  let result = rt.block_on(async {
+    let notification = serde_json::json!({
+      "event_type": event_type,
+      "data": serde_json::from_str::<serde_json::Value>(&data_json).unwrap_or(serde_json::json!({})),
+      "timestamp": std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
+    });
+    
+    isolate.catch_unwind(async move {
+      notification.to_string().into_bytes()
+    }).await
+  });
+
+  match result {
+    Ok(_) => 0,
+    Err(_) => -1,
   }
 }

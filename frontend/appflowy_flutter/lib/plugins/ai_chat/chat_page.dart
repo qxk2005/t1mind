@@ -9,6 +9,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'application/chat_bloc.dart';
 import 'application/chat_member_bloc.dart';
+import 'application/task_planner_bloc.dart';
 
 class AIChatPage extends StatelessWidget {
   const AIChatPage({
@@ -45,6 +46,14 @@ class AIChatPage extends StatelessWidget {
           ),
         ),
         BlocProvider(create: (_) => ChatMemberBloc()),
+        
+        /// [TaskPlannerBloc] is used to handle task planning and orchestration
+        BlocProvider(
+          create: (_) => TaskPlannerBloc(
+            sessionId: view.id,
+            userId: userProfile.id.toString(),
+          ),
+        ),
       ],
       child: Builder(
         builder: (context) {

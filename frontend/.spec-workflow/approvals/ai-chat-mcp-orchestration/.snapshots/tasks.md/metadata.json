@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/ai-chat-mcp-orchestration/tasks.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-09-25T17:18:26.686Z",
+      "trigger": "initial",
+      "approvalId": "approval_1758820706684_gjuf9wxlr",
+      "approvalTitle": "AI聊天MCP工具编排功能任务文档审批"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-09-25T17:18:53.644Z",
+      "trigger": "approved",
+      "approvalId": "approval_1758820706684_gjuf9wxlr",
+      "approvalTitle": "AI聊天MCP工具编排功能任务文档审批"
+    }
+  ]
+}

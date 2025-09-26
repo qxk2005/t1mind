@@ -11,6 +11,7 @@ use af_mcp::client::{MCPClient, MCPServerConfig};
 use af_mcp::entities::{ToolsList, ToolInvokeResponse};
 use super::sse::{SseClient, SseConfig};
 
+#[derive(Clone)]
 pub struct MCPClientManager {
   #[cfg(feature = "mcp_stdio")]
   stdio_clients: Arc<DashMap<String, MCPClient>>,
@@ -105,7 +106,7 @@ impl MCPClientManager {
     Ok(resp)
   }
 
-  pub async fn invoke_tool_sse(&self, id: &str, tool: &str, input: serde_json::Value, _timeout: Duration) -> FlowyResult<serde_json::Value> {
+  pub async fn invoke_tool_sse(&self, id: &str, _tool: &str, _input: serde_json::Value, _timeout: Duration) -> FlowyResult<serde_json::Value> {
     let _permit = self
       .concurrency
       .acquire()
