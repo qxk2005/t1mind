@@ -82,7 +82,7 @@
   - _Requirements: 需求7_
   - _Prompt: Implement the task for spec appflowy-mcp-ai-agent, first run spec-workflow-guide to get the workflow guide then implement the task: Role: AI系统架构师，专精大模型集成和任务规划 | Task: 实现AI驱动的任务规划器，基于全局AI模型进行任务分解，集成工具选择和个性化特性，遵循需求7的规范 | Restrictions: 必须复用现有AI调用接口，确保规划结果可执行，支持规划失败重试 | _Leverage: 现有AI模型调用机制, rust-lib/flowy-ai/src/ai_manager.rs | _Requirements: 需求7 | Success: 能根据用户问题生成合理的任务计划，工具选择准确，个性化特性体现 | Instructions: 首先将任务状态标记为进行中[-]，完成后标记为已完成[x]_
 
-- [ ] 9. 实现AI驱动任务执行器
+- [x] 9. 实现AI驱动任务执行器
   - 文件: rust-lib/flowy-ai/src/agent/executor.rs
   - 基于AI模型的工具调用功能执行任务
   - 添加反思和调整机制

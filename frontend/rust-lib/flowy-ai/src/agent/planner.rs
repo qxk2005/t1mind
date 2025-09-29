@@ -859,6 +859,11 @@ impl AITaskPlanner {
         debug!("任务规划 {} 状态更新为: {:?}", plan.id, plan.status);
     }
 
+    /// 创建任务执行器
+    pub fn create_executor(&self) -> crate::agent::executor::AITaskExecutor {
+        crate::agent::executor::AITaskExecutor::new(self.ai_manager.clone())
+    }
+
     /// 获取规划统计信息
     pub fn get_plan_statistics(&self, plan: &TaskPlan) -> HashMap<String, Value> {
         let mut stats = HashMap::new();
