@@ -141,7 +141,7 @@
   - _Requirements: 需求2_
   - _Prompt: Implement the task for spec appflowy-mcp-ai-agent, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Flutter UI/UX专家，专精表单设计和用户交互 | Task: 创建智能体配置页面，包含创建、编辑、删除功能，支持个性化配置和工具选择，遵循需求2的规范 | Restrictions: 必须提供直观的用户界面，确保配置项清晰易懂，支持配置验证 | _Leverage: 现有设置页面模式, 表单组件库 | _Requirements: 需求2 | Success: 智能体管理界面完整，配置功能正常，用户体验优秀 | Instructions: 首先将任务状态标记为进行中[-]，完成后标记为已完成[x]_
 
-- [ ] 15. 实现智能体管理BLoC
+- [x] 15. 实现智能体管理BLoC
   - 文件: appflowy_flutter/lib/plugins/ai_chat/application/agent_settings_bloc.dart
   - 管理智能体配置的状态和操作
   - 集成后端的智能体管理事件

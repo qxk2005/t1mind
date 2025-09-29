@@ -4,6 +4,7 @@ pub mod executor;
 pub mod agent_manager;
 pub mod tool_registry;
 pub mod native_tools;
+pub mod event_handler;
 
 pub use config_manager::{
     AgentConfigManager, 

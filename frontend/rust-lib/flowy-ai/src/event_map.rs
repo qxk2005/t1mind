@@ -9,6 +9,7 @@ use lib_dispatch::prelude::*;
 use crate::ai_manager::AIManager;
 use crate::event_handler::*;
 use crate::mcp::event_handler::*;
+use crate::agent::event_handler::*;
 
 pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
   let strong_ai_manager = ai_manager.upgrade().unwrap();
@@ -69,6 +70,15 @@ pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
     .event(AIEvent::GetMCPServerStatus, get_mcp_server_status_handler)
     .event(AIEvent::GetMCPToolList, get_mcp_tool_list_handler)
     .event(AIEvent::CallMCPTool, call_mcp_tool_handler)
+    // 智能体事件注册
+    .event(AIEvent::GetAgentList, get_agent_list_handler)
+    .event(AIEvent::CreateAgent, create_agent_handler)
+    .event(AIEvent::GetAgent, get_agent_handler)
+    .event(AIEvent::UpdateAgent, update_agent_handler)
+    .event(AIEvent::DeleteAgent, delete_agent_handler)
+    .event(AIEvent::ValidateAgentConfig, validate_agent_config_handler)
+    .event(AIEvent::GetAgentGlobalSettings, get_agent_global_settings_handler)
+    .event(AIEvent::UpdateAgentGlobalSettings, update_agent_global_settings_handler)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Display, Hash, ProtoBuf_Enum, Flowy_Event)]
@@ -191,4 +201,38 @@ pub enum AIEvent {
   /// 调用MCP工具
   #[event(input = "MCPToolCallRequestPB", output = "MCPToolCallResponsePB")]
   CallMCPTool = 45,
+
+  // ==================== 智能体相关事件 ====================
+  
+  /// 获取智能体列表
+  #[event(output = "AgentListPB")]
+  GetAgentList = 46,
+
+  /// 创建智能体
+  #[event(input = "CreateAgentRequestPB", output = "AgentConfigPB")]
+  CreateAgent = 47,
+
+  /// 获取智能体配置
+  #[event(input = "GetAgentRequestPB", output = "AgentConfigPB")]
+  GetAgent = 48,
+
+  /// 更新智能体配置
+  #[event(input = "UpdateAgentRequestPB", output = "AgentConfigPB")]
+  UpdateAgent = 49,
+
+  /// 删除智能体
+  #[event(input = "DeleteAgentRequestPB")]
+  DeleteAgent = 50,
+
+  /// 验证智能体配置
+  #[event(input = "AgentConfigPB", output = "AgentSuccessResponsePB")]
+  ValidateAgentConfig = 51,
+
+  /// 获取智能体全局设置
+  #[event(output = "AgentGlobalSettingsPB")]
+  GetAgentGlobalSettings = 52,
+
+  /// 更新智能体全局设置
+  #[event(input = "AgentGlobalSettingsPB")]
+  UpdateAgentGlobalSettings = 53,
 }

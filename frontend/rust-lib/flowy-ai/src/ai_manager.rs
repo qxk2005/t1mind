@@ -3,10 +3,13 @@ use crate::entities::{
   AIModelPB, ChatInfoPB, ChatMessageListPB, ChatMessagePB, ChatSettingsPB,
   CustomPromptDatabaseConfigurationPB, FilePB, ModelSelectionPB, PredefinedFormatPB,
   RepeatedRelatedQuestionPB, StreamMessageParams,
+  AgentListPB, AgentConfigPB, CreateAgentRequestPB, GetAgentRequestPB, 
+  UpdateAgentRequestPB, DeleteAgentRequestPB, AgentSuccessResponsePB, AgentGlobalSettingsPB,
 };
 use crate::local_ai::controller::{LocalAIController, LocalAISetting};
 use crate::middleware::chat_service_mw::ChatServiceMiddleware;
 use crate::mcp::manager::MCPClientManager;
+use crate::agent::config_manager::AgentConfigManager;
 use flowy_ai_pub::persistence::{
   ChatTableChangeset, select_chat_metadata, select_chat_rag_ids, select_chat_summary, update_chat,
 };
@@ -65,6 +68,7 @@ pub struct AIManager {
   pub store_preferences: Arc<KVStorePreferences>,
   model_control: Mutex<ModelSelectionControl>,
   pub mcp_manager: Arc<MCPClientManager>,
+  pub agent_manager: Arc<AgentConfigManager>,
 }
 impl Drop for AIManager {
   fn drop(&mut self) {
@@ -96,6 +100,7 @@ impl AIManager {
     model_control.add_source(Box::new(ServerAiSource::new(cloud_service_wm.clone())));
 
     let mcp_manager = Arc::new(MCPClientManager::new(store_preferences.clone()));
+    let agent_manager = Arc::new(AgentConfigManager::new(store_preferences.clone()));
 
     Self {
       cloud_service_wm,
@@ -106,6 +111,7 @@ impl AIManager {
       store_preferences,
       model_control: Mutex::new(model_control),
       mcp_manager,
+      agent_manager,
     }
   }
 
@@ -785,6 +791,87 @@ impl AIManager {
       );
     }
 
+    Ok(())
+  }
+
+  // ==================== 智能体管理方法 ====================
+
+  /// 获取智能体列表
+  pub async fn get_agent_list(&self) -> FlowyResult<AgentListPB> {
+    self.agent_manager.get_all_agents()
+  }
+
+  /// 创建智能体
+  pub async fn create_agent(&self, request: CreateAgentRequestPB) -> FlowyResult<AgentConfigPB> {
+    self.agent_manager.create_agent(request)
+  }
+
+  /// 获取智能体配置
+  pub async fn get_agent(&self, request: GetAgentRequestPB) -> FlowyResult<AgentConfigPB> {
+    self.agent_manager.get_agent(request)
+  }
+
+  /// 更新智能体配置
+  pub async fn update_agent(&self, request: UpdateAgentRequestPB) -> FlowyResult<AgentConfigPB> {
+    self.agent_manager.update_agent(request)
+  }
+
+  /// 删除智能体
+  pub async fn delete_agent(&self, request: DeleteAgentRequestPB) -> FlowyResult<()> {
+    self.agent_manager.delete_agent(request)?;
+    Ok(())
+  }
+
+  /// 验证智能体配置
+  pub async fn validate_agent_config(&self, config: AgentConfigPB) -> FlowyResult<AgentSuccessResponsePB> {
+    // 执行配置验证逻辑
+    let validation_errors = self.agent_manager.validate_agent_config(&config)?;
+    
+    if validation_errors.is_empty() {
+      Ok(AgentSuccessResponsePB {
+        success: true,
+        message: Some("智能体配置验证通过".to_string()),
+        data: std::collections::HashMap::new(),
+      })
+    } else {
+      Err(FlowyError::invalid_data().with_context(validation_errors.join("; ")))
+    }
+  }
+
+  /// 获取智能体全局设置
+  pub async fn get_agent_global_settings(&self) -> FlowyResult<AgentGlobalSettingsPB> {
+    let settings = self.agent_manager.get_global_settings();
+    Ok(AgentGlobalSettingsPB {
+      enabled: settings.enabled,
+      default_max_planning_steps: settings.default_max_planning_steps,
+      default_max_tool_calls: settings.default_max_tool_calls,
+      default_memory_limit: settings.default_memory_limit,
+      debug_logging: settings.debug_logging,
+      execution_timeout: settings.execution_timeout,
+      created_at: settings.created_at.duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default().as_secs() as i64,
+      updated_at: settings.updated_at.duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default().as_secs() as i64,
+    })
+  }
+
+  /// 更新智能体全局设置
+  pub async fn update_agent_global_settings(&self, settings: AgentGlobalSettingsPB) -> FlowyResult<()> {
+    use crate::agent::AgentGlobalSettings;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let global_settings = AgentGlobalSettings {
+      enabled: settings.enabled,
+      default_max_planning_steps: settings.default_max_planning_steps,
+      default_max_tool_calls: settings.default_max_tool_calls,
+      default_memory_limit: settings.default_memory_limit,
+      debug_logging: settings.debug_logging,
+      execution_timeout: settings.execution_timeout,
+      created_at: UNIX_EPOCH + std::time::Duration::from_secs(settings.created_at as u64),
+      updated_at: SystemTime::now(),
+    };
+
+    self.agent_manager.save_global_settings(global_settings)?;
     Ok(())
   }
 }

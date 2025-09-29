@@ -354,7 +354,7 @@ impl AgentConfigManager {
     /// 保存智能体配置（内部方法）
     fn save_agent_config(&self, config: &AgentConfigPB) -> FlowyResult<()> {
         // 验证配置
-        self.validate_agent_config(config)?;
+        self.validate_agent_config_internal(config)?;
         
         // 保存智能体配置
         let key = self.agent_config_key(&config.id);
@@ -402,8 +402,8 @@ impl AgentConfigManager {
         Ok(())
     }
 
-    /// 验证智能体配置
-    fn validate_agent_config(&self, config: &AgentConfigPB) -> FlowyResult<()> {
+    /// 验证智能体配置（内部方法）
+    fn validate_agent_config_internal(&self, config: &AgentConfigPB) -> FlowyResult<()> {
         if config.id.trim().is_empty() {
             return Err(FlowyError::invalid_data().with_context("智能体ID不能为空"));
         }
@@ -416,6 +416,51 @@ impl AgentConfigManager {
         self.validate_capabilities(&config.capabilities)?;
         
         Ok(())
+    }
+
+    /// 验证智能体配置并返回错误列表
+    pub fn validate_agent_config(&self, config: &AgentConfigPB) -> FlowyResult<Vec<String>> {
+        let mut errors = Vec::new();
+        
+        if config.id.trim().is_empty() {
+            errors.push("智能体ID不能为空".to_string());
+        }
+        
+        if config.name.trim().is_empty() {
+            errors.push("智能体名称不能为空".to_string());
+        }
+        
+        if config.name.len() > 50 {
+            errors.push("智能体名称不能超过50个字符".to_string());
+        }
+        
+        if config.description.len() > 500 {
+            errors.push("智能体描述不能超过500个字符".to_string());
+        }
+        
+        if config.personality.len() > 2000 {
+            errors.push("个性描述不能超过2000个字符".to_string());
+        }
+        
+        // 验证能力配置
+        let capabilities = &config.capabilities;
+        if capabilities.max_planning_steps < 1 || capabilities.max_planning_steps > 100 {
+            errors.push("最大规划步骤数必须在1-100之间".to_string());
+        }
+        
+        if capabilities.max_tool_calls < 1 || capabilities.max_tool_calls > 1000 {
+            errors.push("最大工具调用次数必须在1-1000之间".to_string());
+        }
+        
+        if capabilities.memory_limit < 10 || capabilities.memory_limit > 10000 {
+            errors.push("会话记忆长度限制必须在10-10000之间".to_string());
+        }
+        
+        if config.available_tools.is_empty() {
+            errors.push("至少需要选择一个可用工具".to_string());
+        }
+        
+        Ok(errors)
     }
 
     /// 验证能力配置

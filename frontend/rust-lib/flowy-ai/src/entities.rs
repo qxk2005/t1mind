@@ -1682,6 +1682,42 @@ pub struct AgentErrorResponsePB {
   pub details: HashMap<String, String>,
 }
 
+/// 智能体全局设置
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct AgentGlobalSettingsPB {
+  /// 是否启用智能体功能
+  #[pb(index = 1)]
+  pub enabled: bool,
+
+  /// 默认最大规划步骤数
+  #[pb(index = 2)]
+  pub default_max_planning_steps: i32,
+
+  /// 默认最大工具调用次数
+  #[pb(index = 3)]
+  pub default_max_tool_calls: i32,
+
+  /// 默认会话记忆长度限制
+  #[pb(index = 4)]
+  pub default_memory_limit: i32,
+
+  /// 是否启用调试日志
+  #[pb(index = 5)]
+  pub debug_logging: bool,
+
+  /// 智能体执行超时时间（秒）
+  #[pb(index = 6)]
+  pub execution_timeout: u64,
+
+  /// 创建时间
+  #[pb(index = 7)]
+  pub created_at: i64,
+
+  /// 更新时间
+  #[pb(index = 8)]
+  pub updated_at: i64,
+}
+
 // ==================== 实用工具函数和转换 ====================
 
 impl AgentConfigPB {
