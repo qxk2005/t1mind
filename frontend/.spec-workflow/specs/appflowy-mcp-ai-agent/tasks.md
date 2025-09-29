@@ -42,7 +42,7 @@
   - _Requirements: 需求5_
   - _Prompt: Implement the task for spec appflowy-mcp-ai-agent, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust事件系统架构师，专精AFPlugin和事件驱动架构 | Task: 扩展AI事件映射以支持MCP功能，添加事件定义和处理器，集成到AFPlugin系统，遵循需求5的规范 | Restrictions: 必须遵循现有的事件命名约定，不能破坏现有事件处理，确保事件序列化正确 | _Leverage: rust-lib/flowy-ai/src/event_map.rs, 现有事件映射模式 | _Requirements: 需求5 | Success: MCP事件能正确注册和处理，与现有事件系统无冲突，事件序列化正常 | Instructions: 首先将任务状态标记为进行中[-]，完成后标记为已完成[x]_
 
-- [ ] 5. 实现MCP事件处理器
+- [x] 5. 实现MCP事件处理器
   - 文件: rust-lib/flowy-ai/src/mcp/event_handler.rs
   - 实现MCP配置、连接、工具调用的事件处理
   - 添加错误处理和状态管理
