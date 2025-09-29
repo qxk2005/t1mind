@@ -1,9 +1,15 @@
+#[cfg(test)]
 use std::time::Duration;
+#[cfg(test)]
 use serde_json::{json, Value};
+#[cfg(test)]
 use tokio::time::timeout;
+#[cfg(test)]
 use reqwest::Client;
+#[cfg(test)]
 use anyhow::{Result, anyhow};
 
+#[cfg(test)]
 use crate::mcp::{
     protocol::*,
     entities::*,
@@ -11,6 +17,7 @@ use crate::mcp::{
 };
 
 /// Excel MCP服务器测试客户端
+#[cfg(test)]
 pub struct ExcelMCPTestClient {
     client: Client,
     base_url: String,
@@ -18,6 +25,7 @@ pub struct ExcelMCPTestClient {
     session_initialized: bool,
 }
 
+#[cfg(test)]
 impl ExcelMCPTestClient {
     /// 创建新的测试客户端
     pub fn new(port: u16) -> Self {
@@ -264,6 +272,7 @@ impl ExcelMCPTestClient {
 }
 
 /// 运行完整的Excel MCP测试套件
+#[cfg(test)]
 pub async fn run_excel_mcp_test(port: u16) -> Result<()> {
     println!("🧪 开始Excel MCP服务器测试 (端口: {})", port);
     println!("{}", "=".repeat(50));
@@ -324,6 +333,7 @@ pub async fn run_excel_mcp_test(port: u16) -> Result<()> {
 }
 
 /// 根据JSON Schema构造测试参数
+#[cfg(test)]
 fn construct_test_arguments(schema: &Value) -> Option<Value> {
     if let Some(obj) = schema.as_object() {
         if let Some(properties) = obj.get("properties").and_then(|p| p.as_object()) {

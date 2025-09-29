@@ -1,8 +1,13 @@
+#[cfg(test)]
 use std::sync::Arc;
+#[cfg(test)]
 use flowy_sqlite::kv::KVStorePreferences;
+#[cfg(test)]
 use serde_json::json;
+#[cfg(test)]
 use tempfile::TempDir;
 
+#[cfg(test)]
 use crate::mcp::{
     entities::*,
     protocol::*,
@@ -10,12 +15,14 @@ use crate::mcp::{
 };
 
 /// 集成测试：验证MCP数据结构与Excel MCP服务器的兼容性
+#[cfg(test)]
 pub struct MCPIntegrationTest {
     config_manager: Arc<MCPConfigManager>,
     security_manager: Arc<ToolSecurityManager>,
     _tempdir: TempDir,
 }
 
+#[cfg(test)]
 impl MCPIntegrationTest {
     pub fn new() -> Self {
         let tempdir = TempDir::new().unwrap();
