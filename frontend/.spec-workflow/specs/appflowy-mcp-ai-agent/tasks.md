@@ -113,7 +113,7 @@
 ## 阶段3：Flutter UI集成
 
 ### M3.1：MCP配置界面
-- [ ] 12. 创建MCP配置管理页面
+- [x] 12. 创建MCP配置管理页面
   - 文件: appflowy_flutter/lib/plugins/ai_chat/presentation/mcp_settings_page.dart
   - 实现MCP服务器列表和配置界面
   - 添加连接测试和状态显示
