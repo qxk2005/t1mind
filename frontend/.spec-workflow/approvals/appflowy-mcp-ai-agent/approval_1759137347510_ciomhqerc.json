@@ -1,0 +1,39 @@
+{
+  "id": "approval_1759137347510_ciomhqerc",
+  "title": "AppFlowy MCP支持与AI助手智能体设计文档",
+  "filePath": ".spec-workflow/specs/appflowy-mcp-ai-agent/design.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2025-09-29T09:15:47.510Z",
+  "category": "spec",
+  "categoryName": "appflowy-mcp-ai-agent",
+  "response": "Feedback Summary (2 comments):\n\nSpecific Text Comments:\n1. \"项目结构 (structure.md)\": i18n的文档目录在frontend/resources/translations/ 这个目录中\n2. \"```mermaid\ngraph TD\n    A[Flutter UI Layer] --> B[...\": 架构整体还需要考虑：\n1. 执行器可能会调用MCP工具调用器、web搜索工具、Appflowy原生工具，以及其他工具\n2. MCP工具调用要考虑MCP的端点客户端可能是STDIO、SSE或STREAMABLE-HTTP\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"selection\",\n      \"comment\": \"i18n的文档目录在frontend/resources/translations/ 这个目录中\",\n      \"timestamp\": \"2025-09-29T09:18:42.273Z\",\n      \"selectedText\": \"项目结构 (structure.md)\",\n      \"highlightColor\": {\n        \"bg\": \"rgba(255, 235, 59, 0.3)\",\n        \"border\": \"#FFEB3B\",\n        \"name\": \"#ffeb3b\"\n      },\n      \"id\": \"comment_1759137522273_9rc8tuyvy\"\n    },\n    {\n      \"type\": \"selection\",\n      \"comment\": \"架构整体还需要考虑：\\n1. 执行器可能会调用MCP工具调用器、web搜索工具、Appflowy原生工具，以及其他工具\\n2. MCP工具调用要考虑MCP的端点客户端可能是STDIO、SSE或STREAMABLE-HTTP\",\n      \"timestamp\": \"2025-09-29T09:20:41.257Z\",\n      \"selectedText\": \"```mermaid\\ngraph TD\\n    A[Flutter UI Layer] --> B[BLoC State Management]\\n    B --> C[Rust Event Bridge]\\n    C --> D[AI Manager]\\n    D --> E[Agent Scheduler]\\n    D --> F[MCP Manager]\\n    E --> G[Task Planner]\\n    E --> H[Task Executor]\\n    F --> I[MCP Client Pool]\\n    F --> J[Tool Registry]\\n    H --> I\\n    G --> K[Tool Selection Engine]\\n    K --> J\\n    L[Configuration Storage] --> F\\n    L --> E\\n    M[Execution Logger] --> E\\n    M --> H\\n```\",\n      \"highlightColor\": {\n        \"bg\": \"rgba(255, 235, 59, 0.3)\",\n        \"border\": \"#FFEB3B\",\n        \"name\": \"#ffeb3b\"\n      },\n      \"id\": \"comment_1759137641257_o3m4oth8w\"\n    }\n  ],\n  \"summary\": \"Feedback Summary (2 comments):\\n\\nSpecific Text Comments:\\n1. \\\"项目结构 (structure.md)\\\": i18n的文档目录在frontend/resources/translations/ 这个目录中\\n2. \\\"```mermaid\\ngraph TD\\n    A[Flutter UI Layer] --> B[...\\\": 架构整体还需要考虑：\\n1. 执行器可能会调用MCP工具调用器、web搜索工具、Appflowy原生工具，以及其他工具\\n2. MCP工具调用要考虑MCP的端点客户端可能是STDIO、SSE或STREAMABLE-HTTP\\n\",\n  \"timestamp\": \"2025-09-29T09:20:47.552Z\"\n}",
+  "respondedAt": "2025-09-29T09:20:47.557Z",
+  "comments": [
+    {
+      "type": "selection",
+      "comment": "i18n的文档目录在frontend/resources/translations/ 这个目录中",
+      "timestamp": "2025-09-29T09:18:42.273Z",
+      "selectedText": "项目结构 (structure.md)",
+      "highlightColor": {
+        "bg": "rgba(255, 235, 59, 0.3)",
+        "border": "#FFEB3B",
+        "name": "#ffeb3b"
+      },
+      "id": "comment_1759137522273_9rc8tuyvy"
+    },
+    {
+      "type": "selection",
+      "comment": "架构整体还需要考虑：\n1. 执行器可能会调用MCP工具调用器、web搜索工具、Appflowy原生工具，以及其他工具\n2. MCP工具调用要考虑MCP的端点客户端可能是STDIO、SSE或STREAMABLE-HTTP",
+      "timestamp": "2025-09-29T09:20:41.257Z",
+      "selectedText": "```mermaid\ngraph TD\n    A[Flutter UI Layer] --> B[BLoC State Management]\n    B --> C[Rust Event Bridge]\n    C --> D[AI Manager]\n    D --> E[Agent Scheduler]\n    D --> F[MCP Manager]\n    E --> G[Task Planner]\n    E --> H[Task Executor]\n    F --> I[MCP Client Pool]\n    F --> J[Tool Registry]\n    H --> I\n    G --> K[Tool Selection Engine]\n    K --> J\n    L[Configuration Storage] --> F\n    L --> E\n    M[Execution Logger] --> E\n    M --> H\n```",
+      "highlightColor": {
+        "bg": "rgba(255, 235, 59, 0.3)",
+        "border": "#FFEB3B",
+        "name": "#ffeb3b"
+      },
+      "id": "comment_1759137641257_o3m4oth8w"
+    }
+  ]
+}

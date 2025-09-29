@@ -1,0 +1,33 @@
+{
+  "id": "approval_1759137738179_sxjhc8c50",
+  "title": "AppFlowy MCP支持与AI助手智能体设计文档（修订版）",
+  "filePath": ".spec-workflow/specs/appflowy-mcp-ai-agent/design.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2025-09-29T09:22:18.179Z",
+  "category": "spec",
+  "categoryName": "appflowy-mcp-ai-agent",
+  "response": "Feedback Summary (2 comments):\n\nGeneral Comments:\n1. 执行器也基于全局AI大模型驱动，而不是规则驱动，并且利用AI大模型的工具调用功能开展\n\nSpecific Text Comments:\n1. \"graph TD\n    A[Flutter UI Layer] --> B[BLoC State ...\": AI规划要基于全局AI大模型开展，Appflowy自带工具只需要文档查增改删就可以了，不需要工作区和用户管理的支持\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"selection\",\n      \"comment\": \"AI规划要基于全局AI大模型开展，Appflowy自带工具只需要文档查增改删就可以了，不需要工作区和用户管理的支持\",\n      \"timestamp\": \"2025-09-29T09:24:01.957Z\",\n      \"selectedText\": \"graph TD\\n    A[Flutter UI Layer] --> B[BLoC State Management]\\n    B --> C[Rust Event Bridge]\\n    C --> D[AI Manager]\\n    D --> E[Agent Scheduler]\\n    D --> F[MCP Manager]\\n    E --> G[Task Planner]\\n    E --> H[Task Executor]\\n    F --> I[MCP Client Pool]\\n    F --> J[Tool Registry]\\n    \\n    %% Task Executor调用多种工具\\n    H --> N[MCP Tool Invoker]\\n    H --> O[Web Search Tool]\\n    H --> P[AppFlowy Native Tools]\\n    H --> Q[RAG Knowledge Tools]\\n    \\n    %% MCP Client Pool支持多种传输方式\\n    I --> R[STDIO MCP Client]\\n    I --> S[SSE MCP Client]\\n    I --> T[HTTP MCP Client]\\n    \\n    %% MCP Tool Invoker连接到MCP Client Pool\\n    N --> I\\n    \\n    %% Tool Selection Engine连接到Tool Registry\\n    G --> K[Tool Selection Engine]\\n    K --> J\\n    \\n    %% 配置和日志\\n    L[Configuration Storage] --> F\\n    L --> E\\n    M[Execution Logger] --> E\\n    M --> H\\n    \\n    %% AppFlowy Native Tools的具体实现\\n    P --> U[Document CRUD]\\n    P --> V[Workspace Operations]\\n    P --> W[User Management]\\n```\",\n      \"highlightColor\": {\n        \"bg\": \"rgba(255, 235, 59, 0.3)\",\n        \"border\": \"#FFEB3B\",\n        \"name\": \"#ffeb3b\"\n      },\n      \"id\": \"comment_1759137841957_1v4mncail\"\n    },\n    {\n      \"type\": \"general\",\n      \"comment\": \"执行器也基于全局AI大模型驱动，而不是规则驱动，并且利用AI大模型的工具调用功能开展\",\n      \"timestamp\": \"2025-09-29T09:25:00.284Z\",\n      \"id\": \"comment_1759137900284_13gmx82fg\"\n    }\n  ],\n  \"summary\": \"Feedback Summary (2 comments):\\n\\nGeneral Comments:\\n1. 执行器也基于全局AI大模型驱动，而不是规则驱动，并且利用AI大模型的工具调用功能开展\\n\\nSpecific Text Comments:\\n1. \\\"graph TD\\n    A[Flutter UI Layer] --> B[BLoC State ...\\\": AI规划要基于全局AI大模型开展，Appflowy自带工具只需要文档查增改删就可以了，不需要工作区和用户管理的支持\\n\",\n  \"timestamp\": \"2025-09-29T09:25:03.399Z\"\n}",
+  "respondedAt": "2025-09-29T09:25:03.403Z",
+  "comments": [
+    {
+      "type": "selection",
+      "comment": "AI规划要基于全局AI大模型开展，Appflowy自带工具只需要文档查增改删就可以了，不需要工作区和用户管理的支持",
+      "timestamp": "2025-09-29T09:24:01.957Z",
+      "selectedText": "graph TD\n    A[Flutter UI Layer] --> B[BLoC State Management]\n    B --> C[Rust Event Bridge]\n    C --> D[AI Manager]\n    D --> E[Agent Scheduler]\n    D --> F[MCP Manager]\n    E --> G[Task Planner]\n    E --> H[Task Executor]\n    F --> I[MCP Client Pool]\n    F --> J[Tool Registry]\n    \n    %% Task Executor调用多种工具\n    H --> N[MCP Tool Invoker]\n    H --> O[Web Search Tool]\n    H --> P[AppFlowy Native Tools]\n    H --> Q[RAG Knowledge Tools]\n    \n    %% MCP Client Pool支持多种传输方式\n    I --> R[STDIO MCP Client]\n    I --> S[SSE MCP Client]\n    I --> T[HTTP MCP Client]\n    \n    %% MCP Tool Invoker连接到MCP Client Pool\n    N --> I\n    \n    %% Tool Selection Engine连接到Tool Registry\n    G --> K[Tool Selection Engine]\n    K --> J\n    \n    %% 配置和日志\n    L[Configuration Storage] --> F\n    L --> E\n    M[Execution Logger] --> E\n    M --> H\n    \n    %% AppFlowy Native Tools的具体实现\n    P --> U[Document CRUD]\n    P --> V[Workspace Operations]\n    P --> W[User Management]\n```",
+      "highlightColor": {
+        "bg": "rgba(255, 235, 59, 0.3)",
+        "border": "#FFEB3B",
+        "name": "#ffeb3b"
+      },
+      "id": "comment_1759137841957_1v4mncail"
+    },
+    {
+      "type": "general",
+      "comment": "执行器也基于全局AI大模型驱动，而不是规则驱动，并且利用AI大模型的工具调用功能开展",
+      "timestamp": "2025-09-29T09:25:00.284Z",
+      "id": "comment_1759137900284_13gmx82fg"
+    }
+  ]
+}

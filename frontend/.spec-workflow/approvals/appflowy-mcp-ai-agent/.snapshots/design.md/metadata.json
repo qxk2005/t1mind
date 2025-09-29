@@ -1,0 +1,46 @@
+{
+  "filePath": ".spec-workflow/specs/appflowy-mcp-ai-agent/design.md",
+  "currentVersion": 5,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-09-29T09:15:47.511Z",
+      "trigger": "initial",
+      "approvalId": "approval_1759137347510_ciomhqerc",
+      "approvalTitle": "AppFlowy MCP支持与AI助手智能体设计文档"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-09-29T09:20:47.557Z",
+      "trigger": "revision_requested",
+      "approvalId": "approval_1759137347510_ciomhqerc",
+      "approvalTitle": "AppFlowy MCP支持与AI助手智能体设计文档"
+    },
+    {
+      "version": 3,
+      "filename": "snapshot-003.json",
+      "timestamp": "2025-09-29T09:25:03.402Z",
+      "trigger": "revision_requested",
+      "approvalId": "approval_1759137738179_sxjhc8c50",
+      "approvalTitle": "AppFlowy MCP支持与AI助手智能体设计文档（修订版）"
+    },
+    {
+      "version": 4,
+      "filename": "snapshot-004.json",
+      "timestamp": "2025-09-29T09:29:45.504Z",
+      "trigger": "revision_requested",
+      "approvalId": "approval_1759138027042_4i0f9m6hv",
+      "approvalTitle": "AppFlowy MCP支持与AI助手智能体设计文档（AI驱动版）"
+    },
+    {
+      "version": 5,
+      "filename": "snapshot-005.json",
+      "timestamp": "2025-09-29T09:32:43.113Z",
+      "trigger": "approved",
+      "approvalId": "approval_1759138329775_2dr2wmor8",
+      "approvalTitle": "AppFlowy MCP支持与AI助手智能体设计文档（完整版）"
+    }
+  ]
+}

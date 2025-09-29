@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/appflowy-mcp-ai-agent/requirements.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-09-29T09:12:47.112Z",
+      "trigger": "initial",
+      "approvalId": "approval_1759137167111_dbmkzx3j5",
+      "approvalTitle": "AppFlowy MCP支持与AI助手智能体需求文档"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-09-29T09:13:37.940Z",
+      "trigger": "approved",
+      "approvalId": "approval_1759137167111_dbmkzx3j5",
+      "approvalTitle": "AppFlowy MCP支持与AI助手智能体需求文档"
+    }
+  ]
+}

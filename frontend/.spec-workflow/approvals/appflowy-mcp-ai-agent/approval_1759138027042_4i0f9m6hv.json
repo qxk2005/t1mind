@@ -1,0 +1,21 @@
+{
+  "id": "approval_1759138027042_4i0f9m6hv",
+  "title": "AppFlowy MCP支持与AI助手智能体设计文档（AI驱动版）",
+  "filePath": ".spec-workflow/specs/appflowy-mcp-ai-agent/design.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2025-09-29T09:27:07.042Z",
+  "category": "spec",
+  "categoryName": "appflowy-mcp-ai-agent",
+  "response": "Feedback Summary (1 comments):\n\nGeneral Comments:\n1. 1.助手智能体需要增加配置功能，包括名字、个性说明，后续在执行的时候智能体的个性都要跟随使用\n2. 需要使用数据库保存MCP配置、智能体执行过程日志、会话历史等信息\n\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"general\",\n      \"comment\": \"1.助手智能体需要增加配置功能，包括名字、个性说明，后续在执行的时候智能体的个性都要跟随使用\\n2. 需要使用数据库保存MCP配置、智能体执行过程日志、会话历史等信息\",\n      \"timestamp\": \"2025-09-29T09:29:44.034Z\",\n      \"id\": \"comment_1759138184034_xr68kkebh\"\n    }\n  ],\n  \"summary\": \"Feedback Summary (1 comments):\\n\\nGeneral Comments:\\n1. 1.助手智能体需要增加配置功能，包括名字、个性说明，后续在执行的时候智能体的个性都要跟随使用\\n2. 需要使用数据库保存MCP配置、智能体执行过程日志、会话历史等信息\\n\\n\",\n  \"timestamp\": \"2025-09-29T09:29:45.497Z\"\n}",
+  "respondedAt": "2025-09-29T09:29:45.505Z",
+  "comments": [
+    {
+      "type": "general",
+      "comment": "1.助手智能体需要增加配置功能，包括名字、个性说明，后续在执行的时候智能体的个性都要跟随使用\n2. 需要使用数据库保存MCP配置、智能体执行过程日志、会话历史等信息",
+      "timestamp": "2025-09-29T09:29:44.034Z",
+      "id": "comment_1759138184034_xr68kkebh"
+    }
+  ]
+}
