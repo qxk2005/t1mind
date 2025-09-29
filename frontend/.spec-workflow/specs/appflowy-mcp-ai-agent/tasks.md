@@ -132,7 +132,7 @@
   - _Prompt: Implement the task for spec appflowy-mcp-ai-agent, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Flutter状态管理专家，专精BLoC模式和事件处理 | Task: 实现MCP配置BLoC，管理配置状态和业务逻辑，集成Rust后端事件，遵循需求5和需求6的规范 | Restrictions: 必须遵循现有BLoC模式，确保状态管理一致性，处理异步操作 | _Leverage: 现有BLoC模式, appflowy_flutter/lib/workspace/application/settings/ | _Requirements: 需求5, 需求6 | Success: 状态管理正确，事件处理正常，异步操作稳定 | Instructions: 首先将任务状态标记为进行中[-]，完成后标记为已完成[x]_
 
 ### M3.2：智能体管理界面
-- [ ] 14. 创建智能体配置页面
+- [x] 14. 创建智能体配置页面
   - 文件: appflowy_flutter/lib/plugins/ai_chat/presentation/agent_settings_page.dart
   - 实现智能体创建、编辑、删除界面
   - 添加个性化配置和工具选择
