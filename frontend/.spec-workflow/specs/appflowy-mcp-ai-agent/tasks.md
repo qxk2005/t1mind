@@ -5,7 +5,7 @@
 ## 阶段1：MCP基础设施建设
 
 ### M1.1：MCP客户端基础架构
-- [ ] 1. 扩展MCP管理器核心功能
+- [x] 1. 扩展MCP管理器核心功能
   - 文件: rust-lib/flowy-ai/src/mcp/manager.rs
   - 实现多传输方式支持（STDIO、SSE、HTTP）
   - 添加连接池管理和工具发现机制
@@ -14,7 +14,7 @@
   - _Requirements: 需求5_
   - _Prompt: Implement the task for spec appflowy-mcp-ai-agent, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust系统工程师，专精网络通信和协议实现 | Task: 扩展MCP管理器以支持STDIO、SSE、HTTP三种传输方式，实现连接池管理和工具发现机制，遵循需求5的规范 | Restrictions: 不能破坏现有的MCP模块结构，必须保持向后兼容性，确保线程安全 | _Leverage: rust-lib/flowy-ai/src/mcp/manager.rs, 现有的MCPClient基础代码 | _Requirements: 需求5 | Success: 三种传输方式都能正常连接，工具发现机制工作正常，连接池管理有效 | Instructions: 首先将任务状态标记为进行中[-]，完成后标记为已完成[x]_
 
-- [ ] 2. 实现MCP客户端池
+- [x] 2. 实现MCP客户端池
   - 文件: rust-lib/flowy-ai/src/mcp/client_pool.rs
   - 创建不同传输方式的客户端实现
   - 添加客户端生命周期管理
@@ -23,7 +23,7 @@
   - _Requirements: 需求5_
   - _Prompt: Implement the task for spec appflowy-mcp-ai-agent, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust并发编程专家，专精连接池和资源管理 | Task: 实现MCP客户端池，支持STDIO、SSE、HTTP客户端的创建和管理，包含生命周期管理，遵循需求5的规范 | Restrictions: 必须确保线程安全，避免连接泄漏，实现优雅的连接关闭 | _Leverage: rust-lib/flowy-ai/src/mcp/manager.rs, 现有网络通信模块 | _Requirements: 需求5 | Success: 客户端池能正确管理多个连接，支持连接复用，资源清理完整 | Instructions: 首先将任务状态标记为进行中[-]，完成后标记为已完成[x]_
 
-- [ ] 3. 添加MCP配置存储
+- [x] 3. 添加MCP配置存储
   - 文件: rust-lib/flowy-ai/src/mcp/config.rs
   - 实现MCP服务器配置的数据库存储
   - 添加配置验证和序列化

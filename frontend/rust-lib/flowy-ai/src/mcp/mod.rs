@@ -1,1 +1,19 @@
-mod manager;
+pub mod client;
+pub mod client_pool;
+pub mod config;
+pub mod entities;
+pub mod excel_mcp_test;
+pub mod integration_test;
+pub mod manager;
+pub mod protocol;
+pub mod tool_discovery;
+pub mod tool_security;
+
+pub use client::*;
+pub use client_pool::*;
+pub use config::*;
+pub use entities::*;
+pub use manager::*;
+pub use protocol::*;
+pub use tool_discovery::*;
+pub use tool_security::*;
