@@ -92,7 +92,7 @@
   - _Prompt: Implement the task for spec appflowy-mcp-ai-agent, first run spec-workflow-guide to get the workflow guide then implement the task: Role: AI执行引擎专家，专精工具调用和智能反思 | Task: 实现AI驱动的任务执行器，基于AI模型进行工具调用，包含反思和调整机制，遵循需求7的规范 | Restrictions: 必须支持多种工具类型，确保执行安全性，实现智能重试机制 | _Leverage: 现有AI工具调用基础设施, MCP工具调用器 | _Requirements: 需求7 | Success: 能正确执行各种任务，工具调用成功，反思机制有效 | Instructions: 首先将任务状态标记为进行中[-]，完成后标记为已完成[x]_
 
 ### M2.3：工具注册和调用系统
-- [ ] 10. 实现工具注册表
+- [x] 10. 实现工具注册表
   - 文件: rust-lib/flowy-ai/src/agent/tool_registry.rs
   - 管理所有可用工具的元数据
   - 实现工具发现和权限管理

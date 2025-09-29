@@ -8,9 +8,12 @@ use uuid::Uuid;
 
 use crate::ai_manager::AIManager;
 use crate::agent::planner::{AITaskPlanner, TaskPlan, PlanStatus, PersonalizationFeatures};
-use crate::agent::executor::{AITaskExecutor, ExecutionContext, ExecutionResult};
+use crate::agent::executor::{ExecutionContext, ExecutionResult};
+use crate::agent::tool_registry::{ToolRegistry, ToolRegistryStatistics, ToolSearchFilter, RegisteredTool};
+use crate::mcp::tool_security::ToolSecurityManager;
+use crate::entities::{ToolDefinitionPB, ToolTypePB};
 
-/// 智能体管理器 - 集成规划器和执行器
+/// 智能体管理器 - 集成规划器、执行器和工具注册表
 pub struct AgentManager {
     /// AI管理器引用
     ai_manager: Arc<AIManager>,
@@ -18,6 +21,8 @@ pub struct AgentManager {
     planner: AITaskPlanner,
     /// 活跃的任务计划
     active_plans: HashMap<String, TaskPlan>,
+    /// 工具注册表
+    tool_registry: Arc<ToolRegistry>,
 }
 
 impl AgentManager {
@@ -25,11 +30,35 @@ impl AgentManager {
     pub fn new(ai_manager: Arc<AIManager>) -> Self {
         let planner = AITaskPlanner::new(ai_manager.clone());
         
+        // 创建工具安全管理器
+        let security_manager = Arc::new(ToolSecurityManager::new(ai_manager.store_preferences.clone()));
+        
+        // 创建工具注册表
+        let tool_registry = Arc::new(ToolRegistry::new(
+            security_manager,
+            ai_manager.store_preferences.clone(),
+        ));
+        
         Self {
             ai_manager,
             planner,
             active_plans: HashMap::new(),
+            tool_registry,
         }
+    }
+
+    /// 初始化智能体管理器
+    pub async fn initialize(&self) -> FlowyResult<()> {
+        info!("初始化智能体管理器");
+        
+        // 初始化工具注册表
+        self.tool_registry.initialize().await?;
+        
+        // 发现并注册MCP工具
+        self.discover_and_register_mcp_tools().await?;
+        
+        info!("智能体管理器初始化完成");
+        Ok(())
     }
 
     /// 创建并执行任务计划
@@ -237,6 +266,111 @@ impl AgentManager {
 
         // 恢复执行
         self.execute_existing_plan(plan_id, context).await
+    }
+
+    // ==================== 工具注册表相关方法 ====================
+
+    /// 发现并注册MCP工具
+    async fn discover_and_register_mcp_tools(&self) -> FlowyResult<()> {
+        info!("开始发现并注册MCP工具");
+        
+        let servers = self.ai_manager.mcp_manager.list_servers().await;
+        for server in servers {
+            if let Ok(tools_list) = self.ai_manager.mcp_manager.tool_list(&server.server_id).await {
+                if let Err(e) = self.tool_registry.discover_mcp_tools(&server.server_id, tools_list.tools).await {
+                    warn!("注册MCP服务器 {} 的工具失败: {}", server.server_id, e);
+                }
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// 获取工具注册表引用
+    pub fn tool_registry(&self) -> &Arc<ToolRegistry> {
+        &self.tool_registry
+    }
+
+    /// 搜索工具
+    pub async fn search_tools(&self, query: &str, filter: Option<ToolSearchFilter>) -> Vec<RegisteredTool> {
+        self.tool_registry.search_tools(query, filter).await
+    }
+
+    /// 按类型获取工具
+    pub async fn get_tools_by_type(&self, tool_type: ToolTypePB) -> Vec<RegisteredTool> {
+        self.tool_registry.get_tools_by_type(tool_type).await
+    }
+
+    /// 获取所有可用工具
+    pub async fn get_all_available_tools(&self) -> Vec<ToolDefinitionPB> {
+        let all_tools = self.tool_registry.get_all_tools().await;
+        let mut available_tools = Vec::new();
+        
+        for (_, type_tools) in all_tools {
+            for (_, registered_tool) in type_tools {
+                if registered_tool.definition.is_available {
+                    available_tools.push(registered_tool.definition);
+                }
+            }
+        }
+        
+        available_tools
+    }
+
+    /// 获取工具注册表统计信息
+    pub async fn get_tool_statistics(&self) -> ToolRegistryStatistics {
+        self.tool_registry.get_tool_statistics().await
+    }
+
+    /// 更新工具使用统计
+    pub async fn update_tool_usage(
+        &self,
+        tool_name: &str,
+        tool_type: ToolTypePB,
+        execution_time_ms: u64,
+        success: bool,
+    ) -> FlowyResult<()> {
+        self.tool_registry.update_tool_usage(tool_name, tool_type, execution_time_ms, success).await
+    }
+
+    /// 检查工具权限
+    pub async fn check_tool_permission(
+        &self,
+        tool_name: &str,
+        tool_type: ToolTypePB,
+        server_id: Option<&str>,
+    ) -> FlowyResult<crate::mcp::tool_security::ToolExecutionPermission> {
+        self.tool_registry.check_tool_permission(tool_name, tool_type, server_id).await
+    }
+
+    /// 当MCP服务器连接时注册其工具
+    pub async fn on_mcp_server_connected(&self, server_id: &str) -> FlowyResult<()> {
+        info!("MCP服务器已连接，注册工具: {}", server_id);
+        
+        if let Ok(tools_list) = self.ai_manager.mcp_manager.tool_list(server_id).await {
+            self.tool_registry.discover_mcp_tools(server_id, tools_list.tools).await?;
+        }
+        
+        Ok(())
+    }
+
+    /// 当MCP服务器断开时清理其工具
+    pub async fn on_mcp_server_disconnected(&self, server_id: &str) -> FlowyResult<()> {
+        info!("MCP服务器已断开，清理工具: {}", server_id);
+        
+        self.tool_registry.cleanup_server_tools(server_id).await?;
+        
+        Ok(())
+    }
+
+    /// 导出工具注册表
+    pub async fn export_tool_registry(&self) -> FlowyResult<String> {
+        self.tool_registry.export_registry().await
+    }
+
+    /// 导入工具注册表
+    pub async fn import_tool_registry(&self, data: &str, merge: bool) -> FlowyResult<()> {
+        self.tool_registry.import_registry(data, merge).await
     }
 }
 

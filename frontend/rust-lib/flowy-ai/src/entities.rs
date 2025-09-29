@@ -1593,7 +1593,7 @@ pub struct ToolDefinitionPB {
 }
 
 /// 工具类型枚举
-#[derive(Clone, Copy, PartialEq, Eq, Debug, ProtoBuf_Enum, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, ProtoBuf_Enum, Serialize, Deserialize)]
 pub enum ToolTypePB {
   /// MCP工具
   MCP = 0,

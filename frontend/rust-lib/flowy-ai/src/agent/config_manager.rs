@@ -531,6 +531,7 @@ pub struct AgentImportResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use flowy_sqlite::kv::KVStorePreferences;
     use tempfile::TempDir;
 
