@@ -122,7 +122,7 @@
   - _Requirements: 需求5, 需求6_
   - _Prompt: Implement the task for spec appflowy-mcp-ai-agent, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Flutter UI开发专家，专精设置界面和表单处理 | Task: 创建MCP配置管理页面，包含服务器列表、配置表单、连接测试功能，遵循需求5和需求6的规范 | Restrictions: 必须遵循AppFlowy UI设计规范，确保跨平台兼容性，支持中英双语 | _Leverage: 现有设置页面模式, appflowy_flutter/lib/workspace/presentation/settings/ | _Requirements: 需求5, 需求6 | Success: 配置界面功能完整，连接测试正常，用户体验良好 | Instructions: 首先将任务状态标记为进行中[-]，完成后标记为已完成[x]_
 
-- [ ] 13. 实现MCP配置BLoC
+- [x] 13. 实现MCP配置BLoC
   - 文件: appflowy_flutter/lib/plugins/ai_chat/application/mcp_settings_bloc.dart
   - 管理MCP配置的状态和业务逻辑
   - 集成Rust后端的MCP事件
