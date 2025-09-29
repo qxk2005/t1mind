@@ -142,6 +142,7 @@ impl NativeToolsManager {
                     let mut meta = HashMap::new();
                     meta.insert("category".to_string(), "document".to_string());
                     meta.insert("safe_mode".to_string(), "false".to_string());
+                    meta.insert("dangerous".to_string(), "true".to_string());
                     meta
                 },
             },
