@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::ai_manager::AIManager;
 use crate::entities::{ToolDefinitionPB, ToolTypePB};
 use crate::mcp::entities::MCPTool;
+use crate::agent::tool_registry::ToolRegistry;
 use flowy_ai_pub::cloud::{AIModel, CompleteTextParams, CompletionType, ResponseFormat, ChatCloudService};
 
 /// 任务规划步骤
@@ -161,6 +162,8 @@ impl Default for PlanningRetryConfig {
 pub struct AITaskPlanner {
     /// AI管理器引用
     ai_manager: Arc<AIManager>,
+    /// 工具注册表引用
+    tool_registry: Option<Arc<ToolRegistry>>,
     /// 重试配置
     retry_config: PlanningRetryConfig,
     /// 规划超时时间
@@ -172,9 +175,16 @@ impl AITaskPlanner {
     pub fn new(ai_manager: Arc<AIManager>) -> Self {
         Self {
             ai_manager,
+            tool_registry: None,
             retry_config: PlanningRetryConfig::default(),
             planning_timeout: Duration::from_secs(60),
         }
+    }
+
+    /// 设置工具注册表
+    pub fn with_tool_registry(mut self, tool_registry: Arc<ToolRegistry>) -> Self {
+        self.tool_registry = Some(tool_registry);
+        self
     }
 
     /// 设置重试配置
@@ -755,21 +765,34 @@ impl AITaskPlanner {
     async fn get_available_tools(&self) -> FlowyResult<Vec<ToolDefinitionPB>> {
         let mut tools = Vec::new();
 
-        // 获取MCP工具
-        let mcp_servers = self.ai_manager.mcp_manager.list_servers().await;
-        for server in mcp_servers {
-            if let Ok(tool_list) = self.ai_manager.mcp_manager.tool_list(&server.server_id).await {
-                for mcp_tool in tool_list.tools {
-                    tools.push(self.convert_mcp_tool_to_definition(mcp_tool, &server.server_id));
+        // 如果有工具注册表，从中获取工具
+        if let Some(tool_registry) = &self.tool_registry {
+            let all_tools = tool_registry.get_all_tools().await;
+            for (_, type_tools) in all_tools {
+                for (_, registered_tool) in type_tools {
+                    if registered_tool.status == crate::agent::tool_registry::ToolStatus::Available {
+                        tools.push(registered_tool.definition);
+                    }
                 }
             }
+        } else {
+            // 回退到旧的实现
+            // 获取MCP工具
+            let mcp_servers = self.ai_manager.mcp_manager.list_servers().await;
+            for server in mcp_servers {
+                if let Ok(tool_list) = self.ai_manager.mcp_manager.tool_list(&server.server_id).await {
+                    for mcp_tool in tool_list.tools {
+                        tools.push(self.convert_mcp_tool_to_definition(mcp_tool, &server.server_id));
+                    }
+                }
+            }
+
+            // 添加原生工具（这里可以扩展）
+            tools.extend(self.get_native_tools());
+
+            // 添加搜索工具
+            tools.extend(self.get_search_tools());
         }
-
-        // 添加原生工具（这里可以扩展）
-        tools.extend(self.get_native_tools());
-
-        // 添加搜索工具
-        tools.extend(self.get_search_tools());
 
         info!("总共发现 {} 个可用工具", tools.len());
         Ok(tools)

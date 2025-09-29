@@ -12,6 +12,7 @@ use tracing::{debug, info, warn};
 use crate::entities::{ToolDefinitionPB, ToolTypePB};
 use crate::mcp::entities::MCPTool;
 use crate::mcp::tool_security::{ToolSecurityManager, ToolExecutionPermission};
+use crate::agent::native_tools::NativeToolsManager;
 
 /// 工具注册表 - 统一管理所有类型的工具
 /// 支持MCP、原生、搜索等工具的元数据管理，包含发现和权限管理
@@ -26,6 +27,8 @@ pub struct ToolRegistry {
     store_preferences: Arc<KVStorePreferences>,
     /// 工具发现监听器
     discovery_listeners: Arc<RwLock<Vec<Box<dyn ToolDiscoveryListener + Send + Sync>>>>,
+    /// 原生工具管理器
+    native_tools: Option<Arc<NativeToolsManager>>,
 }
 
 /// 注册的工具信息
@@ -207,7 +210,14 @@ impl ToolRegistry {
             security_manager,
             store_preferences,
             discovery_listeners: Arc::new(RwLock::new(Vec::new())),
+            native_tools: None,
         }
+    }
+
+    /// 设置原生工具管理器
+    pub fn with_native_tools(mut self, native_tools: Arc<NativeToolsManager>) -> Self {
+        self.native_tools = Some(native_tools);
+        self
     }
 
     /// 初始化工具注册表
@@ -762,43 +772,48 @@ impl ToolRegistry {
 
     /// 注册内置工具
     async fn register_builtin_tools(&self) -> FlowyResult<()> {
-        // 注册AppFlowy原生工具
-        let native_tools = vec![
-            ToolDefinitionPB {
-                name: "create_document".to_string(),
-                description: "创建新文档".to_string(),
-                tool_type: ToolTypePB::Native,
-                source: "appflowy".to_string(),
-                parameters_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "title": {"type": "string", "description": "文档标题"},
-                        "content": {"type": "string", "description": "文档内容"}
-                    },
-                    "required": ["title"]
-                }).to_string(),
-                permissions: vec!["document.create".to_string()],
-                is_available: true,
-                metadata: HashMap::new(),
-            },
-            ToolDefinitionPB {
-                name: "search_documents".to_string(),
-                description: "搜索文档".to_string(),
-                tool_type: ToolTypePB::Native,
-                source: "appflowy".to_string(),
-                parameters_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "搜索关键词"},
-                        "limit": {"type": "integer", "description": "结果数量限制", "default": 10}
-                    },
-                    "required": ["query"]
-                }).to_string(),
-                permissions: vec!["document.read".to_string()],
-                is_available: true,
-                metadata: HashMap::new(),
-            },
-        ];
+        // 从原生工具管理器获取工具定义
+        let native_tools = if let Some(native_tools_manager) = &self.native_tools {
+            native_tools_manager.get_tool_definitions()
+        } else {
+            // 回退到旧的硬编码定义
+            vec![
+                ToolDefinitionPB {
+                    name: "create_document".to_string(),
+                    description: "创建新文档".to_string(),
+                    tool_type: ToolTypePB::Native,
+                    source: "appflowy".to_string(),
+                    parameters_schema: json!({
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string", "description": "文档标题"},
+                            "content": {"type": "string", "description": "文档内容"}
+                        },
+                        "required": ["title"]
+                    }).to_string(),
+                    permissions: vec!["document.create".to_string()],
+                    is_available: true,
+                    metadata: HashMap::new(),
+                },
+                ToolDefinitionPB {
+                    name: "search_documents".to_string(),
+                    description: "搜索文档".to_string(),
+                    tool_type: ToolTypePB::Native,
+                    source: "appflowy".to_string(),
+                    parameters_schema: json!({
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "搜索关键词"},
+                            "limit": {"type": "integer", "description": "结果数量限制", "default": 10}
+                        },
+                        "required": ["query"]
+                    }).to_string(),
+                    permissions: vec!["document.read".to_string()],
+                    is_available: true,
+                    metadata: HashMap::new(),
+                },
+            ]
+        };
         
         for tool_def in native_tools {
             let request = ToolRegistrationRequest {
@@ -1015,6 +1030,7 @@ impl Clone for ToolRegistry {
             security_manager: self.security_manager.clone(),
             store_preferences: self.store_preferences.clone(),
             discovery_listeners: self.discovery_listeners.clone(),
+            native_tools: self.native_tools.clone(),
         }
     }
 }

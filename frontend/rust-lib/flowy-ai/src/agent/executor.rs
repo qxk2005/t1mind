@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::ai_manager::AIManager;
 use crate::agent::planner::{PlanningStep, PlanningStepStatus, TaskPlan, PlanStatus};
+use crate::agent::native_tools::NativeToolsManager;
 // use crate::entities::{ToolDefinitionPB, ToolTypePB};
 use flowy_ai_pub::cloud::{CompleteTextParams, CompletionType, ResponseFormat, ChatCloudService};
 
@@ -85,6 +86,8 @@ impl Default for ExecutionContext {
 pub struct AITaskExecutor {
     /// AI管理器引用
     ai_manager: Arc<AIManager>,
+    /// 原生工具管理器
+    native_tools: Option<Arc<NativeToolsManager>>,
     /// 执行历史记录
     execution_history: Vec<ExecutionResult>,
 }
@@ -94,8 +97,15 @@ impl AITaskExecutor {
     pub fn new(ai_manager: Arc<AIManager>) -> Self {
         Self {
             ai_manager,
+            native_tools: None,
             execution_history: Vec::new(),
         }
+    }
+
+    /// 设置原生工具管理器
+    pub fn with_native_tools(mut self, native_tools: Arc<NativeToolsManager>) -> Self {
+        self.native_tools = Some(native_tools);
+        self
     }
 
     /// 执行单个步骤
@@ -369,6 +379,12 @@ impl AITaskExecutor {
     ) -> FlowyResult<String> {
         debug!("调用原生工具: {}", tool_name);
 
+        // 使用新的原生工具管理器
+        if let Some(native_tools) = &self.native_tools {
+            return native_tools.execute_tool(tool_name, arguments, context.safe_mode).await;
+        }
+
+        // 回退到旧的实现
         match tool_name {
             "create_document" => {
                 self.create_document_tool(arguments, context).await

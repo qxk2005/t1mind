@@ -2,6 +2,7 @@ mod chat_test;
 mod complete_test;
 mod summary_test;
 mod translate_test;
+mod native_tools_test;
 
 use flowy_ai::SqliteVectorStore;
 use flowy_ai::local_ai::chat::LLMChatInfo;
