@@ -2208,6 +2208,7 @@ dependencies = [
  "async-trait",
  "base64 0.21.5",
  "bytes",
+ "chrono",
  "dashmap 6.0.1",
  "flowy-ai-pub",
  "flowy-codegen",

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 use validator::Validate;
+use chrono::Utc;
 
 #[derive(Default, ProtoBuf, Validate, Clone, Debug)]
 pub struct ChatId {
@@ -969,4 +970,846 @@ pub struct MCPServerStatusPB {
 
   #[pb(index = 4)]
   pub tool_count: i32,
+}
+
+// ==================== 智能体配置相关实体 ====================
+
+/// 智能体配置
+#[derive(Default, ProtoBuf, Validate, Clone, Debug, Serialize, Deserialize)]
+pub struct AgentConfigPB {
+  /// 智能体唯一标识符
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub id: String,
+
+  /// 智能体名称
+  #[pb(index = 2)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub name: String,
+
+  /// 智能体描述
+  #[pb(index = 3)]
+  pub description: String,
+
+  /// 智能体头像/图标
+  #[pb(index = 4)]
+  pub avatar: String,
+
+  /// 智能体个性描述（系统提示词）
+  #[pb(index = 5)]
+  pub personality: String,
+
+  /// 智能体能力配置
+  #[pb(index = 6)]
+  pub capabilities: AgentCapabilitiesPB,
+
+  /// 可用工具列表
+  #[pb(index = 7)]
+  pub available_tools: Vec<String>,
+
+  /// 智能体状态
+  #[pb(index = 8)]
+  pub status: AgentStatusPB,
+
+  /// 创建时间（时间戳）
+  #[pb(index = 9)]
+  pub created_at: i64,
+
+  /// 更新时间（时间戳）
+  #[pb(index = 10)]
+  pub updated_at: i64,
+
+  /// 智能体配置元数据
+  #[pb(index = 11)]
+  pub metadata: HashMap<String, String>,
+}
+
+/// 智能体能力配置
+#[derive(Default, ProtoBuf, Clone, Debug, Serialize, Deserialize)]
+pub struct AgentCapabilitiesPB {
+  /// 是否启用任务规划
+  #[pb(index = 1)]
+  pub enable_planning: bool,
+
+  /// 是否启用工具调用
+  #[pb(index = 2)]
+  pub enable_tool_calling: bool,
+
+  /// 是否启用反思机制
+  #[pb(index = 3)]
+  pub enable_reflection: bool,
+
+  /// 是否启用会话记忆
+  #[pb(index = 4)]
+  pub enable_memory: bool,
+
+  /// 最大规划步骤数
+  #[pb(index = 5)]
+  pub max_planning_steps: i32,
+
+  /// 最大工具调用次数
+  #[pb(index = 6)]
+  pub max_tool_calls: i32,
+
+  /// 会话记忆长度限制
+  #[pb(index = 7)]
+  pub memory_limit: i32,
+}
+
+/// 智能体状态枚举
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ProtoBuf_Enum, Serialize, Deserialize)]
+pub enum AgentStatusPB {
+  /// 活跃状态
+  AgentActive = 0,
+  /// 暂停状态
+  AgentPaused = 1,
+  /// 已删除状态
+  AgentDeleted = 2,
+}
+
+impl Default for AgentStatusPB {
+  fn default() -> Self {
+    AgentStatusPB::AgentActive
+  }
+}
+
+/// 智能体列表响应
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct AgentListPB {
+  #[pb(index = 1)]
+  pub agents: Vec<AgentConfigPB>,
+}
+
+/// 创建智能体请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct CreateAgentRequestPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub name: String,
+
+  #[pb(index = 2)]
+  pub description: String,
+
+  #[pb(index = 3)]
+  pub avatar: String,
+
+  #[pb(index = 4)]
+  pub personality: String,
+
+  #[pb(index = 5)]
+  pub capabilities: AgentCapabilitiesPB,
+
+  #[pb(index = 6)]
+  pub available_tools: Vec<String>,
+
+  #[pb(index = 7)]
+  pub metadata: HashMap<String, String>,
+}
+
+/// 更新智能体请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct UpdateAgentRequestPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub id: String,
+
+  #[pb(index = 2, one_of)]
+  pub name: Option<String>,
+
+  #[pb(index = 3, one_of)]
+  pub description: Option<String>,
+
+  #[pb(index = 4, one_of)]
+  pub avatar: Option<String>,
+
+  #[pb(index = 5, one_of)]
+  pub personality: Option<String>,
+
+  #[pb(index = 6, one_of)]
+  pub capabilities: Option<AgentCapabilitiesPB>,
+
+  #[pb(index = 7)]
+  pub available_tools: Vec<String>,
+
+  #[pb(index = 8, one_of)]
+  pub status: Option<AgentStatusPB>,
+
+  #[pb(index = 9)]
+  pub metadata: HashMap<String, String>,
+}
+
+/// 删除智能体请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct DeleteAgentRequestPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub id: String,
+}
+
+/// 获取智能体请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct GetAgentRequestPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub id: String,
+}
+
+// ==================== 智能体会话相关实体 ====================
+
+/// 智能体会话
+#[derive(Default, ProtoBuf, Validate, Clone, Debug, Serialize, Deserialize)]
+pub struct AgentSessionPB {
+  /// 会话唯一标识符
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub id: String,
+
+  /// 关联的智能体ID
+  #[pb(index = 2)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub agent_id: String,
+
+  /// 会话标题
+  #[pb(index = 3)]
+  pub title: String,
+
+  /// 会话状态
+  #[pb(index = 4)]
+  pub status: SessionStatusPB,
+
+  /// 创建时间（时间戳）
+  #[pb(index = 5)]
+  pub created_at: i64,
+
+  /// 更新时间（时间戳）
+  #[pb(index = 6)]
+  pub updated_at: i64,
+
+  /// 会话元数据
+  #[pb(index = 7)]
+  pub metadata: HashMap<String, String>,
+}
+
+/// 会话状态枚举
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ProtoBuf_Enum, Serialize, Deserialize)]
+pub enum SessionStatusPB {
+  /// 活跃状态
+  SessionActive = 0,
+  /// 已完成状态
+  SessionCompleted = 1,
+  /// 已暂停状态
+  SessionPaused = 2,
+  /// 已关闭状态
+  SessionClosed = 3,
+}
+
+impl Default for SessionStatusPB {
+  fn default() -> Self {
+    SessionStatusPB::SessionActive
+  }
+}
+
+/// 智能体消息
+#[derive(Default, ProtoBuf, Clone, Debug, Serialize, Deserialize)]
+pub struct AgentMessagePB {
+  /// 消息唯一标识符
+  #[pb(index = 1)]
+  pub id: String,
+
+  /// 会话ID
+  #[pb(index = 2)]
+  pub session_id: String,
+
+  /// 消息类型
+  #[pb(index = 3)]
+  pub message_type: AgentMessageTypePB,
+
+  /// 消息内容
+  #[pb(index = 4)]
+  pub content: String,
+
+  /// 发送者ID（用户ID或智能体ID）
+  #[pb(index = 5)]
+  pub sender_id: String,
+
+  /// 创建时间（时间戳）
+  #[pb(index = 6)]
+  pub created_at: i64,
+
+  /// 消息元数据
+  #[pb(index = 7)]
+  pub metadata: HashMap<String, String>,
+
+  /// 关联的执行日志ID（如果有）
+  #[pb(index = 8, one_of)]
+  pub execution_log_id: Option<String>,
+}
+
+/// 智能体消息类型枚举
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ProtoBuf_Enum, Serialize, Deserialize)]
+pub enum AgentMessageTypePB {
+  /// 用户消息
+  AgentUser = 0,
+  /// 智能体消息
+  Agent = 1,
+  /// 系统消息
+  AgentSystem = 2,
+  /// 工具调用消息
+  AgentToolCall = 3,
+  /// 工具响应消息
+  AgentToolResponse = 4,
+}
+
+impl Default for AgentMessageTypePB {
+  fn default() -> Self {
+    AgentMessageTypePB::AgentUser
+  }
+}
+
+/// 会话消息列表
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct AgentMessageListPB {
+  #[pb(index = 1)]
+  pub messages: Vec<AgentMessagePB>,
+
+  #[pb(index = 2)]
+  pub has_more: bool,
+
+  #[pb(index = 3)]
+  pub total: i64,
+}
+
+/// 创建会话请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct CreateSessionRequestPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub agent_id: String,
+
+  #[pb(index = 2)]
+  pub title: String,
+
+  #[pb(index = 3)]
+  pub metadata: HashMap<String, String>,
+}
+
+/// 发送消息请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct SendAgentMessageRequestPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub session_id: String,
+
+  #[pb(index = 2)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub content: String,
+
+  #[pb(index = 3)]
+  pub message_type: AgentMessageTypePB,
+
+  #[pb(index = 4)]
+  pub metadata: HashMap<String, String>,
+}
+
+// ==================== 智能体执行日志相关实体 ====================
+
+/// 智能体执行日志
+#[derive(Default, ProtoBuf, Clone, Debug, Serialize, Deserialize)]
+pub struct AgentExecutionLogPB {
+  /// 日志唯一标识符
+  #[pb(index = 1)]
+  pub id: String,
+
+  /// 会话ID
+  #[pb(index = 2)]
+  pub session_id: String,
+
+  /// 消息ID
+  #[pb(index = 3)]
+  pub message_id: String,
+
+  /// 执行阶段
+  #[pb(index = 4)]
+  pub phase: ExecutionPhasePB,
+
+  /// 执行步骤
+  #[pb(index = 5)]
+  pub step: String,
+
+  /// 输入数据
+  #[pb(index = 6)]
+  pub input: String,
+
+  /// 输出数据
+  #[pb(index = 7)]
+  pub output: String,
+
+  /// 执行状态
+  #[pb(index = 8)]
+  pub status: ExecutionStatusPB,
+
+  /// 开始时间（时间戳）
+  #[pb(index = 9)]
+  pub started_at: i64,
+
+  /// 结束时间（时间戳）
+  #[pb(index = 10, one_of)]
+  pub completed_at: Option<i64>,
+
+  /// 执行耗时（毫秒）
+  #[pb(index = 11)]
+  pub duration_ms: i64,
+
+  /// 错误信息（如果有）
+  #[pb(index = 12, one_of)]
+  pub error_message: Option<String>,
+
+  /// 日志元数据
+  #[pb(index = 13)]
+  pub metadata: HashMap<String, String>,
+}
+
+/// 执行阶段枚举
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ProtoBuf_Enum, Serialize, Deserialize)]
+pub enum ExecutionPhasePB {
+  /// 规划阶段
+  ExecPlanning = 0,
+  /// 执行阶段
+  ExecExecution = 1,
+  /// 工具调用阶段
+  ExecToolCall = 2,
+  /// 反思阶段
+  ExecReflection = 3,
+  /// 完成阶段
+  ExecCompletion = 4,
+}
+
+impl Default for ExecutionPhasePB {
+  fn default() -> Self {
+    ExecutionPhasePB::ExecPlanning
+  }
+}
+
+/// 执行状态枚举
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ProtoBuf_Enum, Serialize, Deserialize)]
+pub enum ExecutionStatusPB {
+  /// 进行中
+  ExecRunning = 0,
+  /// 成功完成
+  ExecSuccess = 1,
+  /// 失败
+  ExecFailed = 2,
+  /// 已取消
+  ExecCancelled = 3,
+}
+
+impl Default for ExecutionStatusPB {
+  fn default() -> Self {
+    ExecutionStatusPB::ExecRunning
+  }
+}
+
+/// 执行日志列表
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct AgentExecutionLogListPB {
+  #[pb(index = 1)]
+  pub logs: Vec<AgentExecutionLogPB>,
+
+  #[pb(index = 2)]
+  pub has_more: bool,
+
+  #[pb(index = 3)]
+  pub total: i64,
+}
+
+/// 获取执行日志请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct GetExecutionLogsRequestPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub session_id: String,
+
+  #[pb(index = 2, one_of)]
+  pub message_id: Option<String>,
+
+  #[pb(index = 3, one_of)]
+  pub phase: Option<ExecutionPhasePB>,
+
+  #[pb(index = 4)]
+  pub limit: i32,
+
+  #[pb(index = 5)]
+  pub offset: i32,
+}
+
+// ==================== 智能体任务规划相关实体 ====================
+
+/// 智能体任务计划
+#[derive(Default, ProtoBuf, Clone, Debug, Serialize, Deserialize)]
+pub struct AgentTaskPlanPB {
+  /// 计划唯一标识符
+  #[pb(index = 1)]
+  pub id: String,
+
+  /// 会话ID
+  #[pb(index = 2)]
+  pub session_id: String,
+
+  /// 用户问题/目标
+  #[pb(index = 3)]
+  pub user_goal: String,
+
+  /// 任务步骤列表
+  #[pb(index = 4)]
+  pub steps: Vec<TaskStepPB>,
+
+  /// 计划状态
+  #[pb(index = 5)]
+  pub status: PlanStatusPB,
+
+  /// 创建时间（时间戳）
+  #[pb(index = 6)]
+  pub created_at: i64,
+
+  /// 更新时间（时间戳）
+  #[pb(index = 7)]
+  pub updated_at: i64,
+}
+
+/// 任务步骤
+#[derive(Default, ProtoBuf, Clone, Debug, Serialize, Deserialize)]
+pub struct TaskStepPB {
+  /// 步骤唯一标识符
+  #[pb(index = 1)]
+  pub id: String,
+
+  /// 步骤序号
+  #[pb(index = 2)]
+  pub order: i32,
+
+  /// 步骤描述
+  #[pb(index = 3)]
+  pub description: String,
+
+  /// 需要使用的工具
+  #[pb(index = 4, one_of)]
+  pub tool_name: Option<String>,
+
+  /// 工具参数
+  #[pb(index = 5)]
+  pub tool_arguments: HashMap<String, String>,
+
+  /// 步骤状态
+  #[pb(index = 6)]
+  pub status: StepStatusPB,
+
+  /// 执行结果
+  #[pb(index = 7, one_of)]
+  pub result: Option<String>,
+
+  /// 错误信息（如果有）
+  #[pb(index = 8, one_of)]
+  pub error_message: Option<String>,
+}
+
+/// 计划状态枚举
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ProtoBuf_Enum, Serialize, Deserialize)]
+pub enum PlanStatusPB {
+  /// 待执行
+  PlanPending = 0,
+  /// 执行中
+  PlanExecuting = 1,
+  /// 已完成
+  PlanCompleted = 2,
+  /// 已失败
+  PlanFailed = 3,
+  /// 已取消
+  PlanCancelled = 4,
+}
+
+impl Default for PlanStatusPB {
+  fn default() -> Self {
+    PlanStatusPB::PlanPending
+  }
+}
+
+/// 步骤状态枚举
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ProtoBuf_Enum, Serialize, Deserialize)]
+pub enum StepStatusPB {
+  /// 待执行
+  StepPending = 0,
+  /// 执行中
+  StepRunning = 1,
+  /// 已完成
+  StepCompleted = 2,
+  /// 已失败
+  StepFailed = 3,
+  /// 已跳过
+  StepSkipped = 4,
+}
+
+impl Default for StepStatusPB {
+  fn default() -> Self {
+    StepStatusPB::StepPending
+  }
+}
+
+// ==================== 工具注册表相关实体 ====================
+
+/// 工具定义
+#[derive(Default, ProtoBuf, Clone, Debug, Serialize, Deserialize)]
+pub struct ToolDefinitionPB {
+  /// 工具名称
+  #[pb(index = 1)]
+  pub name: String,
+
+  /// 工具描述
+  #[pb(index = 2)]
+  pub description: String,
+
+  /// 工具类型
+  #[pb(index = 3)]
+  pub tool_type: ToolTypePB,
+
+  /// 工具来源（MCP服务器ID或内置标识）
+  #[pb(index = 4)]
+  pub source: String,
+
+  /// 工具参数schema（JSON字符串）
+  #[pb(index = 5)]
+  pub parameters_schema: String,
+
+  /// 工具权限要求
+  #[pb(index = 6)]
+  pub permissions: Vec<String>,
+
+  /// 是否可用
+  #[pb(index = 7)]
+  pub is_available: bool,
+
+  /// 工具元数据
+  #[pb(index = 8)]
+  pub metadata: HashMap<String, String>,
+}
+
+/// 工具类型枚举
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ProtoBuf_Enum, Serialize, Deserialize)]
+pub enum ToolTypePB {
+  /// MCP工具
+  MCP = 0,
+  /// AppFlowy原生工具
+  Native = 1,
+  /// 搜索工具
+  Search = 2,
+  /// 外部API工具
+  ExternalAPI = 3,
+}
+
+impl Default for ToolTypePB {
+  fn default() -> Self {
+    ToolTypePB::Native
+  }
+}
+
+/// 工具列表响应
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct ToolListPB {
+  #[pb(index = 1)]
+  pub tools: Vec<ToolDefinitionPB>,
+}
+
+/// 工具调用请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct ToolCallRequestPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub tool_name: String,
+
+  #[pb(index = 2)]
+  pub arguments: HashMap<String, String>,
+
+  #[pb(index = 3, one_of)]
+  pub session_id: Option<String>,
+
+  #[pb(index = 4)]
+  pub metadata: HashMap<String, String>,
+}
+
+/// 工具调用响应
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct ToolCallResponsePB {
+  #[pb(index = 1)]
+  pub success: bool,
+
+  #[pb(index = 2)]
+  pub result: String,
+
+  #[pb(index = 3, one_of)]
+  pub error_message: Option<String>,
+
+  #[pb(index = 4)]
+  pub execution_time_ms: i64,
+
+  #[pb(index = 5)]
+  pub metadata: HashMap<String, String>,
+}
+
+// ==================== 通用响应实体 ====================
+
+/// 通用成功响应
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct AgentSuccessResponsePB {
+  #[pb(index = 1)]
+  pub success: bool,
+
+  #[pb(index = 2, one_of)]
+  pub message: Option<String>,
+
+  #[pb(index = 3)]
+  pub data: HashMap<String, String>,
+}
+
+/// 通用错误响应
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct AgentErrorResponsePB {
+  #[pb(index = 1)]
+  pub error_code: String,
+
+  #[pb(index = 2)]
+  pub error_message: String,
+
+  #[pb(index = 3)]
+  pub details: HashMap<String, String>,
+}
+
+// ==================== 实用工具函数和转换 ====================
+
+impl AgentConfigPB {
+  /// 创建新的智能体配置
+  pub fn new(name: String, description: String) -> Self {
+    let now = Utc::now().timestamp();
+    Self {
+      id: Uuid::new_v4().to_string(),
+      name,
+      description,
+      avatar: String::new(),
+      personality: String::new(),
+      capabilities: AgentCapabilitiesPB::default(),
+      available_tools: Vec::new(),
+      status: AgentStatusPB::AgentActive,
+      created_at: now,
+      updated_at: now,
+      metadata: HashMap::new(),
+    }
+  }
+
+  /// 检查智能体是否活跃
+  pub fn is_active(&self) -> bool {
+    self.status == AgentStatusPB::AgentActive
+  }
+}
+
+impl AgentCapabilitiesPB {
+  /// 创建默认能力配置
+  pub fn default_capabilities() -> Self {
+    Self {
+      enable_planning: true,
+      enable_tool_calling: true,
+      enable_reflection: true,
+      enable_memory: true,
+      max_planning_steps: 10,
+      max_tool_calls: 20,
+      memory_limit: 100,
+    }
+  }
+}
+
+impl AgentSessionPB {
+  /// 创建新的会话
+  pub fn new(agent_id: String, title: String) -> Self {
+    let now = Utc::now().timestamp();
+    Self {
+      id: Uuid::new_v4().to_string(),
+      agent_id,
+      title,
+      status: SessionStatusPB::SessionActive,
+      created_at: now,
+      updated_at: now,
+      metadata: HashMap::new(),
+    }
+  }
+
+  /// 检查会话是否活跃
+  pub fn is_active(&self) -> bool {
+    matches!(self.status, SessionStatusPB::SessionActive | SessionStatusPB::SessionPaused)
+  }
+}
+
+impl AgentMessagePB {
+  /// 创建新的消息
+  pub fn new(
+    session_id: String,
+    message_type: AgentMessageTypePB,
+    content: String,
+    sender_id: String,
+  ) -> Self {
+    Self {
+      id: Uuid::new_v4().to_string(),
+      session_id,
+      message_type,
+      content,
+      sender_id,
+      created_at: Utc::now().timestamp(),
+      metadata: HashMap::new(),
+      execution_log_id: None,
+    }
+  }
+}
+
+impl AgentExecutionLogPB {
+  /// 创建新的执行日志
+  pub fn new(
+    session_id: String,
+    message_id: String,
+    phase: ExecutionPhasePB,
+    step: String,
+  ) -> Self {
+    Self {
+      id: Uuid::new_v4().to_string(),
+      session_id,
+      message_id,
+      phase,
+      step,
+      input: String::new(),
+      output: String::new(),
+      status: ExecutionStatusPB::ExecRunning,
+      started_at: Utc::now().timestamp(),
+      completed_at: None,
+      duration_ms: 0,
+      error_message: None,
+      metadata: HashMap::new(),
+    }
+  }
+
+  /// 标记日志为完成状态
+  pub fn mark_completed(&mut self, output: String) {
+    let now = Utc::now().timestamp();
+    self.output = output;
+    self.status = ExecutionStatusPB::ExecSuccess;
+    self.completed_at = Some(now);
+    if let Some(started_at) = Some(self.started_at) {
+      self.duration_ms = (now - started_at) * 1000;
+    }
+  }
+
+  /// 标记日志为失败状态
+  pub fn mark_failed(&mut self, error_message: String) {
+    let now = Utc::now().timestamp();
+    self.error_message = Some(error_message);
+    self.status = ExecutionStatusPB::ExecFailed;
+    self.completed_at = Some(now);
+    if let Some(started_at) = Some(self.started_at) {
+      self.duration_ms = (now - started_at) * 1000;
+    }
+  }
 }
