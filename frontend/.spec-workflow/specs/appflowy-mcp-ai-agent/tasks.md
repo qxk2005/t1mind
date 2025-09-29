@@ -33,7 +33,7 @@
   - _Prompt: Implement the task for spec appflowy-mcp-ai-agent, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust数据库专家，专精SQLite和数据持久化 | Task: 实现MCP配置的数据库存储，包括配置验证、序列化和反序列化，遵循需求5的规范 | Restrictions: 必须使用现有的数据库架构，确保数据一致性，支持配置迁移 | _Leverage: 现有的KVStorePreferences, SQLite数据库模块 | _Requirements: 需求5 | Success: 配置能正确存储和读取，验证机制有效，支持配置更新 | Instructions: 首先将任务状态标记为进行中[-]，完成后标记为已完成[x]_
 
 ### M1.2：MCP事件系统集成
-- [ ] 4. 扩展AI事件映射
+- [x] 4. 扩展AI事件映射
   - 文件: rust-lib/flowy-ai/src/event_map.rs
   - 添加MCP相关的事件定义和处理器
   - 集成到现有的AFPlugin系统

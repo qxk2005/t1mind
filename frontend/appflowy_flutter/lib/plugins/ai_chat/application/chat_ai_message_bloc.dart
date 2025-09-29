@@ -1,5 +1,6 @@
 import 'package:appflowy/plugins/ai_chat/application/chat_entity.dart';
 import 'package:appflowy/plugins/ai_chat/application/chat_message_stream.dart';
+import 'package:appflowy/plugins/ai_chat/application/reasoning_manager.dart';
 import 'package:appflowy_backend/dispatch/dispatch.dart';
 import 'package:appflowy_backend/log.dart';
 import 'package:appflowy_backend/protobuf/flowy-ai/entities.pb.dart';
@@ -26,17 +27,43 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
     _registerEventHandlers();
     _initializeStreamListener();
     _checkInitialStreamState();
+    _initializeReasoningFromGlobal();
   }
 
   final String chatId;
   final Int64? questionId;
+  final ReasoningManager _reasoningManager = ReasoningManager();
+
+  /// 从全局管理器初始化推理文本
+  void _initializeReasoningFromGlobal() {
+    final globalReasoningText = _reasoningManager.getReasoningText(chatId);
+    final isComplete = _reasoningManager.isReasoningComplete(chatId);
+    
+    if (globalReasoningText != null && globalReasoningText.isNotEmpty) {
+      Log.debug("🌐 [GLOBAL] Initializing with existing reasoning text length: ${globalReasoningText.length}");
+      // 使用add方法而不是直接emit
+      add(ChatAIMessageEvent.initializeReasoning(globalReasoningText, isComplete));
+    }
+  }
 
   void _registerEventHandlers() {
     on<_UpdateText>((event, emit) {
+      Log.debug("🎯 [REALTIME] UpdateText received, marking reasoning as complete. Text length: ${event.text.length}");
+      Log.debug("🎯 [REALTIME] Current reasoning text length: ${state.reasoningText?.length ?? 0}");
+      
+      // 标记推理完成
+      _reasoningManager.setReasoningComplete(chatId, true);
+      
+      // 获取全局推理文本
+      final globalReasoningText = _reasoningManager.getReasoningText(chatId);
+      Log.debug("🌐 [GLOBAL] Retrieved reasoning text length: ${globalReasoningText?.length ?? 0}");
+      
       emit(
         state.copyWith(
           text: event.text,
           messageState: const MessageState.ready(),
+          isReasoningComplete: true, // 当开始接收实际回答时，推理完成
+          reasoningText: globalReasoningText ?? state.reasoningText, // 使用全局推理文本
         ),
       );
     });
@@ -110,10 +137,32 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
 
     on<_ReceiveMetadata>((event, emit) {
       Log.debug("AI Steps: ${event.metadata.progress?.step}");
+      
+      // 处理推理增量数据
+      String? updatedReasoningText = state.reasoningText;
+      bool isReasoningActive = false;
+      
+      if (event.metadata.reasoningDelta != null && event.metadata.reasoningDelta!.isNotEmpty) {
+        // 更新全局推理文本
+        _reasoningManager.appendReasoningText(chatId, event.metadata.reasoningDelta!);
+        _reasoningManager.setReasoningComplete(chatId, false);
+        
+        // 获取更新后的全局推理文本
+        updatedReasoningText = _reasoningManager.getReasoningText(chatId);
+        isReasoningActive = true; // 接收到推理增量说明推理正在进行
+        
+        Log.debug("🔄 [REALTIME] AI Reasoning Delta: '${event.metadata.reasoningDelta}'");
+        Log.debug("📊 [REALTIME] Updated global reasoning text length: ${updatedReasoningText?.length ?? 0}");
+        Log.debug("🌐 [GLOBAL] Stored reasoning text: '$updatedReasoningText'");
+        Log.debug("🚀 [REALTIME] Reasoning is active, isReasoningComplete: false");
+      }
+      
       emit(
         state.copyWith(
           sources: event.metadata.sources,
           progress: event.metadata.progress,
+          reasoningText: updatedReasoningText,
+          isReasoningComplete: isReasoningActive ? false : state.isReasoningComplete, // 保持推理状态
         ),
       );
     });
@@ -122,6 +171,16 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
       emit(
         state.copyWith(
           messageState: MessageState.aiFollowUp(event.followUpData),
+        ),
+      );
+    });
+
+    on<_InitializeReasoning>((event, emit) {
+      Log.debug("🌐 [GLOBAL] Initializing reasoning - text length: ${event.reasoningText.length}, isComplete: ${event.isComplete}");
+      emit(
+        state.copyWith(
+          reasoningText: event.reasoningText,
+          isReasoningComplete: event.isComplete,
         ),
       );
     });
@@ -188,6 +247,10 @@ class ChatAIMessageEvent with _$ChatAIMessageEvent {
   const factory ChatAIMessageEvent.onAIFollowUp(
     AIFollowUpData followUpData,
   ) = _OnAIFollowUp;
+  const factory ChatAIMessageEvent.initializeReasoning(
+    String reasoningText,
+    bool isComplete,
+  ) = _InitializeReasoning;
 }
 
 @freezed
@@ -198,6 +261,8 @@ class ChatAIMessageState with _$ChatAIMessageState {
     required MessageState messageState,
     required List<ChatMessageRefSource> sources,
     required AIChatProgress? progress,
+    String? reasoningText,
+    @Default(false) bool isReasoningComplete,
   }) = _ChatAIMessageState;
 
   factory ChatAIMessageState.initial(
@@ -210,6 +275,7 @@ class ChatAIMessageState with _$ChatAIMessageState {
       messageState: const MessageState.ready(),
       sources: metadata.sources,
       progress: metadata.progress,
+      reasoningText: null, // 初始状态为空，将从全局管理器获取
     );
   }
 }

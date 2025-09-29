@@ -211,7 +211,7 @@
     "uploadFile": "上传聊天使用的 PDF、md 或 txt 文件",
     "questionDetail": "{} 你好！我能怎么帮到你？",
     "indexingFile": "正在索引 {}",
-    "generatingResponse": "正在生成相应",
+    "generatingResponse": "正在生成响应",
     "sourceUnsupported": "我们当前不支持基于数据库的交流",
     "regenerate": "请重试",
     "addToPageTitle": "添加消息至......",

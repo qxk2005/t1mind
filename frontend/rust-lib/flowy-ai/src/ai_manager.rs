@@ -6,6 +6,7 @@ use crate::entities::{
 };
 use crate::local_ai::controller::{LocalAIController, LocalAISetting};
 use crate::middleware::chat_service_mw::ChatServiceMiddleware;
+use crate::mcp::manager::MCPClientManager;
 use flowy_ai_pub::persistence::{
   ChatTableChangeset, select_chat_metadata, select_chat_rag_ids, select_chat_summary, update_chat,
 };
@@ -63,6 +64,7 @@ pub struct AIManager {
   pub local_ai: Arc<LocalAIController>,
   pub store_preferences: Arc<KVStorePreferences>,
   model_control: Mutex<ModelSelectionControl>,
+  pub mcp_manager: Arc<MCPClientManager>,
 }
 impl Drop for AIManager {
   fn drop(&mut self) {
@@ -93,6 +95,8 @@ impl AIManager {
     model_control.set_server_storage(ServerModelStorageImpl(cloud_service_wm.clone()));
     model_control.add_source(Box::new(ServerAiSource::new(cloud_service_wm.clone())));
 
+    let mcp_manager = Arc::new(MCPClientManager::new(store_preferences.clone()));
+
     Self {
       cloud_service_wm,
       user_service,
@@ -101,6 +105,7 @@ impl AIManager {
       external_service,
       store_preferences,
       model_control: Mutex::new(model_control),
+      mcp_manager,
     }
   }
 

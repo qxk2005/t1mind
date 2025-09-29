@@ -765,3 +765,208 @@ pub struct CustomPromptDatabaseConfigurationPB {
   #[pb(index = 5, one_of)]
   pub category_field_id: Option<String>,
 }
+
+// ==================== MCP相关实体定义 ====================
+
+/// MCP传输方式枚举
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ProtoBuf_Enum)]
+pub enum MCPTransportTypePB {
+  Stdio = 0,
+  SSE = 1,
+  HTTP = 2,
+}
+
+impl Default for MCPTransportTypePB {
+  fn default() -> Self {
+    MCPTransportTypePB::Stdio
+  }
+}
+
+/// STDIO传输配置
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct MCPStdioConfigPB {
+  #[pb(index = 1)]
+  pub command: String,
+
+  #[pb(index = 2)]
+  pub args: Vec<String>,
+
+  #[pb(index = 3)]
+  pub env_vars: HashMap<String, String>,
+}
+
+/// HTTP/SSE传输配置
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct MCPHttpConfigPB {
+  #[pb(index = 1)]
+  pub url: String,
+
+  #[pb(index = 2)]
+  pub headers: HashMap<String, String>,
+}
+
+/// MCP服务器配置
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct MCPServerConfigPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub id: String,
+
+  #[pb(index = 2)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub name: String,
+
+  #[pb(index = 3)]
+  pub icon: String,
+
+  #[pb(index = 4)]
+  pub transport_type: MCPTransportTypePB,
+
+  #[pb(index = 5)]
+  pub is_active: bool,
+
+  #[pb(index = 6)]
+  pub description: String,
+
+  #[pb(index = 7, one_of)]
+  pub stdio_config: Option<MCPStdioConfigPB>,
+
+  #[pb(index = 8, one_of)]
+  pub http_config: Option<MCPHttpConfigPB>,
+}
+
+/// MCP服务器列表响应
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct MCPServerListPB {
+  #[pb(index = 1)]
+  pub servers: Vec<MCPServerConfigPB>,
+}
+
+/// MCP工具注解
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct MCPToolAnnotationsPB {
+  #[pb(index = 1, one_of)]
+  pub title: Option<String>,
+
+  #[pb(index = 2, one_of)]
+  pub read_only_hint: Option<bool>,
+
+  #[pb(index = 3, one_of)]
+  pub destructive_hint: Option<bool>,
+
+  #[pb(index = 4, one_of)]
+  pub idempotent_hint: Option<bool>,
+
+  #[pb(index = 5, one_of)]
+  pub open_world_hint: Option<bool>,
+}
+
+/// MCP工具定义
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct MCPToolPB {
+  #[pb(index = 1)]
+  pub name: String,
+
+  #[pb(index = 2)]
+  pub description: String,
+
+  #[pb(index = 3)]
+  pub input_schema: String, // JSON字符串
+
+  #[pb(index = 4, one_of)]
+  pub annotations: Option<MCPToolAnnotationsPB>,
+}
+
+/// MCP工具列表响应
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct MCPToolListPB {
+  #[pb(index = 1)]
+  pub tools: Vec<MCPToolPB>,
+}
+
+/// MCP工具调用请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct MCPToolCallRequestPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub server_id: String,
+
+  #[pb(index = 2)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub tool_name: String,
+
+  #[pb(index = 3)]
+  pub arguments: String, // JSON字符串
+}
+
+/// MCP内容类型枚举
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ProtoBuf_Enum)]
+pub enum MCPContentTypePB {
+  Text = 0,
+  Image = 1,
+  Resource = 2,
+}
+
+impl Default for MCPContentTypePB {
+  fn default() -> Self {
+    MCPContentTypePB::Text
+  }
+}
+
+/// MCP内容项
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct MCPContentPB {
+  #[pb(index = 1)]
+  pub content_type: MCPContentTypePB,
+
+  #[pb(index = 2)]
+  pub text: String,
+
+  #[pb(index = 3, one_of)]
+  pub mime_type: Option<String>,
+}
+
+/// MCP工具调用响应
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct MCPToolCallResponsePB {
+  #[pb(index = 1)]
+  pub success: bool,
+
+  #[pb(index = 2)]
+  pub content: Vec<MCPContentPB>,
+
+  #[pb(index = 3, one_of)]
+  pub error: Option<String>,
+}
+
+/// MCP服务器连接请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct MCPConnectServerRequestPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub server_id: String,
+}
+
+/// MCP服务器断开连接请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct MCPDisconnectServerRequestPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub server_id: String,
+}
+
+/// MCP服务器状态响应
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct MCPServerStatusPB {
+  #[pb(index = 1)]
+  pub server_id: String,
+
+  #[pb(index = 2)]
+  pub is_connected: bool,
+
+  #[pb(index = 3, one_of)]
+  pub error_message: Option<String>,
+
+  #[pb(index = 4)]
+  pub tool_count: i32,
+}

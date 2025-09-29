@@ -2,6 +2,7 @@ pub mod client;
 pub mod client_pool;
 pub mod config;
 pub mod entities;
+pub mod event_handler;
 pub mod excel_mcp_test;
 pub mod integration_test;
 pub mod manager;

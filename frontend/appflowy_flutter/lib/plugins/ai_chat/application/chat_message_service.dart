@@ -70,9 +70,11 @@ class MetadataCollection {
   MetadataCollection({
     required this.sources,
     this.progress,
+    this.reasoningDelta,
   });
   final List<ChatMessageRefSource> sources;
   final AIChatProgress? progress;
+  final String? reasoningDelta;
 }
 
 MetadataCollection parseMetadata(String? s) {
@@ -82,6 +84,7 @@ MetadataCollection parseMetadata(String? s) {
 
   final List<ChatMessageRefSource> metadata = [];
   AIChatProgress? progress;
+  String? reasoningDelta;
 
   try {
     final dynamic decodedJson = jsonDecode(s);
@@ -94,6 +97,13 @@ MetadataCollection parseMetadata(String? s) {
         progress = AIChatProgress.fromJson(map);
       } else if (map.containsKey("id") && map["id"] != null) {
         metadata.add(ChatMessageRefSource.fromJson(map));
+      } else if (map.containsKey("reasoning_delta")) {
+        // 处理推理过程的增量数据
+        final delta = map["reasoning_delta"]?.toString();
+        if (delta != null && delta.isNotEmpty) {
+          reasoningDelta = delta;
+          Log.debug("📝 [REALTIME] Received reasoning delta: '$delta'");
+        }
       } else {
         Log.info("Unsupported metadata format: $map");
       }
@@ -117,7 +127,7 @@ MetadataCollection parseMetadata(String? s) {
     Log.debug(stacktrace.toString());
   }
 
-  return MetadataCollection(sources: metadata, progress: progress);
+  return MetadataCollection(sources: metadata, progress: progress, reasoningDelta: reasoningDelta);
 }
 
 Future<List<ChatMessageMetaPB>> metadataPBFromMetadata(

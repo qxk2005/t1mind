@@ -8,6 +8,7 @@ use lib_dispatch::prelude::*;
 
 use crate::ai_manager::AIManager;
 use crate::event_handler::*;
+use crate::mcp::event_handler::*;
 
 pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
   let strong_ai_manager = ai_manager.upgrade().unwrap();
@@ -58,6 +59,16 @@ pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
       AIEvent::SetCustomPromptDatabaseConfiguration,
       set_custom_prompt_database_configuration_handler,
     )
+    // MCP事件注册
+    .event(AIEvent::GetMCPServerList, get_mcp_server_list_handler)
+    .event(AIEvent::AddMCPServer, add_mcp_server_handler)
+    .event(AIEvent::UpdateMCPServer, update_mcp_server_handler)
+    .event(AIEvent::RemoveMCPServer, remove_mcp_server_handler)
+    .event(AIEvent::ConnectMCPServer, connect_mcp_server_handler)
+    .event(AIEvent::DisconnectMCPServer, disconnect_mcp_server_handler)
+    .event(AIEvent::GetMCPServerStatus, get_mcp_server_status_handler)
+    .event(AIEvent::GetMCPToolList, get_mcp_tool_list_handler)
+    .event(AIEvent::CallMCPTool, call_mcp_tool_handler)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Display, Hash, ProtoBuf_Enum, Flowy_Event)]
@@ -142,4 +153,42 @@ pub enum AIEvent {
 
   #[event(input = "CustomPromptDatabaseConfigurationPB")]
   SetCustomPromptDatabaseConfiguration = 36,
+
+  // ==================== MCP相关事件 ====================
+  
+  /// 获取MCP服务器列表
+  #[event(output = "MCPServerListPB")]
+  GetMCPServerList = 37,
+
+  /// 添加MCP服务器配置
+  #[event(input = "MCPServerConfigPB")]
+  AddMCPServer = 38,
+
+  /// 更新MCP服务器配置
+  #[event(input = "MCPServerConfigPB")]
+  UpdateMCPServer = 39,
+
+  /// 删除MCP服务器
+  #[event(input = "MCPDisconnectServerRequestPB")]
+  RemoveMCPServer = 40,
+
+  /// 连接MCP服务器
+  #[event(input = "MCPConnectServerRequestPB", output = "MCPServerStatusPB")]
+  ConnectMCPServer = 41,
+
+  /// 断开MCP服务器连接
+  #[event(input = "MCPDisconnectServerRequestPB")]
+  DisconnectMCPServer = 42,
+
+  /// 获取MCP服务器状态
+  #[event(input = "MCPConnectServerRequestPB", output = "MCPServerStatusPB")]
+  GetMCPServerStatus = 43,
+
+  /// 获取MCP工具列表
+  #[event(input = "MCPConnectServerRequestPB", output = "MCPToolListPB")]
+  GetMCPToolList = 44,
+
+  /// 调用MCP工具
+  #[event(input = "MCPToolCallRequestPB", output = "MCPToolCallResponsePB")]
+  CallMCPTool = 45,
 }
