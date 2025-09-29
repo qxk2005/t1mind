@@ -10,6 +10,8 @@ pub mod local_ai;
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 pub mod mcp;
 
+pub mod agent;
+
 #[cfg(feature = "ai-tool")]
 mod ai_tool;
 pub mod embeddings;
