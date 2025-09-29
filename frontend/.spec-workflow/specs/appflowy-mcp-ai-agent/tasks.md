@@ -73,7 +73,7 @@
   - _Prompt: Implement the task for spec appflowy-mcp-ai-agent, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust数据库操作专家，专精CRUD操作和数据验证 | Task: 实现智能体配置管理器，支持配置的创建、读取、更新、删除操作，包含验证和个性化设置，遵循需求2的规范 | Restrictions: 必须确保数据一致性，支持事务操作，实现配置版本控制 | _Leverage: 现有数据库访问模式, SQLite操作模块 | _Requirements: 需求2 | Success: 配置CRUD操作正常，验证机制完整，个性化设置生效 | Instructions: 首先将任务状态标记为进行中[-]，完成后标记为已完成[x]_
 
 ### M2.2：AI驱动的任务规划器
-- [ ] 8. 实现AI驱动任务规划器
+- [x] 8. 实现AI驱动任务规划器
   - 文件: rust-lib/flowy-ai/src/agent/planner.rs
   - 基于全局AI模型实现任务分解和规划
   - 集成工具选择和个性化特性
