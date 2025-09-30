@@ -160,7 +160,7 @@
   - _Requirements: 需求3, 需求7_
   - _Prompt: Implement the task for spec appflowy-mcp-ai-agent, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Flutter聊天界面专家，专精实时UI更新和用户交互 | Task: 扩展现有聊天界面以支持智能体，添加选择器、状态显示、执行过程可视化，遵循需求3和需求7的规范 | Restrictions: 不能破坏现有聊天功能，确保界面响应性，支持实时更新 | _Leverage: 现有聊天界面, appflowy_flutter/lib/plugins/ai_chat/chat_page.dart | _Requirements: 需求3, 需求7 | Success: 智能体集成无缝，执行过程清晰可见，用户体验流畅 | Instructions: 首先将任务状态标记为进行中[-]，完成后标记为已完成[x]_
 
-- [ ] 17. 实现执行日志查看器
+- [x] 17. 实现执行日志查看器
   - 文件: appflowy_flutter/lib/plugins/ai_chat/presentation/execution_log_viewer.dart
   - 创建执行日志的展示界面
   - 添加日志过滤和搜索功能

@@ -1314,7 +1314,7 @@ pub struct SendAgentMessageRequestPB {
 // ==================== 智能体执行日志相关实体 ====================
 
 /// 智能体执行日志
-#[derive(Default, ProtoBuf, Clone, Debug, Serialize, Deserialize)]
+#[derive(Default, ProtoBuf, Validate, Clone, Debug, Serialize, Deserialize)]
 pub struct AgentExecutionLogPB {
   /// 日志唯一标识符
   #[pb(index = 1)]
@@ -1440,6 +1440,17 @@ pub struct GetExecutionLogsRequestPB {
 
   #[pb(index = 5)]
   pub offset: i32,
+}
+
+/// 清空执行日志请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct ClearExecutionLogsRequestPB {
+  #[pb(index = 1)]
+  #[validate(custom(function = "required_not_empty_str"))]
+  pub session_id: String,
+
+  #[pb(index = 2, one_of)]
+  pub message_id: Option<String>,
 }
 
 // ==================== 智能体任务规划相关实体 ====================

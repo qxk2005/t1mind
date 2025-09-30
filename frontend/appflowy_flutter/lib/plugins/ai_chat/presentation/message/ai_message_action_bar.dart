@@ -32,6 +32,8 @@ import 'package:flutter_chat_core/flutter_chat_core.dart';
 
 import '../layout_define.dart';
 import 'message_util.dart';
+import '../execution_log_viewer.dart';
+import '../../application/execution_log_bloc.dart';
 
 class AIMessageActionBar extends StatefulWidget {
   const AIMessageActionBar({
@@ -130,6 +132,12 @@ class _AIMessageActionBarState extends State<AIMessageActionBar> {
       ChangeModelButton(
         isInHoverBar: widget.showDecoration,
         onRegenerate: widget.onChangeModel,
+        popoverMutex: popoverMutex,
+        onOverrideVisibility: widget.onOverrideVisibility,
+      ),
+      ExecutionLogButton(
+        isInHoverBar: widget.showDecoration,
+        message: widget.message as TextMessage,
         popoverMutex: popoverMutex,
         onOverrideVisibility: widget.onOverrideVisibility,
       ),
@@ -770,5 +778,156 @@ class SaveToPagePopoverContent extends StatelessWidget {
         height: 30.0,
       ),
     );
+  }
+}
+
+/// 执行日志按钮组件
+class ExecutionLogButton extends StatefulWidget {
+  const ExecutionLogButton({
+    super.key,
+    required this.isInHoverBar,
+    required this.message,
+    required this.popoverMutex,
+    this.onOverrideVisibility,
+  });
+
+  final bool isInHoverBar;
+  final TextMessage message;
+  final PopoverMutex popoverMutex;
+  final void Function(bool)? onOverrideVisibility;
+
+  @override
+  State<ExecutionLogButton> createState() => _ExecutionLogButtonState();
+}
+
+class _ExecutionLogButtonState extends State<ExecutionLogButton> {
+  final PopoverController _popoverController = PopoverController();
+  ExecutionLogBloc? _executionLogBloc;
+
+  @override
+  void dispose() {
+    _executionLogBloc?.close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AppFlowyPopover(
+      controller: _popoverController,
+      mutex: widget.popoverMutex,
+      direction: PopoverDirection.bottomWithLeftAligned,
+      offset: const Offset(-300, 10),
+      onOpen: () => widget.onOverrideVisibility?.call(true),
+      onClose: () => widget.onOverrideVisibility?.call(false),
+      popupBuilder: (context) => _buildExecutionLogPopover(),
+      child: FlowyTooltip(
+        message: '查看执行过程',
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _popoverController.show(),
+          child: Padding(
+            padding: const EdgeInsets.all(4.0),
+            child: FlowySvg(
+              FlowySvgs.ai_summary_generate_s,
+              size: const Size.square(16),
+              color: widget.isInHoverBar
+                  ? null
+                  : Theme.of(context).colorScheme.primary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExecutionLogPopover() {
+    // 从消息中获取会话ID，这里使用消息ID作为会话ID的示例
+    // 在实际实现中，应该从聊天上下文中获取真实的会话ID
+    final sessionId = _extractSessionId();
+    
+    // 获取屏幕尺寸来动态调整弹出窗口大小
+    final screenSize = MediaQuery.of(context).size;
+    final maxWidth = (screenSize.width * 0.8).clamp(600.0, 900.0);
+    final maxHeight = (screenSize.height * 0.7).clamp(400.0, 600.0);
+    
+    return Container(
+      width: maxWidth,
+      height: maxHeight,
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        children: [
+          // 标题栏
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                FlowySvg(
+                  FlowySvgs.ai_summary_generate_s,
+                  size: const Size.square(16),
+                ),
+                const HSpace(8),
+                FlowyText.medium(
+                  '执行过程',
+                  fontSize: 14,
+                ),
+                const Spacer(),
+                GestureDetector(
+                  onTap: () => _popoverController.close(),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: FlowySvg(
+                      FlowySvgs.close_s,
+                      size: const Size.square(12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          
+          // 执行日志查看器
+          Expanded(
+            child: BlocProvider(
+              create: (context) {
+                _executionLogBloc = ExecutionLogBloc(
+                  sessionId: sessionId,
+                  messageId: widget.message.id,
+                );
+                // 立即加载日志
+                _executionLogBloc!.add(const ExecutionLogEvent.loadLogs());
+                return _executionLogBloc!;
+              },
+              child: ExecutionLogViewer(
+                sessionId: sessionId,
+                messageId: widget.message.id,
+                height: double.infinity,
+                showHeader: false,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 从消息中提取会话ID
+  /// 在实际实现中，这应该从聊天上下文或BLoC中获取
+  String _extractSessionId() {
+    // 尝试从消息元数据中获取会话ID
+    final metadata = widget.message.metadata;
+    if (metadata != null && metadata.containsKey('sessionId')) {
+      return metadata['sessionId'] as String;
+    }
+    
+    // 如果没有会话ID，使用消息ID的前缀作为会话ID
+    // 这是一个简化的实现，实际应用中应该有更好的会话管理
+    final messageId = widget.message.id;
+    if (messageId.contains('_')) {
+      return messageId.split('_').first;
+    }
+    
+    // 默认使用固定的会话ID用于演示
+    return 'demo_session_${messageId.hashCode.abs()}';
   }
 }

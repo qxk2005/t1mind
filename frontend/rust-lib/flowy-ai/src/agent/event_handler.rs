@@ -280,3 +280,94 @@ pub(crate) async fn update_agent_global_settings_handler(
     }
   }
 }
+
+// ==================== 执行日志相关事件处理器 ====================
+
+/// 获取执行日志列表
+/// 支持分页、过滤和搜索功能
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub(crate) async fn get_execution_logs_handler(
+  data: AFPluginData<GetExecutionLogsRequestPB>,
+  ai_manager: AFPluginState<Weak<AIManager>>,
+) -> DataResult<AgentExecutionLogListPB, FlowyError> {
+  let start_time = Instant::now();
+  let data = data.try_into_inner()?;
+  data.validate()?;
+  
+  info!("📋 Processing get execution logs request for session: {}", data.session_id);
+  
+  let ai_manager = upgrade_ai_manager(ai_manager)?;
+  
+  // 从AI管理器获取执行日志
+  match ai_manager.get_execution_logs(&data).await {
+    Ok(logs) => {
+      info!("✅ Successfully retrieved {} execution logs", logs.logs.len());
+      log_operation_duration("get_execution_logs", start_time);
+      data_result_ok(logs)
+    }
+    Err(err) => {
+      error!("❌ Failed to get execution logs: {}", err);
+      log_operation_duration("get_execution_logs", start_time);
+      Err(err)
+    }
+  }
+}
+
+/// 添加执行日志
+/// 用于智能体执行过程中记录日志
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub(crate) async fn add_execution_log_handler(
+  data: AFPluginData<AgentExecutionLogPB>,
+  ai_manager: AFPluginState<Weak<AIManager>>,
+) -> Result<(), FlowyError> {
+  let start_time = Instant::now();
+  let data = data.try_into_inner()?;
+  
+  info!("📝 Adding execution log for session: {}, phase: {:?}", data.session_id, data.phase);
+  
+  let ai_manager = upgrade_ai_manager(ai_manager)?;
+  
+  // 添加执行日志到AI管理器
+  match ai_manager.add_execution_log(data).await {
+    Ok(_) => {
+      info!("✅ Successfully added execution log");
+      log_operation_duration("add_execution_log", start_time);
+      Ok(())
+    }
+    Err(err) => {
+      error!("❌ Failed to add execution log: {}", err);
+      log_operation_duration("add_execution_log", start_time);
+      Err(err)
+    }
+  }
+}
+
+/// 清空执行日志
+/// 清理指定会话或消息的执行日志
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub(crate) async fn clear_execution_logs_handler(
+  data: AFPluginData<ClearExecutionLogsRequestPB>,
+  ai_manager: AFPluginState<Weak<AIManager>>,
+) -> Result<(), FlowyError> {
+  let start_time = Instant::now();
+  let data = data.try_into_inner()?;
+  data.validate()?;
+  
+  info!("🗑️ Clearing execution logs for session: {}", data.session_id);
+  
+  let ai_manager = upgrade_ai_manager(ai_manager)?;
+  
+  // 清空执行日志
+  match ai_manager.clear_execution_logs(&data).await {
+    Ok(_) => {
+      info!("✅ Successfully cleared execution logs");
+      log_operation_duration("clear_execution_logs", start_time);
+      Ok(())
+    }
+    Err(err) => {
+      error!("❌ Failed to clear execution logs: {}", err);
+      log_operation_duration("clear_execution_logs", start_time);
+      Err(err)
+    }
+  }
+}

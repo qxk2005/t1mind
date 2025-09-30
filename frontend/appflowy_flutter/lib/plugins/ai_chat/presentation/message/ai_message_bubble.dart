@@ -27,6 +27,7 @@ import 'ai_change_format_bottom_sheet.dart';
 import 'ai_change_model_bottom_sheet.dart';
 import 'ai_message_action_bar.dart';
 import 'message_util.dart';
+import '../execution_log_viewer.dart';
 
 /// Wraps an AI response message with the avatar and actions. On desktop,
 /// the actions will be displayed below the response if the response is the

@@ -79,6 +79,10 @@ pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
     .event(AIEvent::ValidateAgentConfig, validate_agent_config_handler)
     .event(AIEvent::GetAgentGlobalSettings, get_agent_global_settings_handler)
     .event(AIEvent::UpdateAgentGlobalSettings, update_agent_global_settings_handler)
+    // 执行日志事件注册
+    .event(AIEvent::GetExecutionLogs, get_execution_logs_handler)
+    .event(AIEvent::AddExecutionLog, add_execution_log_handler)
+    .event(AIEvent::ClearExecutionLogs, clear_execution_logs_handler)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Display, Hash, ProtoBuf_Enum, Flowy_Event)]
@@ -235,4 +239,18 @@ pub enum AIEvent {
   /// 更新智能体全局设置
   #[event(input = "AgentGlobalSettingsPB")]
   UpdateAgentGlobalSettings = 53,
+
+  // ==================== 执行日志相关事件 ====================
+  
+  /// 获取执行日志列表
+  #[event(input = "GetExecutionLogsRequestPB", output = "AgentExecutionLogListPB")]
+  GetExecutionLogs = 54,
+
+  /// 添加执行日志
+  #[event(input = "AgentExecutionLogPB")]
+  AddExecutionLog = 55,
+
+  /// 清空执行日志
+  #[event(input = "ClearExecutionLogsRequestPB")]
+  ClearExecutionLogs = 56,
 }

@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use std::time::SystemTime;
-use std::collections::HashMap;
 
 use flowy_error::{FlowyError, FlowyResult};
 use flowy_sqlite::kv::KVStorePreferences;

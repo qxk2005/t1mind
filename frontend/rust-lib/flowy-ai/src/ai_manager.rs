@@ -5,6 +5,7 @@ use crate::entities::{
   RepeatedRelatedQuestionPB, StreamMessageParams,
   AgentListPB, AgentConfigPB, CreateAgentRequestPB, GetAgentRequestPB, 
   UpdateAgentRequestPB, DeleteAgentRequestPB, AgentSuccessResponsePB, AgentGlobalSettingsPB,
+  AgentExecutionLogPB, AgentExecutionLogListPB, GetExecutionLogsRequestPB, ClearExecutionLogsRequestPB,
 };
 use crate::local_ai::controller::{LocalAIController, LocalAISetting};
 use crate::middleware::chat_service_mw::ChatServiceMiddleware;
@@ -69,6 +70,7 @@ pub struct AIManager {
   model_control: Mutex<ModelSelectionControl>,
   pub mcp_manager: Arc<MCPClientManager>,
   pub agent_manager: Arc<AgentConfigManager>,
+  execution_logs: Arc<DashMap<String, Vec<AgentExecutionLogPB>>>,
 }
 impl Drop for AIManager {
   fn drop(&mut self) {
@@ -112,6 +114,7 @@ impl AIManager {
       model_control: Mutex::new(model_control),
       mcp_manager,
       agent_manager,
+      execution_logs: Arc::new(DashMap::new()),
     }
   }
 
@@ -872,6 +875,85 @@ impl AIManager {
     };
 
     self.agent_manager.save_global_settings(global_settings)?;
+    Ok(())
+  }
+
+  // ==================== 执行日志管理方法 ====================
+
+  /// 获取执行日志列表
+  pub async fn get_execution_logs(&self, request: &GetExecutionLogsRequestPB) -> FlowyResult<AgentExecutionLogListPB> {
+    let session_key = if let Some(message_id) = &request.message_id {
+      format!("{}_{}", request.session_id, message_id)
+    } else {
+      request.session_id.clone()
+    };
+
+    let logs = self.execution_logs
+      .get(&session_key)
+      .map(|entry| entry.value().clone())
+      .unwrap_or_default();
+
+    // 应用过滤器
+    let mut filtered_logs = logs;
+    if let Some(phase) = &request.phase {
+      filtered_logs.retain(|log| log.phase == *phase);
+    }
+
+    // 应用分页
+    let offset = request.offset as usize;
+    let limit = request.limit as usize;
+    let total = filtered_logs.len();
+    
+    let paginated_logs = if offset < total {
+      let end = std::cmp::min(offset + limit, total);
+      filtered_logs[offset..end].to_vec()
+    } else {
+      vec![]
+    };
+
+    let has_more = offset + limit < total;
+
+    Ok(AgentExecutionLogListPB {
+      logs: paginated_logs,
+      has_more,
+      total: total as i64,
+    })
+  }
+
+  /// 添加执行日志
+  pub async fn add_execution_log(&self, log: AgentExecutionLogPB) -> FlowyResult<()> {
+    let session_key = if !log.message_id.is_empty() {
+      format!("{}_{}", log.session_id, log.message_id)
+    } else {
+      log.session_id.clone()
+    };
+
+    self.execution_logs
+      .entry(session_key)
+      .or_insert_with(Vec::new)
+      .push(log);
+
+    Ok(())
+  }
+
+  /// 清空执行日志
+  pub async fn clear_execution_logs(&self, request: &ClearExecutionLogsRequestPB) -> FlowyResult<()> {
+    if let Some(message_id) = &request.message_id {
+      let session_key = format!("{}_{}", request.session_id, message_id);
+      self.execution_logs.remove(&session_key);
+    } else {
+      // 清空整个会话的所有日志
+      let keys_to_remove: Vec<String> = self.execution_logs
+        .iter()
+        .filter(|entry| entry.key().starts_with(&request.session_id))
+        .map(|entry| entry.key().clone())
+        .collect();
+      
+      for key in keys_to_remove {
+        self.execution_logs.remove(&key);
+      }
+    }
+
     Ok(())
   }
 }
