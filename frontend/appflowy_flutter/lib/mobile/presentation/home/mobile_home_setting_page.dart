@@ -84,6 +84,7 @@ class _MobileHomeSettingPageState extends State<MobileHomeSettingPage> {
       child: BlocBuilder<UserWorkspaceBloc, UserWorkspaceState>(
         builder: (context, state) {
           final currentWorkspaceId = state.currentWorkspace?.workspaceId ?? '';
+          final currentWorkspaceMemberRole = state.currentWorkspace?.role;
           return SingleChildScrollView(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -102,6 +103,7 @@ class _MobileHomeSettingPageState extends State<MobileHomeSettingPage> {
                       key: ValueKey(currentWorkspaceId),
                       userProfile: userProfile,
                       workspaceId: currentWorkspaceId,
+                      currentWorkspaceMemberRole: currentWorkspaceMemberRole,
                     ),
                   const SupportSettingGroup(),
                   const AboutSettingGroup(),

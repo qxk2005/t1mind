@@ -9,6 +9,8 @@ import 'package:appflowy/workspace/application/settings/appearance/appearance_cu
 import 'package:appflowy/workspace/application/settings/appflowy_cloud_urls_bloc.dart';
 import 'package:appflowy/workspace/application/settings/settings_dialog_bloc.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/settings_ai_view.dart';
+import 'package:appflowy/workspace/presentation/settings/pages/setting_mcp_view/settings_mcp_view.dart';
+import 'package:appflowy/workspace/presentation/settings/pages/setting_agent_view/settings_agent_view.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/settings_account_view.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/settings_billing_view.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/settings_manage_data_view.dart';
@@ -157,6 +159,36 @@ class SettingsDialog extends StatelessWidget {
           );
         } else {
           return LocalSettingsAIView(
+            key: ValueKey(workspace.workspaceId),
+            userProfile: user,
+            workspaceId: workspace.workspaceId,
+          );
+        }
+      case SettingsPage.mcp:
+        if (user.workspaceType == WorkspaceTypePB.ServerW) {
+          return SettingsMCPView(
+            key: ValueKey(workspace.workspaceId),
+            userProfile: user,
+            currentWorkspaceMemberRole: currentWorkspaceMemberRole,
+            workspaceId: workspace.workspaceId,
+          );
+        } else {
+          return LocalSettingsMCPView(
+            key: ValueKey(workspace.workspaceId),
+            userProfile: user,
+            workspaceId: workspace.workspaceId,
+          );
+        }
+      case SettingsPage.agent:
+        if (user.workspaceType == WorkspaceTypePB.ServerW) {
+          return SettingsAgentView(
+            key: ValueKey(workspace.workspaceId),
+            userProfile: user,
+            currentWorkspaceMemberRole: currentWorkspaceMemberRole,
+            workspaceId: workspace.workspaceId,
+          );
+        } else {
+          return LocalSettingsAgentView(
             key: ValueKey(workspace.workspaceId),
             userProfile: user,
             workspaceId: workspace.workspaceId,

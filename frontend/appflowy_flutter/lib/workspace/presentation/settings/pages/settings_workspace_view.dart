@@ -30,6 +30,8 @@ import 'package:appflowy/workspace/presentation/settings/shared/settings_input_f
 import 'package:appflowy/workspace/presentation/settings/shared/settings_radio_select.dart';
 import 'package:appflowy/workspace/presentation/settings/shared/single_setting_action.dart';
 import 'package:appflowy/workspace/presentation/settings/widgets/theme_upload/theme_upload_view.dart';
+import 'package:appflowy/workspace/presentation/settings/workspace/workspace_mcp_settings.dart';
+import 'package:appflowy/workspace/presentation/settings/workspace/workspace_agent_settings.dart';
 import 'package:appflowy/workspace/presentation/widgets/dialogs.dart';
 import 'package:appflowy/workspace/presentation/widgets/toggle/toggle.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/protobuf.dart';
@@ -177,6 +179,22 @@ class SettingsWorkspaceView extends StatelessWidget {
               SettingsCategory(
                 title: LocaleKeys.settings_workspacePage_language_title.tr(),
                 children: const [LanguageDropdown()],
+              ),
+              const SettingsCategorySpacer(),
+
+              // MCP配置部分
+              WorkspaceMCPSettings(
+                userProfile: userProfile,
+                workspaceId: state.workspace?.workspaceId ?? '',
+                currentWorkspaceMemberRole: currentWorkspaceMemberRole,
+              ),
+              const SettingsCategorySpacer(),
+
+              // 智能体配置部分
+              WorkspaceAgentSettings(
+                userProfile: userProfile,
+                workspaceId: state.workspace?.workspaceId ?? '',
+                currentWorkspaceMemberRole: currentWorkspaceMemberRole,
               ),
               const SettingsCategorySpacer(),
 

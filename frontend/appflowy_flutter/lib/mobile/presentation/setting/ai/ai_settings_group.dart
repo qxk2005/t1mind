@@ -6,21 +6,26 @@ import 'package:appflowy/mobile/presentation/setting/widgets/mobile_setting_trai
 import 'package:appflowy/mobile/presentation/widgets/flowy_option_tile.dart';
 import 'package:appflowy/workspace/application/settings/ai/settings_ai_bloc.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/user_profile.pb.dart';
+import 'package:appflowy_backend/protobuf/flowy-user/protobuf.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:appflowy/mobile/presentation/setting/ai/openai_compat_setting_page.dart';
+import 'package:appflowy/mobile/presentation/setting/mcp/mobile_mcp_settings_page.dart';
+import 'package:appflowy/mobile/presentation/setting/agent/mobile_agent_settings_page.dart';
 
 class AiSettingsGroup extends StatelessWidget {
   const AiSettingsGroup({
     super.key,
     required this.userProfile,
     required this.workspaceId,
+    this.currentWorkspaceMemberRole,
   });
 
   final UserProfilePB userProfile;
   final String workspaceId;
+  final AFRolePB? currentWorkspaceMemberRole;
 
   @override
   Widget build(BuildContext context) {
@@ -31,32 +36,75 @@ class AiSettingsGroup extends StatelessWidget {
       )..add(const SettingsAIEvent.started()),
       child: BlocBuilder<SettingsAIBloc, SettingsAIState>(
         builder: (context, state) {
-          return MobileSettingGroup(
-            groupTitle: LocaleKeys.settings_aiPage_title.tr(),
-            settingItemList: [
-              MobileSettingItem(
-                name: LocaleKeys.settings_aiPage_keys_llmModelType.tr(),
-                trailing: MobileSettingTrailing(
-                  text: state.availableModels?.selectedModel.name ?? "",
-                ),
-                onTap: () => _onLLMModelTypeTap(context, state),
+          return Column(
+            children: [
+              // 基础AI设置
+              MobileSettingGroup(
+                groupTitle: LocaleKeys.settings_aiPage_title.tr(),
+                settingItemList: [
+                  MobileSettingItem(
+                    name: LocaleKeys.settings_aiPage_keys_llmModelType.tr(),
+                    trailing: MobileSettingTrailing(
+                      text: state.availableModels?.selectedModel.name ?? "",
+                    ),
+                    onTap: () => _onLLMModelTypeTap(context, state),
+                  ),
+                  MobileSettingItem(
+                    name: 'settings.aiPage.keys.openAICompatTitle'.tr(),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => context.push(
+                      OpenAICompatSettingMobilePage.routeName,
+                      extra: workspaceId,
+                    ),
+                  ),
+                  // enable AI search if needed
+                  // MobileSettingItem(
+                  //   name: LocaleKeys.settings_aiPage_keys_enableAISearchTitle.tr(),
+                  //   trailing: const Icon(
+                  //     Icons.chevron_right,
+                  //   ),
+                  //   onTap: () => context.push(AppFlowyCloudPage.routeName),
+                  // ),
+                ],
               ),
-              MobileSettingItem(
-                name: 'settings.aiPage.keys.openAICompatTitle'.tr(),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push(
-                  OpenAICompatSettingMobilePage.routeName,
-                  extra: workspaceId,
-                ),
+              // MCP配置
+              MobileSettingGroup(
+                groupTitle: "MCP 配置", // TODO: 使用翻译
+                settingItemList: [
+                  MobileSettingItem(
+                    name: "Model Context Protocol",
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => MobileMCPSettingsPage(
+                          userProfile: userProfile,
+                          workspaceId: workspaceId,
+                          currentWorkspaceMemberRole: currentWorkspaceMemberRole,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              // enable AI search if needed
-              // MobileSettingItem(
-              //   name: LocaleKeys.settings_aiPage_keys_enableAISearchTitle.tr(),
-              //   trailing: const Icon(
-              //     Icons.chevron_right,
-              //   ),
-              //   onTap: () => context.push(AppFlowyCloudPage.routeName),
-              // ),
+              // 智能体配置
+              MobileSettingGroup(
+                groupTitle: "智能体", // TODO: 使用翻译
+                settingItemList: [
+                  MobileSettingItem(
+                    name: "AI 智能体助手",
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => MobileAgentSettingsPage(
+                          userProfile: userProfile,
+                          workspaceId: workspaceId,
+                          currentWorkspaceMemberRole: currentWorkspaceMemberRole,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ],
           );
         },

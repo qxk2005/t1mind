@@ -109,6 +109,25 @@ class SettingsMenu extends StatelessWidget {
               ),
               changeSelectedPage: changeSelectedPage,
             ),
+            SettingsMenuElement(
+              page: SettingsPage.mcp,
+              selectedPage: currentPage,
+              label: "MCP 配置", // TODO: 使用 LocaleKeys.settings_mcpPage_menuLabel.tr()
+              icon: const FlowySvg(
+                FlowySvgs.ai_summary_generate_s,
+              ),
+              changeSelectedPage: changeSelectedPage,
+            ),
+            SettingsMenuElement(
+              page: SettingsPage.agent,
+              selectedPage: currentPage,
+              label: "智能体", // TODO: 使用 LocaleKeys.settings_agentPage_menuLabel.tr()
+              icon: const Icon(
+                Icons.smart_toy_outlined,
+                size: 20,
+              ),
+              changeSelectedPage: changeSelectedPage,
+            ),
             if (userProfile.workspaceType == WorkspaceTypePB.ServerW &&
                 currentUserRole != null &&
                 currentUserRole != AFRolePB.Guest)

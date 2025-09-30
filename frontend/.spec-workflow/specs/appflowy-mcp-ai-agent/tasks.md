@@ -172,7 +172,7 @@
 ## 阶段4：跨平台设置集成
 
 ### M4.1：设置界面集成
-- [ ] 18. 集成到服务器端设置
+- [x] 18. 集成到服务器端设置
   - 文件: appflowy_flutter/lib/workspace/presentation/settings/pages/setting_ai_view/settings_ai_view.dart
   - 添加MCP和智能体配置选项
   - 确保与现有AI设置的协调
@@ -181,7 +181,7 @@
   - _Requirements: 需求8_
   - _Prompt: Implement the task for spec appflowy-mcp-ai-agent, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Flutter设置界面专家，专精设置页面集成和布局设计 | Task: 将MCP和智能体配置集成到服务器端设置页面，确保与现有AI设置协调，遵循需求8的规范 | Restrictions: 不能破坏现有设置结构，确保设置项逻辑清晰，维持界面一致性 | _Leverage: 现有AI设置页面, appflowy_flutter/lib/workspace/presentation/settings/ | _Requirements: 需求8 | Success: 设置集成无缝，功能完整可用，界面布局合理 | Instructions: 首先将任务状态标记为进行中[-]，完成后标记为已完成[x]_
 
-- [ ] 19. 适配移动端设置界面
+- [x] 19. 适配移动端设置界面
   - 文件: appflowy_flutter/lib/mobile/presentation/setting/ai/ai_settings_group.dart
   - 适配MCP和智能体配置到移动端
   - 优化触摸操作和界面布局
@@ -190,7 +190,7 @@
   - _Requirements: 需求8_
   - _Prompt: Implement the task for spec appflowy-mcp-ai-agent, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Flutter移动端UI专家，专精触摸界面和响应式设计 | Task: 将MCP和智能体配置适配到移动端设置，优化触摸操作和布局，遵循需求8的规范 | Restrictions: 必须适配小屏幕，确保触摸友好，保持功能完整性 | _Leverage: 现有移动端设置模式, appflowy_flutter/lib/mobile/presentation/setting/ | _Requirements: 需求8 | Success: 移动端设置功能完整，操作体验良好，界面适配正确 | Instructions: 首先将任务状态标记为进行中[-]，完成后标记为已完成[x]_
 
-- [ ] 20. 实现工作空间级别设置
+- [x] 20. 实现工作空间级别设置
   - 文件: appflowy_flutter/lib/workspace/presentation/settings/workspace/workspace_settings_page.dart
   - 添加工作空间级别的MCP和智能体配置
   - 实现配置作用域管理
