@@ -9,6 +9,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'application/chat_bloc.dart';
 import 'application/chat_member_bloc.dart';
+import 'application/agent_settings_bloc.dart';
 
 class AIChatPage extends StatelessWidget {
   const AIChatPage({
@@ -45,6 +46,9 @@ class AIChatPage extends StatelessWidget {
           ),
         ),
         BlocProvider(create: (_) => ChatMemberBloc()),
+        
+        /// [AgentSettingsBloc] is used to handle agent configuration and selection
+        BlocProvider(create: (_) => AgentSettingsBloc()),
       ],
       child: Builder(
         builder: (context) {

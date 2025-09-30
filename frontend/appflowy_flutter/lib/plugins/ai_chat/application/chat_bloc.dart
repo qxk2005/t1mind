@@ -18,6 +18,7 @@ import 'chat_entity.dart';
 import 'chat_message_handler.dart';
 import 'chat_message_listener.dart';
 import 'chat_message_stream.dart';
+import 'reasoning_manager.dart';
 import 'chat_settings_manager.dart';
 import 'chat_stream_manager.dart';
 
@@ -216,6 +217,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     emit(state.copyWith(clearErrorMessages: !state.clearErrorMessages));
 
     _messageHandler.clearRelatedQuestions();
+    
+    // 清理之前的推理状态，为新的对话做准备
+    final reasoningManager = ReasoningManager();
+    reasoningManager.clearReasoning(chatId);
+    Log.debug("🧹 [CLEANUP] Cleared reasoning state for new message");
+    
     _startStreamingMessage(message, format, metadata, promptId);
     lastSentMessage = null;
 

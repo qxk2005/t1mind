@@ -151,7 +151,7 @@
   - _Prompt: Implement the task for spec appflowy-mcp-ai-agent, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Flutter状态管理架构师，专精复杂状态管理和数据流 | Task: 实现智能体管理BLoC，处理配置状态和操作，集成后端事件，遵循需求2的规范 | Restrictions: 必须确保状态一致性，支持配置验证，处理并发操作 | _Leverage: 现有BLoC模式, 事件处理机制 | _Requirements: 需求2 | Success: 状态管理稳定，配置操作正确，事件集成无误 | Instructions: 首先将任务状态标记为进行中[-]，完成后标记为已完成[x]_
 
 ### M3.3：智能体聊天界面增强
-- [ ] 16. 扩展聊天界面支持智能体
+- [x] 16. 扩展聊天界面支持智能体
   - 文件: appflowy_flutter/lib/plugins/ai_chat/chat_page.dart
   - 添加智能体选择和状态显示
   - 集成执行过程可视化

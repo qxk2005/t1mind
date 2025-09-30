@@ -192,6 +192,17 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
         onData: (text) => _safeAdd(ChatAIMessageEvent.updateText(text)),
         onError: (error) =>
             _safeAdd(ChatAIMessageEvent.receiveError(error.toString())),
+        onEnd: () {
+          // 流结束时，确保推理过程被标记为完成
+          Log.debug("🎯 [STREAM] Stream ended, marking reasoning as complete");
+          _reasoningManager.setReasoningComplete(chatId, true);
+          
+          // 获取最终的推理文本并更新状态
+          final finalReasoningText = _reasoningManager.getReasoningText(chatId);
+          if (finalReasoningText != null && finalReasoningText.isNotEmpty) {
+            _safeAdd(ChatAIMessageEvent.initializeReasoning(finalReasoningText, true));
+          }
+        },
         onAIResponseLimit: () =>
             _safeAdd(const ChatAIMessageEvent.onAIResponseLimit()),
         onAIImageResponseLimit: () =>

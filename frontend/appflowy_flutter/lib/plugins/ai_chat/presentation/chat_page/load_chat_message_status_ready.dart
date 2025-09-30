@@ -1,17 +1,21 @@
+import 'package:appflowy/plugins/ai_chat/application/agent_settings_bloc.dart';
+import 'package:appflowy/plugins/ai_chat/presentation/agent_selector.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/chat_message_selector_banner.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/chat_page/chat_animation_list_widget.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/chat_page/chat_footer.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/chat_page/chat_message_widget.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/chat_page/text_message_widget.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/scroll_to_bottom.dart';
+import 'package:appflowy_backend/protobuf/flowy-ai/entities.pb.dart';
 import 'package:appflowy_backend/protobuf/flowy-folder/view.pb.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/protobuf.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:flutter_chat_ui/flutter_chat_ui.dart' hide ChatMessage;
 import 'package:universal_platform/universal_platform.dart';
 
-class LoadChatMessageStatusReady extends StatelessWidget {
+class LoadChatMessageStatusReady extends StatefulWidget {
   const LoadChatMessageStatusReady({
     super.key,
     required this.view,
@@ -22,6 +26,16 @@ class LoadChatMessageStatusReady extends StatelessWidget {
   final ViewPB view;
   final UserProfilePB userProfile;
   final ChatController chatController;
+
+  @override
+  State<LoadChatMessageStatusReady> createState() => _LoadChatMessageStatusReadyState();
+}
+
+class _LoadChatMessageStatusReadyState extends State<LoadChatMessageStatusReady> {
+  AgentConfigPB? selectedAgent;
+  bool isAgentExecuting = false;
+  String? currentAgentTask;
+  double? executionProgress;
 
   @override
   Widget build(BuildContext context) {
@@ -38,9 +52,53 @@ class LoadChatMessageStatusReady extends StatelessWidget {
   }
 
   Widget _buildHeader(BuildContext context) {
-    return ChatMessageSelectorBanner(
-      view: view,
-      allMessages: chatController.messages,
+    return Column(
+      children: [
+        // 原有的消息选择横幅
+        ChatMessageSelectorBanner(
+          view: widget.view,
+          allMessages: widget.chatController.messages,
+        ),
+        
+        // 智能体选择器和执行状态
+        _wrapConstraints(
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              children: [
+                // 智能体选择器
+                Row(
+                  children: [
+                    Expanded(
+                      child: AgentSelector(
+                        selectedAgent: selectedAgent,
+                        onAgentSelected: (agent) {
+                          setState(() {
+                            selectedAgent = agent;
+                          });
+                          // TODO: 通知聊天BLoC智能体已更改
+                        },
+                        showStatus: true,
+                        compact: UniversalPlatform.isMobile,
+                      ),
+                    ),
+                  ],
+                ),
+                
+                // 智能体执行状态
+                if (selectedAgent != null)
+                  AgentExecutionStatus(
+                    agent: selectedAgent!,
+                    isExecuting: isAgentExecuting,
+                    currentTask: currentAgentTask,
+                    progress: executionProgress,
+                    compact: UniversalPlatform.isMobile,
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -56,8 +114,8 @@ class LoadChatMessageStatusReady extends StatelessWidget {
                 scrollbars: false,
               ),
               child: Chat(
-                chatController: chatController,
-                user: User(id: userProfile.id.toString()),
+                chatController: widget.chatController,
+                user: User(id: widget.userProfile.id.toString()),
                 darkTheme: ChatTheme.fromThemeData(Theme.of(context)),
                 theme: ChatTheme.fromThemeData(Theme.of(context)),
                 builders: Builders(
@@ -69,8 +127,8 @@ class LoadChatMessageStatusReady extends StatelessWidget {
                   ) =>
                       TextMessageWidget(
                     message: message,
-                    userProfile: userProfile,
-                    view: view,
+                    userProfile: widget.userProfile,
+                    view: widget.view,
                     enableAnimation: enableAnimation,
                   ),
                   chatMessageBuilder: (
@@ -99,7 +157,7 @@ class LoadChatMessageStatusReady extends StatelessWidget {
                     itemBuilder,
                   ) =>
                       ChatAnimationListWidget(
-                    userProfile: userProfile,
+                    userProfile: widget.userProfile,
                     scrollController: scrollController,
                     itemBuilder: itemBuilder,
                     enableReversedList: !enableAnimation,
@@ -115,7 +173,17 @@ class LoadChatMessageStatusReady extends StatelessWidget {
 
   Widget _buildFooter(BuildContext context) {
     return _wrapConstraints(
-      ChatFooter(view: view),
+      ChatFooter(
+        view: widget.view,
+        selectedAgent: selectedAgent,
+        onAgentExecutionChanged: (isExecuting, task, progress) {
+          setState(() {
+            isAgentExecuting = isExecuting;
+            currentAgentTask = task;
+            executionProgress = progress;
+          });
+        },
+      ),
     );
   }
 
