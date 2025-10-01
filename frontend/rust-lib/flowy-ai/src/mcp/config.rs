@@ -102,7 +102,39 @@ impl MCPConfigManager {
     /// 获取单个MCP服务器配置
     pub fn get_server(&self, server_id: &str) -> Option<MCPServerConfig> {
         let key = self.server_config_key(server_id);
-        self.store_preferences.get_object::<MCPServerConfig>(&key)
+        let config = self.store_preferences.get_object::<MCPServerConfig>(&key);
+        
+        if let Some(ref cfg) = config {
+            debug!("Loaded server config: {} (id: {})", cfg.name, cfg.id);
+            
+            // 调试：打印加载的配置 JSON
+            if let Ok(json_str) = serde_json::to_string_pretty(cfg) {
+                debug!("Loaded server config JSON:\n{}", json_str);
+            }
+            
+            if let Some(ref tools) = cfg.cached_tools {
+                info!("✅ Server {} has {} cached tools", cfg.name, tools.len());
+                for (i, tool) in tools.iter().take(3).enumerate() {
+                    debug!("  Tool {}: {}", i + 1, tool.name);
+                }
+                if tools.len() > 3 {
+                    debug!("  ... and {} more tools", tools.len() - 3);
+                }
+            } else {
+                warn!("⚠️  Server {} has no cached tools", cfg.name);
+            }
+            if let Some(check_time) = cfg.last_tools_check_at {
+                if let Ok(duration) = check_time.duration_since(std::time::UNIX_EPOCH) {
+                    info!("✅ Server {} last check time: {} seconds since epoch", cfg.name, duration.as_secs());
+                }
+            } else {
+                warn!("⚠️  Server {} has no last check time", cfg.name);
+            }
+        } else {
+            warn!("❌ Failed to load server config for ID: {}", server_id);
+        }
+        
+        config
     }
 
     /// 保存MCP服务器配置
@@ -112,6 +144,11 @@ impl MCPConfigManager {
         
         // 更新时间戳
         config.updated_at = SystemTime::now();
+        
+        // 调试：序列化配置并打印
+        if let Ok(json_str) = serde_json::to_string_pretty(&config) {
+            debug!("Saving server config JSON:\n{}", json_str);
+        }
         
         // 保存服务器配置
         let key = self.server_config_key(&config.id);
@@ -157,6 +194,8 @@ impl MCPConfigManager {
     
     /// 保存MCP服务器的工具缓存
     pub fn save_tools_cache(&self, server_id: &str, tools: Vec<crate::mcp::entities::MCPTool>) -> FlowyResult<()> {
+        info!("Saving {} tools to cache for server: {}", tools.len(), server_id);
+        
         let mut config = self.get_server(server_id)
             .ok_or_else(|| FlowyError::record_not_found().with_context("MCP服务器配置不存在"))?;
         
@@ -164,8 +203,9 @@ impl MCPConfigManager {
         config.last_tools_check_at = Some(SystemTime::now());
         config.updated_at = SystemTime::now();
         
+        info!("Saving server config with {} cached tools", tools.len());
         self.save_server(config)?;
-        info!("MCP server {} tools cache updated with {} tools", server_id, tools.len());
+        info!("✅ MCP server {} tools cache successfully saved with {} tools", server_id, tools.len());
         Ok(())
     }
     

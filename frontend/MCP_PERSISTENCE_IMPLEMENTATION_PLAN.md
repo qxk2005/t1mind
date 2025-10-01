@@ -279,3 +279,4 @@ Map<String, dynamic> _serverConfigToMap(MCPServerConfigPB config) {
 ✅ 符合AppFlowy架构标准
 
 
+

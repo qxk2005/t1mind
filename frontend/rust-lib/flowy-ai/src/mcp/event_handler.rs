@@ -61,6 +61,7 @@ pub(crate) async fn get_mcp_server_list_handler(
     
     // 转换缓存的工具列表
     let cached_tools = config.cached_tools.map(|tools| {
+      info!("Found {} cached tools for server: {}", tools.len(), config.name);
       let pb_tools = tools.into_iter().map(|tool| {
         MCPToolPB {
           name: tool.name,
@@ -79,10 +80,23 @@ pub(crate) async fn get_mcp_server_list_handler(
       MCPToolListPB { tools: pb_tools }
     });
     
+    if cached_tools.is_none() {
+      debug!("No cached tools found for server: {}", config.name);
+    }
+    
     // 转换最后检查时间为时间戳
     let last_tools_check_at = config.last_tools_check_at.and_then(|time| {
-      time.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs() as i64)
+      let timestamp = time.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs() as i64);
+      if let Some(ts) = timestamp {
+        info!("Found last check time for server {}: {} (timestamp: {})", config.name, 
+          time.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs()).unwrap_or(0), ts);
+      }
+      timestamp
     });
+    
+    if last_tools_check_at.is_none() {
+      debug!("No last check time found for server: {}", config.name);
+    }
     
     MCPServerConfigPB {
       id: config.id,

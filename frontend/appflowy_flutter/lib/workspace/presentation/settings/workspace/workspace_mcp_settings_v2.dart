@@ -199,6 +199,24 @@ class _WorkspaceMCPServerListV2 extends StatelessWidget {
           final cachedTools = server.hasCachedTools() ? server.cachedTools.tools : <MCPToolPB>[];
           final tools = realTimeTools ?? cachedTools;
           final loadingTools = state.loadingTools.contains(server.id);
+          
+          // 🔍 调试日志
+          print('🔍 [UI Debug] Server: ${server.name} (id: ${server.id})');
+          print('  hasCachedTools: ${server.hasCachedTools()}');
+          if (server.hasCachedTools()) {
+            print('  cachedTools.tools.length: ${server.cachedTools.tools.length}');
+            for (var i = 0; i < server.cachedTools.tools.length && i < 3; i++) {
+              print('    - Tool ${i + 1}: ${server.cachedTools.tools[i].name}');
+            }
+          }
+          print('  hasLastToolsCheckAt: ${server.hasLastToolsCheckAt()}');
+          if (server.hasLastToolsCheckAt()) {
+            print('  lastToolsCheckAt: ${server.lastToolsCheckAt}');
+          }
+          print('  realTimeTools: ${realTimeTools?.length ?? 0}');
+          print('  cachedTools: ${cachedTools.length}');
+          print('  final tools: ${tools.length}');
+          print('  isConnected: ${state.serverStatuses[server.id]?.isConnected ?? false}');
 
           return _ServerCard(
             server: server,
@@ -207,6 +225,9 @@ class _WorkspaceMCPServerListV2 extends StatelessWidget {
             loadingTools: loadingTools,
             onDelete: () {
               _showDeleteConfirmation(context, server);
+            },
+            onEdit: () {
+              _showEditServerDialog(context, server);
             },
             onConnect: () {
               context.read<MCPSettingsBloc>().add(
@@ -307,6 +328,34 @@ class _WorkspaceMCPServerListV2 extends StatelessWidget {
     );
   }
 
+  void _showEditServerDialog(BuildContext context, MCPServerConfigPB server) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) => Center(
+        child: Container(
+          width: 700,
+          height: 600,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: BlocProvider.value(
+            value: context.read<MCPSettingsBloc>(),
+            child: _AddMCPServerDialog(existingServer: server),
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showToolListDialog(
       BuildContext context, String serverName, List<MCPToolPB> tools) {
     showDialog(
@@ -348,9 +397,11 @@ class _WorkspaceMCPServerListV2 extends StatelessWidget {
   }
 }
 
-/// 添加MCP服务器对话框
+/// 添加/编辑MCP服务器对话框
 class _AddMCPServerDialog extends StatefulWidget {
-  const _AddMCPServerDialog();
+  const _AddMCPServerDialog({this.existingServer});
+
+  final MCPServerConfigPB? existingServer;
 
   @override
   State<_AddMCPServerDialog> createState() => _AddMCPServerDialogState();
@@ -370,6 +421,45 @@ class _AddMCPServerDialogState extends State<_AddMCPServerDialog> {
   String? _testResult;
 
   @override
+  void initState() {
+    super.initState();
+    
+    // 如果是编辑模式，预填充数据
+    if (widget.existingServer != null) {
+      final server = widget.existingServer!;
+      _nameController.text = server.name;
+      _descriptionController.text = server.description;
+      _transportType = _transportTypeToString(server.transportType);
+      
+      if (server.hasStdioConfig()) {
+        _commandController.text = server.stdioConfig.command;
+        _arguments = server.stdioConfig.args.map((arg) => {'value': arg}).toList();
+        _environmentVariables = server.stdioConfig.envVars.entries
+            .map((e) => {'key': e.key, 'value': e.value})
+            .toList();
+      } else if (server.hasHttpConfig()) {
+        _urlController.text = server.httpConfig.url;
+        _httpHeaders = server.httpConfig.headers.entries
+            .map((e) => {'key': e.key, 'value': e.value})
+            .toList();
+      }
+    }
+  }
+
+  String _transportTypeToString(MCPTransportTypePB type) {
+    switch (type) {
+      case MCPTransportTypePB.Stdio:
+        return 'STDIO';
+      case MCPTransportTypePB.SSE:
+        return 'SSE';
+      case MCPTransportTypePB.HTTP:
+        return 'HTTP';
+      default:
+        return 'STDIO';
+    }
+  }
+
+  @override
   void dispose() {
     _nameController.dispose();
     _urlController.dispose();
@@ -379,8 +469,8 @@ class _AddMCPServerDialogState extends State<_AddMCPServerDialog> {
   }
 
   MCPServerConfigPB _buildServerConfig() {
-    // 生成唯一ID
-    final id = 'mcp_${DateTime.now().millisecondsSinceEpoch}';
+    // 如果是编辑模式，使用现有ID，否则生成新ID
+    final id = widget.existingServer?.id ?? 'mcp_${DateTime.now().millisecondsSinceEpoch}';
 
     final config = MCPServerConfigPB()
       ..id = id
@@ -454,10 +544,16 @@ class _AddMCPServerDialogState extends State<_AddMCPServerDialog> {
       return;
     }
 
-    // 发送添加事件
-    context.read<MCPSettingsBloc>().add(
-          MCPSettingsEvent.addServer(config),
-        );
+    // 根据是否为编辑模式发送不同的事件
+    if (widget.existingServer != null) {
+      context.read<MCPSettingsBloc>().add(
+            MCPSettingsEvent.updateServer(config),
+          );
+    } else {
+      context.read<MCPSettingsBloc>().add(
+            MCPSettingsEvent.addServer(config),
+          );
+    }
 
     Navigator.of(context).pop();
   }
@@ -480,7 +576,10 @@ class _AddMCPServerDialogState extends State<_AddMCPServerDialog> {
             ),
             child: Row(
               children: [
-                FlowyText.medium("添加MCP服务器", fontSize: 18),
+                FlowyText.medium(
+                  widget.existingServer != null ? "编辑MCP服务器" : "添加MCP服务器", 
+                  fontSize: 18,
+                ),
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.close),
@@ -1030,6 +1129,7 @@ class _ServerCard extends StatelessWidget {
     required this.tools,
     required this.loadingTools,
     required this.onDelete,
+    required this.onEdit,
     required this.onConnect,
     required this.onDisconnect,
     required this.onViewTools,
@@ -1041,6 +1141,7 @@ class _ServerCard extends StatelessWidget {
   final List<MCPToolPB> tools;
   final bool loadingTools;
   final VoidCallback onDelete;
+  final VoidCallback onEdit;
   final VoidCallback onConnect;
   final VoidCallback onDisconnect;
   final VoidCallback onViewTools;
@@ -1070,13 +1171,14 @@ class _ServerCard extends StatelessWidget {
                       child: FlowyText.medium(server.name, fontSize: 16),
                     ),
                     const SizedBox(width: 8),
-                    // 工具数量徽章
-                    if (isConnected && tools.isNotEmpty) ...[
+                    // 工具数量徽章 - 只要有工具就显示
+                    if (tools.isNotEmpty) ...[
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: Colors.blue,
+                          // 根据连接状态显示不同颜色：已连接=蓝色，未连接=灰色
+                          color: isConnected ? Colors.blue : Colors.grey,
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Row(
@@ -1121,8 +1223,8 @@ class _ServerCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              // 查看工具按钮
-              if (isConnected && tools.isNotEmpty)
+              // 查看工具按钮 - 只要有工具就显示
+              if (tools.isNotEmpty)
                 IconButton(
                   icon: const Icon(Icons.list_alt, size: 20),
                   onPressed: onViewTools,
@@ -1145,10 +1247,20 @@ class _ServerCard extends StatelessWidget {
                 const Icon(Icons.check_circle, color: Colors.green, size: 20)
               else
                 const Icon(Icons.circle, color: Colors.grey, size: 20),
+              const SizedBox(width: 4),
+              IconButton(
+                icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
+                onPressed: onEdit,
+                tooltip: "编辑服务器",
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
               IconButton(
                 icon: const Icon(Icons.delete, color: Colors.red, size: 20),
                 onPressed: onDelete,
                 tooltip: "删除服务器",
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
               ),
             ],
           ),
@@ -1174,8 +1286,8 @@ class _ServerCard extends StatelessWidget {
               fontSize: 12,
             ),
           ],
-          // 工具标签展示
-          if (isConnected && tools.isNotEmpty) ...[
+          // 工具标签展示 - 只要有工具就显示，不管是否连接
+          if (tools.isNotEmpty) ...[
             const SizedBox(height: 12),
             _buildToolTags(context, tools),
           ],
