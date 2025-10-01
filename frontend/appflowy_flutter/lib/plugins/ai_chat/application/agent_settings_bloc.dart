@@ -68,22 +68,29 @@ class AgentSettingsBloc extends Bloc<AgentSettingsEvent, AgentSettingsState> {
           Log.info('智能体创建成功: ${agent.name}');
           // 重新加载智能体列表
           await _loadAgentList();
-          emit(state.copyWith(isOperating: false));
+          // 检查emit是否已完成，避免在event handler完成后调用emit
+          if (!emit.isDone) {
+            emit(state.copyWith(isOperating: false));
+          }
         },
         (error) {
           Log.error('创建智能体失败: $error');
-          emit(state.copyWith(
-            isOperating: false,
-            error: '创建智能体失败: ${error.msg}',
-          ));
+          if (!emit.isDone) {
+            emit(state.copyWith(
+              isOperating: false,
+              error: '创建智能体失败: ${error.msg}',
+            ));
+          }
         },
       );
     } catch (e) {
       Log.error('创建智能体异常: $e');
-      emit(state.copyWith(
-        isOperating: false,
-        error: '创建智能体异常: $e',
-      ));
+      if (!emit.isDone) {
+        emit(state.copyWith(
+          isOperating: false,
+          error: '创建智能体异常: $e',
+        ));
+      }
     }
   }
 
@@ -111,22 +118,29 @@ class AgentSettingsBloc extends Bloc<AgentSettingsEvent, AgentSettingsState> {
           Log.info('智能体更新成功: ${agent.name}');
           // 重新加载智能体列表
           await _loadAgentList();
-          emit(state.copyWith(isOperating: false));
+          // 检查emit是否已完成，避免在event handler完成后调用emit
+          if (!emit.isDone) {
+            emit(state.copyWith(isOperating: false));
+          }
         },
         (error) {
           Log.error('更新智能体失败: $error');
-          emit(state.copyWith(
-            isOperating: false,
-            error: '更新智能体失败: ${error.msg}',
-          ));
+          if (!emit.isDone) {
+            emit(state.copyWith(
+              isOperating: false,
+              error: '更新智能体失败: ${error.msg}',
+            ));
+          }
         },
       );
     } catch (e) {
       Log.error('更新智能体异常: $e');
-      emit(state.copyWith(
-        isOperating: false,
-        error: '更新智能体异常: $e',
-      ));
+      if (!emit.isDone) {
+        emit(state.copyWith(
+          isOperating: false,
+          error: '更新智能体异常: $e',
+        ));
+      }
     }
   }
 
@@ -145,22 +159,29 @@ class AgentSettingsBloc extends Bloc<AgentSettingsEvent, AgentSettingsState> {
           Log.info('智能体删除成功: $agentId');
           // 重新加载智能体列表
           await _loadAgentList();
-          emit(state.copyWith(isOperating: false));
+          // 检查emit是否已完成，避免在event handler完成后调用emit
+          if (!emit.isDone) {
+            emit(state.copyWith(isOperating: false));
+          }
         },
         (error) {
           Log.error('删除智能体失败: $error');
-          emit(state.copyWith(
-            isOperating: false,
-            error: '删除智能体失败: ${error.msg}',
-          ));
+          if (!emit.isDone) {
+            emit(state.copyWith(
+              isOperating: false,
+              error: '删除智能体失败: ${error.msg}',
+            ));
+          }
         },
       );
     } catch (e) {
       Log.error('删除智能体异常: $e');
-      emit(state.copyWith(
-        isOperating: false,
-        error: '删除智能体异常: $e',
-      ));
+      if (!emit.isDone) {
+        emit(state.copyWith(
+          isOperating: false,
+          error: '删除智能体异常: $e',
+        ));
+      }
     }
   }
 
@@ -250,11 +271,21 @@ class AgentSettingsBloc extends Bloc<AgentSettingsEvent, AgentSettingsState> {
     Emitter<AgentSettingsState> emit,
   ) {
     Log.info('接收到智能体列表，数量: ${agents.agents.length}');
+    
+    // 调试：打印每个智能体的信息
+    for (var i = 0; i < agents.agents.length; i++) {
+      final agent = agents.agents[i];
+      Log.info('  智能体 ${i + 1}: ${agent.name} (${agent.id})');
+    }
+    
     emit(state.copyWith(
       agents: agents.agents,
       isLoading: false,
       error: null,
     ));
+    
+    // 调试：确认state已更新
+    Log.info('State更新后agents数量: ${state.agents.length}');
   }
 
   /// 处理接收到智能体事件

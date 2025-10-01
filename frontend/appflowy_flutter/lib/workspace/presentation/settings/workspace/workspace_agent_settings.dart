@@ -1,12 +1,14 @@
 import 'package:appflowy/generated/flowy_svgs.g.dart';
+import 'package:appflowy/plugins/ai_chat/application/agent_settings_bloc.dart';
 import 'package:appflowy/shared/af_role_pb_extension.dart';
 import 'package:appflowy/workspace/presentation/settings/shared/settings_category.dart';
-import 'package:appflowy/workspace/presentation/settings/shared/settings_category_spacer.dart';
-import 'package:appflowy/workspace/presentation/settings/shared/single_setting_action.dart';
+import 'package:appflowy/workspace/presentation/settings/workspace/widgets/agent_dialog.dart';
+import 'package:appflowy_backend/protobuf/flowy-ai/entities.pb.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/protobuf.dart';
 import 'package:flowy_infra_ui/flowy_infra_ui.dart';
 import 'package:flowy_infra/theme_extension.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 /// 工作空间级别的智能体配置组件
 /// 支持配置作用域管理和权限控制
@@ -32,26 +34,18 @@ class WorkspaceAgentSettings extends StatelessWidget {
       return _buildNoPermissionView(context);
     }
 
-    return SettingsCategory(
-      title: "智能体配置",
-      description: "管理工作空间级别的智能体配置和权限",
-      children: [
-        _WorkspaceAgentList(
-          workspaceId: workspaceId,
-          userRole: currentWorkspaceMemberRole!,
-        ),
-        const SettingsCategorySpacer(),
-        if (currentWorkspaceMemberRole?.isOwner == true) ...[
-          _WorkspaceAgentPermissionSettings(
+    return BlocProvider(
+      create: (_) => AgentSettingsBloc()..add(const AgentSettingsEvent.started()),
+      child: SettingsCategory(
+        title: "智能体配置",
+        description: "管理工作空间级别的智能体配置和权限",
+        children: [
+          _WorkspaceAgentList(
             workspaceId: workspaceId,
+            userRole: currentWorkspaceMemberRole!,
           ),
-          const SettingsCategorySpacer(),
         ],
-        _WorkspaceAgentActions(
-          workspaceId: workspaceId,
-          userRole: currentWorkspaceMemberRole!,
-        ),
-      ],
+      ),
     );
   }
 
@@ -99,8 +93,69 @@ class _WorkspaceAgentList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 模拟空状态，因为我们还没有实际的数据
-    return _buildEmptyState(context);
+    return BlocConsumer<AgentSettingsBloc, AgentSettingsState>(
+      listener: (context, state) {
+        // 显示错误信息
+        if (state.error != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(state.error!),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      },
+      builder: (context, state) {
+        // 🔍 调试：打印UI层接收到的state
+        print('🎨 [UI] AgentList builder - isLoading: ${state.isLoading}, agents.length: ${state.agents.length}');
+        if (state.agents.isNotEmpty) {
+          for (var i = 0; i < state.agents.length; i++) {
+            print('  🎨 Agent ${i + 1}: ${state.agents[i].name}');
+          }
+        }
+        
+        if (state.isLoading && state.agents.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        if (state.agents.isEmpty) {
+          print('🎨 [UI] 显示空状态');
+          return _buildEmptyState(context);
+        }
+
+        print('🎨 [UI] 显示智能体列表');
+        return _buildAgentList(context, state.agents);
+      },
+    );
+  }
+
+  Widget _buildAgentList(BuildContext context, List<AgentConfigPB> agents) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            FlowyText.medium("我的智能体", fontSize: 16),
+            const Spacer(),
+            if (userRole.isOwner || userRole == AFRolePB.Member) ...[
+              _CreateWorkspaceAgentButton(workspaceId: workspaceId),
+            ],
+          ],
+        ),
+        const VSpace(16),
+        ...agents.map((agent) => _AgentCard(
+          agent: agent,
+          canEdit: userRole.isOwner || userRole == AFRolePB.Member,
+          onEdit: () => _showEditAgentDialog(context, agent),
+          onDelete: () => _showDeleteConfirmation(context, agent),
+        )),
+      ],
+    );
   }
 
   Widget _buildEmptyState(BuildContext context) {
@@ -138,6 +193,45 @@ class _WorkspaceAgentList extends StatelessWidget {
       ),
     );
   }
+
+  void _showEditAgentDialog(BuildContext context, AgentConfigPB agent) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => BlocProvider.value(
+        value: context.read<AgentSettingsBloc>(),
+        child: AgentDialog(existingAgent: agent),
+      ),
+    );
+  }
+
+  void _showDeleteConfirmation(BuildContext context, AgentConfigPB agent) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('确认删除'),
+        content: Text('确定要删除智能体 "${agent.name}" 吗？此操作无法撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              context.read<AgentSettingsBloc>().add(
+                AgentSettingsEvent.deleteAgent(agent.id),
+              );
+            },
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// 创建工作空间智能体按钮
@@ -150,174 +244,104 @@ class _CreateWorkspaceAgentButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FlowyButton(
-      text: FlowyText.regular(
-        "创建智能体",
-        fontSize: 14,
+    return ElevatedButton.icon(
+      onPressed: () => _showCreateAgentDialog(context),
+      icon: const Icon(Icons.add, size: 18),
+      label: const Text('添加智能体'),
+      style: ElevatedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       ),
-      leftIcon: const FlowySvg(FlowySvgs.add_s),
-      onTap: () => _showCreateAgentDialog(context),
     );
   }
 
   void _showCreateAgentDialog(BuildContext context) {
-    // TODO: 实现创建智能体对话框
+    showDialog(
+      context: context,
+      builder: (dialogContext) => BlocProvider.value(
+        value: context.read<AgentSettingsBloc>(),
+        child: const AgentDialog(),
+      ),
+    );
   }
 }
 
-/// 工作空间智能体权限设置
-class _WorkspaceAgentPermissionSettings extends StatelessWidget {
-  const _WorkspaceAgentPermissionSettings({
-    required this.workspaceId,
+/// 智能体卡片
+class _AgentCard extends StatelessWidget {
+  const _AgentCard({
+    required this.agent,
+    required this.canEdit,
+    required this.onEdit,
+    required this.onDelete,
   });
 
-  final String workspaceId;
+  final AgentConfigPB agent;
+  final bool canEdit;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        FlowyText.medium(
-          "权限设置",
-          fontSize: 16,
+    print('🃏 [UI] AgentCard building for: ${agent.name}');
+    print('🃏 [UI] AgentCard - agent.name: ${agent.name}, agent.description: ${agent.description}');
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
         ),
-        const VSpace(8),
-        FlowyText.regular(
-          "配置工作空间成员对智能体的访问权限",
-          fontSize: 14,
-          color: AFThemeExtension.of(context).secondaryTextColor,
-        ),
-        const VSpace(16),
-        _buildPermissionItem(
-          context,
-          "允许成员创建智能体",
-          "工作空间成员可以创建和配置智能体",
-          true, // TODO: 从配置中读取
-          (value) {
-            // TODO: 更新权限配置
-          },
-        ),
-        const VSpace(12),
-        _buildPermissionItem(
-          context,
-          "允许成员修改智能体",
-          "工作空间成员可以修改其他人创建的智能体",
-          false, // TODO: 从配置中读取
-          (value) {
-            // TODO: 更新权限配置
-          },
-        ),
-        const VSpace(12),
-        _buildPermissionItem(
-          context,
-          "允许访客使用",
-          "访客可以使用已配置的智能体",
-          false, // TODO: 从配置中读取
-          (value) {
-            // TODO: 更新权限配置
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPermissionItem(
-    BuildContext context,
-    String title,
-    String description,
-    bool value,
-    ValueChanged<bool> onChanged,
-  ) {
-    return Row(
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              FlowyText.regular(
-                title,
-                fontSize: 14,
-              ),
-              const VSpace(4),
-              FlowyText.regular(
-                description,
-                fontSize: 12,
-                color: AFThemeExtension.of(context).secondaryTextColor,
-              ),
-            ],
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          // Avatar
+          if (agent.avatar.isNotEmpty)
+            Text(agent.avatar, style: const TextStyle(fontSize: 24))
+          else
+            const FlowySvg(
+              FlowySvgs.ai_summary_generate_s,
+              size: Size.square(24),
+            ),
+          const HSpace(12),
+          // Name and description
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                FlowyText.medium(agent.name, fontSize: 16),
+                if (agent.description.isNotEmpty) ...[
+                  const VSpace(4),
+                  FlowyText.regular(
+                    agent.description,
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.outline,
+                    maxLines: 2,
+                  ),
+                ],
+              ],
+            ),
           ),
-        ),
-        const HSpace(16),
-        Switch(
-          value: value,
-          onChanged: onChanged,
-        ),
-      ],
+          // Action buttons
+          if (canEdit) ...[
+            IconButton(
+              icon: const Icon(Icons.edit, size: 20, color: Colors.blue),
+              onPressed: onEdit,
+              tooltip: "编辑智能体",
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.delete, size: 20, color: Colors.red),
+              onPressed: onDelete,
+              tooltip: "删除智能体",
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+            ),
+          ],
+        ],
+      ),
     );
-  }
-}
-
-/// 工作空间智能体操作
-class _WorkspaceAgentActions extends StatelessWidget {
-  const _WorkspaceAgentActions({
-    required this.workspaceId,
-    required this.userRole,
-  });
-
-  final String workspaceId;
-  final AFRolePB userRole;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!userRole.isOwner) {
-      return const SizedBox.shrink();
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        FlowyText.medium(
-          "操作",
-          fontSize: 16,
-        ),
-        const VSpace(16),
-        SingleSettingAction(
-          label: "导出智能体",
-          fontSize: 14,
-          onPressed: () => _exportAgents(context),
-          buttonType: SingleSettingsButtonType.primary,
-          buttonLabel: "导出",
-        ),
-        const VSpace(8),
-        SingleSettingAction(
-          label: "导入智能体",
-          fontSize: 14,
-          onPressed: () => _importAgents(context),
-          buttonType: SingleSettingsButtonType.primary,
-          buttonLabel: "导入",
-        ),
-        const VSpace(8),
-        SingleSettingAction(
-          label: "重置智能体",
-          fontSize: 14,
-          onPressed: () => _resetAgents(context),
-          buttonType: SingleSettingsButtonType.danger,
-          buttonLabel: "重置",
-        ),
-      ],
-    );
-  }
-
-  void _exportAgents(BuildContext context) {
-    // TODO: 实现智能体导出
-  }
-
-  void _importAgents(BuildContext context) {
-    // TODO: 实现智能体导入
-  }
-
-  void _resetAgents(BuildContext context) {
-    // TODO: 实现智能体重置
   }
 }
