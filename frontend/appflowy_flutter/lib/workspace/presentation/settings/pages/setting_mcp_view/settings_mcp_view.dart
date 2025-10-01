@@ -1,5 +1,5 @@
 import 'package:appflowy/workspace/presentation/settings/shared/settings_body.dart';
-import 'package:appflowy/workspace/presentation/settings/workspace/workspace_mcp_settings.dart';
+import 'package:appflowy/workspace/presentation/settings/workspace/workspace_mcp_settings_v2.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/protobuf.dart';
 import 'package:flutter/material.dart';
 
@@ -22,7 +22,7 @@ class SettingsMCPView extends StatelessWidget {
       title: "MCP 配置", // TODO: 使用 LocaleKeys.settings_mcpPage_title.tr()
       description: "配置和管理 Model Context Protocol 服务器", // TODO: 使用 LocaleKeys.settings_mcpPage_description.tr()
       children: [
-        WorkspaceMCPSettings(
+        WorkspaceMCPSettingsV2(
           userProfile: userProfile,
           workspaceId: workspaceId,
           currentWorkspaceMemberRole: currentWorkspaceMemberRole,
@@ -49,7 +49,7 @@ class LocalSettingsMCPView extends StatelessWidget {
       title: "MCP 配置", // TODO: 使用 LocaleKeys.settings_mcpPage_title.tr()
       description: "配置和管理 Model Context Protocol 服务器", // TODO: 使用 LocaleKeys.settings_mcpPage_description.tr()
       children: [
-        WorkspaceMCPSettings(
+        WorkspaceMCPSettingsV2(
           userProfile: userProfile,
           workspaceId: workspaceId,
           currentWorkspaceMemberRole: AFRolePB.Owner, // 本地工作空间默认Owner权限

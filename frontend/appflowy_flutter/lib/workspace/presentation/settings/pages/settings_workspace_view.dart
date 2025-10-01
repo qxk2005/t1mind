@@ -30,7 +30,7 @@ import 'package:appflowy/workspace/presentation/settings/shared/settings_input_f
 import 'package:appflowy/workspace/presentation/settings/shared/settings_radio_select.dart';
 import 'package:appflowy/workspace/presentation/settings/shared/single_setting_action.dart';
 import 'package:appflowy/workspace/presentation/settings/widgets/theme_upload/theme_upload_view.dart';
-import 'package:appflowy/workspace/presentation/settings/workspace/workspace_mcp_settings.dart';
+import 'package:appflowy/workspace/presentation/settings/workspace/workspace_mcp_settings_v2.dart';
 import 'package:appflowy/workspace/presentation/settings/workspace/workspace_agent_settings.dart';
 import 'package:appflowy/workspace/presentation/widgets/dialogs.dart';
 import 'package:appflowy/workspace/presentation/widgets/toggle/toggle.dart';
@@ -183,7 +183,7 @@ class SettingsWorkspaceView extends StatelessWidget {
               const SettingsCategorySpacer(),
 
               // MCP配置部分
-              WorkspaceMCPSettings(
+              WorkspaceMCPSettingsV2(
                 userProfile: userProfile,
                 workspaceId: state.workspace?.workspaceId ?? '',
                 currentWorkspaceMemberRole: currentWorkspaceMemberRole,

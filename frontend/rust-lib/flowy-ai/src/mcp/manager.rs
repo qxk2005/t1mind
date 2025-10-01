@@ -43,10 +43,14 @@ impl MCPClientManager {
         // 创建新客户端
         self.client_pool.create_client(config.clone()).await?;
         
-        // 发现工具
+        // 发现工具并保存到缓存
         match self.tool_discovery.discover_tools(&config.id).await {
             Ok(tools) => {
                 tracing::info!("Discovered {} tools for server: {}", tools.len(), config.name);
+                // 保存工具缓存到配置
+                if let Err(e) = self.config_manager.save_tools_cache(&config.id, tools) {
+                    tracing::warn!("Failed to save tools cache for server {}: {}", config.name, e);
+                }
             }
             Err(e) => {
                 tracing::warn!("Failed to discover tools for server {}: {}", config.name, e);

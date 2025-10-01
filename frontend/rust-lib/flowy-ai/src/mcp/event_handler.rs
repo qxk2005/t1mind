@@ -52,12 +52,37 @@ pub(crate) async fn get_mcp_server_list_handler(
     }
   };
   
-  // 转换配置为协议缓冲区格式，包含状态管理
+  // 转换配置为协议缓冲区格式，包含状态管理和工具缓存
   let servers = configs.into_iter().map(|config| {
     let server_id = config.id.clone();
     let is_connected = ai_manager.mcp_manager.is_server_connected(&server_id);
     
     debug!("Processing server config: {} (connected: {})", config.name, is_connected);
+    
+    // 转换缓存的工具列表
+    let cached_tools = config.cached_tools.map(|tools| {
+      let pb_tools = tools.into_iter().map(|tool| {
+        MCPToolPB {
+          name: tool.name,
+          description: tool.description,
+          input_schema: tool.input_schema.to_string(),
+          annotations: tool.annotations.map(|ann| MCPToolAnnotationsPB {
+            title: ann.title,
+            read_only_hint: ann.read_only_hint,
+            destructive_hint: ann.destructive_hint,
+            idempotent_hint: ann.idempotent_hint,
+            open_world_hint: ann.open_world_hint,
+          }),
+        }
+      }).collect();
+      
+      MCPToolListPB { tools: pb_tools }
+    });
+    
+    // 转换最后检查时间为时间戳
+    let last_tools_check_at = config.last_tools_check_at.and_then(|time| {
+      time.duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs() as i64)
+    });
     
     MCPServerConfigPB {
       id: config.id,
@@ -79,6 +104,8 @@ pub(crate) async fn get_mcp_server_list_handler(
         url: http.url,
         headers: http.headers,
       }),
+      cached_tools,
+      last_tools_check_at,
     }
   }).collect();
 
@@ -124,6 +151,8 @@ pub(crate) async fn add_mcp_server_handler(
       url: http.url,
       headers: http.headers,
     }),
+    cached_tools: None,  // 新服务器没有缓存
+    last_tools_check_at: None,  // 新服务器没有检查时间
   };
 
   // 保存配置，包含错误处理
@@ -167,8 +196,10 @@ pub(crate) async fn update_mcp_server_handler(
   
   info!("Updating MCP server: {} ({})", data.name, data.id);
   
-  // 转换为内部配置格式
+  // 转换为内部配置格式，保留原有的工具缓存
   let server_id = data.id.clone();
+  let old_config = ai_manager.mcp_manager.config_manager().get_server(&server_id);
+  
   let config = MCPServerConfig {
     id: server_id.clone(),
     name: data.name,
@@ -180,7 +211,7 @@ pub(crate) async fn update_mcp_server_handler(
     },
     is_active: data.is_active,
     description: data.description,
-    created_at: std::time::SystemTime::now(), // 这里应该保留原始创建时间，但为了简化先用当前时间
+    created_at: old_config.as_ref().map(|c| c.created_at).unwrap_or_else(|| std::time::SystemTime::now()),
     updated_at: std::time::SystemTime::now(),
     stdio_config: data.stdio_config.map(|stdio| MCPStdioConfig {
       command: stdio.command,
@@ -191,6 +222,9 @@ pub(crate) async fn update_mcp_server_handler(
       url: http.url,
       headers: http.headers,
     }),
+    // 保留原有的工具缓存
+    cached_tools: old_config.as_ref().and_then(|c| c.cached_tools.clone()),
+    last_tools_check_at: old_config.as_ref().and_then(|c| c.last_tools_check_at),
   };
 
   // 先断开现有连接，包含状态管理

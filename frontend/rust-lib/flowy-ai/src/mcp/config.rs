@@ -154,6 +154,26 @@ impl MCPConfigManager {
         info!("MCP server {} active status updated to: {}", server_id, is_active);
         Ok(())
     }
+    
+    /// 保存MCP服务器的工具缓存
+    pub fn save_tools_cache(&self, server_id: &str, tools: Vec<crate::mcp::entities::MCPTool>) -> FlowyResult<()> {
+        let mut config = self.get_server(server_id)
+            .ok_or_else(|| FlowyError::record_not_found().with_context("MCP服务器配置不存在"))?;
+        
+        config.cached_tools = Some(tools.clone());
+        config.last_tools_check_at = Some(SystemTime::now());
+        config.updated_at = SystemTime::now();
+        
+        self.save_server(config)?;
+        info!("MCP server {} tools cache updated with {} tools", server_id, tools.len());
+        Ok(())
+    }
+    
+    /// 获取MCP服务器的缓存工具
+    pub fn get_cached_tools(&self, server_id: &str) -> Option<(Vec<crate::mcp::entities::MCPTool>, SystemTime)> {
+        let config = self.get_server(server_id)?;
+        config.cached_tools.zip(config.last_tools_check_at)
+    }
 
     /// 获取激活的服务器列表
     pub fn get_active_servers(&self) -> Vec<MCPServerConfig> {

@@ -834,6 +834,12 @@ pub struct MCPServerConfigPB {
 
   #[pb(index = 8, one_of)]
   pub http_config: Option<MCPHttpConfigPB>,
+
+  #[pb(index = 9, one_of)]
+  pub cached_tools: Option<MCPToolListPB>,
+
+  #[pb(index = 10, one_of)]
+  pub last_tools_check_at: Option<i64>,  // Unix timestamp in seconds
 }
 
 /// MCP服务器列表响应

@@ -37,6 +37,12 @@ pub struct MCPServerConfig {
     pub updated_at: SystemTime,
     pub stdio_config: Option<MCPStdioConfig>,
     pub http_config: Option<MCPHttpConfig>,
+    /// 缓存的工具列表
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_tools: Option<Vec<MCPTool>>,
+    /// 最后检查工具的时间
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_tools_check_at: Option<SystemTime>,
 }
 
 /// STDIO传输配置
@@ -298,6 +304,8 @@ impl MCPServerConfig {
                 env_vars: HashMap::new(),
             }),
             http_config: None,
+            cached_tools: None,
+            last_tools_check_at: None,
         }
     }
 
@@ -321,6 +329,8 @@ impl MCPServerConfig {
                 url,
                 headers: HashMap::new(),
             }),
+            cached_tools: None,
+            last_tools_check_at: None,
         }
     }
 
