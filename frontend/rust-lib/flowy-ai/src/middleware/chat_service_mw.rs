@@ -15,7 +15,7 @@ use flowy_storage_pub::storage::StorageService;
 use serde_json::Value;
 use std::path::Path;
 use std::sync::{Arc, Weak};
-use tracing::{info, trace, warn};
+use tracing::{error, info, trace, warn};
 use uuid::Uuid;
 use flowy_sqlite::kv::KVStorePreferences;
 use futures_util::StreamExt;
@@ -67,13 +67,30 @@ impl ChatServiceMiddleware {
     Ok(content)
   }
 
-  /// 附加系统提示词到消息内容
-  fn apply_system_prompt(&self, content: String, system_prompt: Option<String>) -> String {
+  /// 构建包含系统提示词的消息数组
+  /// OpenAI API 标准格式：独立的 system 和 user 消息
+  fn build_messages_with_system_prompt(
+    &self,
+    content: String,
+    system_prompt: Option<String>,
+  ) -> Vec<serde_json::Value> {
+    let mut messages = Vec::new();
+    
+    // 如果有系统提示词，作为独立的系统消息添加
     if let Some(prompt) = system_prompt {
-      format!("System Instructions:\n{}\n\n---\n\nUser Message:\n{}", prompt, content)
-    } else {
-      content
+      messages.push(json!({
+        "role": "system",
+        "content": prompt
+      }));
     }
+    
+    // 用户消息
+    messages.push(json!({
+      "role": "user",
+      "content": content
+    }));
+    
+    messages
   }
 
   /// 带系统提示词的流式应答
@@ -88,14 +105,22 @@ impl ChatServiceMiddleware {
   ) -> Result<StreamAnswer, FlowyError> {
     // 获取原始消息内容
     let content = self.get_message_content(question_id)?;
-    // 附加系统提示词
-    let final_content = self.apply_system_prompt(content, system_prompt);
     
-    info!("stream_answer_with_system_prompt use model: {:?}", ai_model);
+    info!(
+      "stream_answer_with_system_prompt use model: {:?}, has_system_prompt: {}",
+      ai_model,
+      system_prompt.is_some()
+    );
     
     // 根据模型类型调用不同的服务
     if ai_model.is_local {
       if self.local_ai.is_ready().await {
+        // 本地 AI: 简单合并系统提示词（本地模型可能不支持 system role）
+        let final_content = if let Some(ref prompt) = system_prompt {
+          format!("{}\n\n{}", prompt, content)
+        } else {
+          content
+        };
         self
           .local_ai
           .stream_question(chat_id, &final_content, format, &ai_model.name)
@@ -109,10 +134,9 @@ impl ChatServiceMiddleware {
         {
           Ok(name) => {
             let server_model = AIModel::server(name, String::new());
-            // 注意：这里调用原始的 stream_answer 会再次从数据库读取，所以我们需要直接调用 openai_chat_stream
             if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
               let (_init_reasoning, stream) = self
-                .openai_chat_stream(&cfg, Some(&server_model.name), final_content)
+                .openai_chat_stream_with_system(&cfg, Some(&server_model.name), content, system_prompt)
                 .await?;
               return Ok(stream);
             }
@@ -126,16 +150,15 @@ impl ChatServiceMiddleware {
         }
       }
     } else {
-      // 如果配置了 OpenAI 兼容服务器，则优先直接调用
+      // 如果配置了 OpenAI 兼容服务器，则优先直接调用（使用标准 system/user 消息格式）
       if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
         let (_init_reasoning, stream) = self
-          .openai_chat_stream(&cfg, Some(&ai_model.name), final_content)
+          .openai_chat_stream_with_system(&cfg, Some(&ai_model.name), content, system_prompt)
           .await?;
         return Ok(stream);
       }
 
-      // 默认：走现有 cloud_service（需要另想办法，因为它会从数据库读取）
-      // 这里我们暂时不支持 AppFlowy Cloud 的系统提示词
+      // 默认：走现有 cloud_service（不支持系统提示词）
       warn!("System prompt not supported for AppFlowy Cloud, falling back to standard stream_answer");
       self.cloud_service
         .stream_answer(workspace_id, chat_id, question_id, format, ai_model)
@@ -178,14 +201,12 @@ impl ChatServiceMiddleware {
     }
   }
 
-  fn openai_chat_payload(model: &str, content: String) -> serde_json::Value {
+  fn openai_chat_payload(model: &str, messages: Vec<serde_json::Value>) -> serde_json::Value {
     json!({
       "model": model,
       "stream": true,
       "stream_options": {"include_reasoning": true},
-      "messages": [
-        {"role": "user", "content": content}
-      ]
+      "messages": messages
     })
   }
 
@@ -280,7 +301,174 @@ impl ChatServiceMiddleware {
     (None, None)
   }
 
+  /// 带系统提示词的 OpenAI 兼容流式调用（新版本）
+  async fn openai_chat_stream_with_system(
+    &self,
+    cfg: &OpenAICompatConfig,
+    model: Option<&str>,
+    content: String,
+    system_prompt: Option<String>,
+  ) -> Result<(Option<String>, StreamAnswer), FlowyError> {
+    let url = Self::join_openai_url(&cfg.base_url, "/v1/chat/completions");
+    
+    // 处理模型名称：如果是 "Auto" 或空，则使用配置中的模型
+    let model_name = match model {
+      Some(name) if !name.is_empty() && name != DEFAULT_AI_MODEL_NAME => name,
+      _ => &cfg.model,
+    };
+    
+    info!(
+      "[OpenAI] Using model: {} (original: {:?}, config: {})",
+      model_name,
+      model,
+      cfg.model
+    );
+    
+    // 构建包含系统提示词的消息数组（使用标准 OpenAI 格式）
+    let messages = self.build_messages_with_system_prompt(content, system_prompt);
+    let mut payload = Self::openai_chat_payload(model_name, messages);
+    
+    // 添加可选参数
+    if let Some(temp) = cfg.temperature {
+      payload.as_object_mut().unwrap().insert("temperature".into(), json!(temp));
+    }
+    if let Some(max_tok) = cfg.max_tokens {
+      payload.as_object_mut().unwrap().insert("max_tokens".into(), json!(max_tok));
+    }
+    
+    info!("[OpenAI] Requesting {} with model: {}", url, model_name);
+    
+    let client = reqwest::Client::new();
+    let resp = client
+      .post(&url)
+      .header("Content-Type", "application/json")
+      .header("Authorization", format!("Bearer {}", cfg.api_key))
+      .header("Accept", "text/event-stream")
+      .json(&payload)
+      .send()
+      .await
+      .map_err(|e| {
+        error!("[OpenAI] Request failed: {}", e);
+        FlowyError::server_error().with_context(e.to_string())
+      })?;
+    
+    if !resp.status().is_success() {
+      error!("[OpenAI] Non-200 response: {}", resp.status());
+      return Err(FlowyError::server_error()
+        .with_context(format!("OpenAI compat error: {}", resp.status())));
+    }
+    
+    let s = try_stream! {
+      let mut inside_think = false;
+      let mut stream = resp.bytes_stream();
+      while let Some(chunk) = stream.next().await {
+        let bytes = chunk.map_err(|e| FlowyError::server_error().with_context(e.to_string()))?;
+        let s = String::from_utf8_lossy(&bytes);
+        for line in s.lines() {
+          let l = line.trim_start();
+          if !l.starts_with("data:") { continue; }
+          let data = l.trim_start_matches("data:").trim();
+          if data == "[DONE]" { break; }
+          if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
+            if let Some(delta) = v.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("delta")) {
+              // 1) 数组结构：显式 type（o1/DeepSeek-R1）
+              if let Some(arr) = delta.get("content").and_then(|a| a.as_array()) {
+                for item in arr {
+                  let ty = item.get("type").and_then(|s| s.as_str()).unwrap_or("");
+                  match ty {
+                    "reasoning" => {
+                      if let Some(t) = item.get("text").and_then(|s| s.as_str()) {
+                        yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+                          value: json!({"reasoning_delta": t})
+                        };
+                      }
+                    },
+                    "output_text" | "text" => {
+                      if let Some(t) = item.get("text").and_then(|s| s.as_str()) {
+                        yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
+                          value: t.to_string()
+                        };
+                      }
+                    },
+                    _ => {},
+                  }
+                }
+                continue;
+              }
+
+              // 2) 字符串结构：DeepSeek <think> ... </think>
+              if let Some(token) = delta.get("content").and_then(|c| c.as_str()) {
+                let mut text = token.to_string();
+                // 处理开始标签
+                if let Some(idx) = text.find("<think>") {
+                  inside_think = true;
+                  text.replace_range(idx..idx+7, "");
+                }
+                // 处理结束标签（可能与内容同一块）
+                if let Some(end_idx) = text.find("</think>") {
+                  let (before, after) = text.split_at(end_idx);
+                  let after = after.trim_start_matches("</think>");
+                  if !before.is_empty() {
+                    yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+                      value: json!({"reasoning_delta": before})
+                    };
+                  }
+                  inside_think = false;
+                  if !after.is_empty() {
+                    yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
+                      value: after.to_string()
+                    };
+                  }
+                  continue;
+                }
+                if inside_think {
+                  if !text.is_empty() {
+                    yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+                      value: json!({"reasoning_delta": text})
+                    };
+                  }
+                } else {
+                  if !text.is_empty() {
+                    yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
+                      value: text
+                    };
+                  }
+                }
+                continue;
+              }
+
+              // 3) 其他兼容字段
+              if let Some(r) = delta.get("reasoning_content").and_then(|s| s.as_str()) {
+                if !r.is_empty() {
+                  yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+                    value: json!({"reasoning_delta": r})
+                  };
+                }
+              }
+              if let Some(r) = delta.get("reasoning").and_then(|s| s.as_str()) {
+                if !r.is_empty() {
+                  yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+                    value: json!({"reasoning_delta": r})
+                  };
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+    Ok((None, Box::pin(s)))
+  }
+
+  /// 原有的 openai_chat_stream 方法（向后兼容，不带系统提示词）
   async fn openai_chat_stream(&self, cfg: &OpenAICompatConfig, model_override: Option<&str>, content: String) -> FlowyResult<(Option<String>, StreamAnswer)> {
+    // 调用新方法，不传系统提示词
+    self.openai_chat_stream_with_system(cfg, model_override, content, None).await
+  }
+
+  /// 废弃的实现（保留用于参考）
+  #[allow(dead_code)]
+  async fn openai_chat_stream_old(&self, cfg: &OpenAICompatConfig, model_override: Option<&str>, content: String) -> FlowyResult<(Option<String>, StreamAnswer)> {
     let client = reqwest::Client::new();
     let base = cfg.base_url.trim_end_matches('/');
     // 仅对 chat.completions 走 SSE；responses 不同供应商差异大，暂不做 SSE
@@ -291,7 +479,8 @@ impl ChatServiceMiddleware {
       _ => cfg.model.clone(),
     };
 
-    let mut payload = Self::openai_chat_payload(&model_name, content.clone());
+    let messages = vec![json!({"role": "user", "content": content})];
+    let mut payload = Self::openai_chat_payload(&model_name, messages);
     if let Some(t) = cfg.temperature { payload.as_object_mut().unwrap().insert("temperature".into(), json!(t)); }
     if let Some(m) = cfg.max_tokens { payload.as_object_mut().unwrap().insert("max_tokens".into(), json!(m)); }
     let resp = client

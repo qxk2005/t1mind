@@ -94,13 +94,52 @@ impl Chat {
     let uid = self.user_service.user_id()?;
     let workspace_id = self.user_service.workspace_id()?;
 
-    // 构建系统提示词（如果有智能体配置）
+    // 构建增强的系统提示词（如果有智能体配置）
     let system_prompt = if let Some(ref config) = agent_config {
-      use crate::agent::build_agent_system_prompt;
-      let prompt = build_agent_system_prompt(config);
-      info!("[Chat] Using agent '{}' with system prompt ({} chars)", 
-            config.name, prompt.len());
-      Some(prompt)
+      use crate::agent::{build_agent_system_prompt, AgentCapabilityExecutor};
+      
+      // 创建能力执行器
+      let capability_executor = AgentCapabilityExecutor::new(self.user_service.clone());
+      
+      // 加载对话历史（如果启用了记忆功能）
+      let conversation_history = capability_executor
+        .load_conversation_history(&self.chat_id, &config.capabilities, uid)
+        .unwrap_or_default();
+      
+      info!(
+        "[Chat] Loaded {} messages from conversation history", 
+        conversation_history.len()
+      );
+      
+      // 构建基础系统提示词
+      let base_prompt = build_agent_system_prompt(config);
+      
+      // 构建增强的系统提示词（包含历史、工具指南等）
+      let enhanced_prompt = capability_executor.build_enhanced_system_prompt(
+        base_prompt,
+        config,
+        &conversation_history,
+      );
+      
+      info!(
+        "[Chat] Using agent '{}' with enhanced system prompt ({} chars)",
+        config.name,
+        enhanced_prompt.len()
+      );
+      
+      // 检查是否需要任务规划
+      if capability_executor.should_create_plan(&config.capabilities, &params.message) {
+        info!("[Chat] Complex task detected, task planning recommended");
+        // TODO: 集成任务规划器
+      }
+      
+      // 检查是否需要工具调用
+      if capability_executor.should_use_tools(&config.capabilities, &params.message) {
+        info!("[Chat] Tool usage recommended for this request");
+        // TODO: 准备工具调用上下文
+      }
+      
+      Some(enhanced_prompt)
     } else {
       None
     };

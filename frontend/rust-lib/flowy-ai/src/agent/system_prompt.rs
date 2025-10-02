@@ -21,24 +21,40 @@ pub fn build_agent_system_prompt(config: &AgentConfigPB) -> String {
     
     if cap.enable_planning {
       prompt.push_str(&format!(
-        "- Task Planning: You can break down complex tasks into steps (max {} steps)\n",
+        "- Task Planning: Break down complex tasks systematically (max {} steps)\n",
         cap.max_planning_steps
       ));
+      prompt.push_str("  For complex requests:\n");
+      prompt.push_str("    • Analyze the goal and identify key requirements\n");
+      prompt.push_str("    • Create a step-by-step plan\n");
+      prompt.push_str("    • Execute each step methodically\n");
+      prompt.push_str("    • Validate results and adjust if needed\n");
     }
     
     if cap.enable_tool_calling && !config.available_tools.is_empty() {
+      prompt.push_str("- Tool Calling: You can use external tools to accomplish tasks\n");
       prompt.push_str(&format!(
-        "- Tool Calling: You have access to the following tools: {:?}\n",
-        config.available_tools
+        "  Available tools: {}\n",
+        config.available_tools.join(", ")
       ));
       prompt.push_str(&format!(
-        "  (max {} tool calls per conversation)\n",
+        "  Max {} tool calls per conversation\n",
         cap.max_tool_calls
       ));
+      prompt.push_str("  When using tools:\n");
+      prompt.push_str("    • Clearly state which tool you're using and why\n");
+      prompt.push_str("    • Provide required parameters accurately\n");
+      prompt.push_str("    • Interpret and explain results to the user\n");
+      prompt.push_str("    • Handle errors gracefully\n");
     }
     
     if cap.enable_reflection {
-      prompt.push_str("- Self-Reflection: You should reflect on your responses and improve them\n");
+      prompt.push_str("- Self-Reflection: Review and improve your responses continuously\n");
+      prompt.push_str("  After generating responses:\n");
+      prompt.push_str("    • Check for accuracy and completeness\n");
+      prompt.push_str("    • Consider alternative approaches\n");
+      prompt.push_str("    • Identify potential improvements\n");
+      prompt.push_str("    • Be transparent about uncertainties\n");
     }
     
     if cap.enable_memory {
