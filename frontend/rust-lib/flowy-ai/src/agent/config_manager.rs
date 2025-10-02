@@ -344,8 +344,8 @@ impl AgentConfigManager {
         Ok(())
     }
 
-    /// 获取智能体配置（内部方法）
-    fn get_agent_config(&self, agent_id: &str) -> Option<AgentConfigPB> {
+    /// 获取智能体配置
+    pub fn get_agent_config(&self, agent_id: &str) -> Option<AgentConfigPB> {
         let key = self.agent_config_key(agent_id);
         self.store_preferences.get_object::<AgentConfigPB>(&key)
     }

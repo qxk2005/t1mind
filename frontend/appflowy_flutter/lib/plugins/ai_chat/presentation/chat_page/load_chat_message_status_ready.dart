@@ -1,4 +1,4 @@
-import 'package:appflowy/plugins/ai_chat/application/agent_settings_bloc.dart';
+import 'package:appflowy/plugins/ai_chat/application/chat_bloc.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/agent_selector.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/chat_message_selector_banner.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/chat_page/chat_animation_list_widget.dart';
@@ -76,7 +76,10 @@ class _LoadChatMessageStatusReadyState extends State<LoadChatMessageStatusReady>
                           setState(() {
                             selectedAgent = agent;
                           });
-                          // TODO: 通知聊天BLoC智能体已更改
+                          // 通知聊天BLoC智能体已更改
+                          context.read<ChatBloc>().add(
+                            ChatEvent.selectAgent(agent?.id),
+                          );
                         },
                         showStatus: true,
                         compact: UniversalPlatform.isMobile,

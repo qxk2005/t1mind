@@ -338,9 +338,25 @@ impl AIManager {
     &self,
     params: StreamMessageParams,
   ) -> Result<ChatMessagePB, FlowyError> {
+    // 如果有 agent_id，加载智能体配置
+    let agent_config = if let Some(ref agent_id) = params.agent_id {
+      match self.agent_manager.get_agent_config(agent_id) {
+        Some(config) => {
+          info!("[Chat] Using agent: {} ({})", config.name, config.id);
+          Some(config)
+        },
+        None => {
+          warn!("[Chat] Agent not found: {}", agent_id);
+          None
+        }
+      }
+    } else {
+      None
+    };
+
     let chat = self.get_or_create_chat_instance(&params.chat_id).await?;
     let ai_model = self.get_active_model(&params.chat_id.to_string()).await;
-    let question = chat.stream_chat_message(&params, ai_model).await?;
+    let question = chat.stream_chat_message(&params, ai_model, agent_config).await?;
     let _ = self
       .external_service
       .notify_did_send_message(&params.chat_id, &params.message)

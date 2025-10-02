@@ -74,6 +74,9 @@ pub struct StreamChatPayloadPB {
 
   #[pb(index = 7, one_of)]
   pub prompt_id: Option<String>,
+
+  #[pb(index = 8, one_of)]
+  pub agent_id: Option<String>,
 }
 
 #[derive(Default, Debug)]
@@ -85,6 +88,7 @@ pub struct StreamMessageParams {
   pub question_stream_port: i64,
   pub format: Option<PredefinedFormatPB>,
   pub prompt_id: Option<String>,
+  pub agent_id: Option<String>,
 }
 
 #[derive(Default, ProtoBuf, Validate, Clone, Debug)]

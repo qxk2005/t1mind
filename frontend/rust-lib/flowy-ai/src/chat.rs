@@ -1,9 +1,10 @@
 use crate::entities::{
-  ChatMessageErrorPB, ChatMessageListPB, ChatMessagePB, PredefinedFormatPB,
+  AgentConfigPB, ChatMessageErrorPB, ChatMessageListPB, ChatMessagePB, PredefinedFormatPB,
   RepeatedRelatedQuestionPB, StreamMessageParams,
 };
 use crate::middleware::chat_service_mw::ChatServiceMiddleware;
 use crate::notification::{ChatNotification, chat_notification_builder};
+use tracing::info;
 use crate::stream_message::{AIFollowUpData, StreamMessage};
 use allo_isolate::Isolate;
 use flowy_ai_pub::cloud::{
@@ -74,10 +75,12 @@ impl Chat {
     &self,
     params: &StreamMessageParams,
     preferred_ai_model: AIModel,
+    agent_config: Option<AgentConfigPB>,
   ) -> Result<ChatMessagePB, FlowyError> {
+    let agent_name = agent_config.as_ref().map(|c| c.name.as_str()).unwrap_or("None");
     trace!(
-      "[Chat] stream chat message: chat_id={}, message={}, message_type={:?}, format={:?}",
-      self.chat_id, params.message, params.message_type, params.format,
+      "[Chat] stream chat message: chat_id={}, message={}, message_type={:?}, format={:?}, agent={}",
+      self.chat_id, params.message, params.message_type, params.format, agent_name,
     );
 
     // clear
@@ -91,12 +94,24 @@ impl Chat {
     let uid = self.user_service.user_id()?;
     let workspace_id = self.user_service.workspace_id()?;
 
+    // 构建系统提示词（如果有智能体配置）
+    let system_prompt = if let Some(ref config) = agent_config {
+      use crate::agent::build_agent_system_prompt;
+      let prompt = build_agent_system_prompt(config);
+      info!("[Chat] Using agent '{}' with system prompt ({} chars)", 
+            config.name, prompt.len());
+      Some(prompt)
+    } else {
+      None
+    };
+
+    // 保存原始用户消息到数据库（不包含系统提示词）
     let question = self
       .chat_service
       .create_question(
         &workspace_id,
         &self.chat_id,
-        &params.message,
+        &params.message,  // 使用原始消息
         params.message_type.clone(),
         params.prompt_id.clone(),
       )
@@ -113,6 +128,8 @@ impl Chat {
     // Save message to disk
     notify_message(&self.chat_id, question.clone())?;
     let format = params.format.clone().map(Into::into).unwrap_or_default();
+    
+    // 传递系统提示词给 stream_response
     self.stream_response(
       params.answer_stream_port,
       answer_stream_buffer,
@@ -121,6 +138,7 @@ impl Chat {
       question.message_id,
       format,
       preferred_ai_model,
+      system_prompt,
     );
 
     let question_pb = ChatMessagePB::from(question);
@@ -159,6 +177,7 @@ impl Chat {
       question_id,
       format,
       ai_model,
+      None, // 重新生成时不使用系统提示词
     );
 
     Ok(())
@@ -174,6 +193,7 @@ impl Chat {
     question_id: i64,
     format: ResponseFormat,
     ai_model: AIModel,
+    system_prompt: Option<String>,
   ) {
     let stop_stream = self.stop_stream.clone();
     let chat_id = self.chat_id;
@@ -181,7 +201,7 @@ impl Chat {
     tokio::spawn(async move {
       let mut answer_sink = IsolateSink::new(Isolate::new(answer_stream_port));
       match cloud_service
-        .stream_answer(&workspace_id, &chat_id, question_id, format, ai_model)
+        .stream_answer_with_system_prompt(&workspace_id, &chat_id, question_id, format, ai_model, system_prompt)
         .await
       {
         Ok(mut stream) => {

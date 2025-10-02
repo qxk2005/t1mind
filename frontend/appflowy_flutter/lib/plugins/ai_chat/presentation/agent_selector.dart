@@ -158,7 +158,9 @@ class _AgentSelectorState extends State<AgentSelector> {
     final agent = widget.selectedAgent;
     
     return Container(
-      height: widget.compact ? 32 : 40,
+      constraints: BoxConstraints(
+        minHeight: widget.compact ? 32 : 40,
+      ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         border: Border.all(color: Theme.of(context).dividerColor),
@@ -174,6 +176,7 @@ class _AgentSelectorState extends State<AgentSelector> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
           Text(
             agent?.name ?? '无智能体',

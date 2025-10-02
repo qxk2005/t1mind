@@ -5,6 +5,7 @@ pub mod agent_manager;
 pub mod tool_registry;
 pub mod native_tools;
 pub mod event_handler;
+pub mod system_prompt;
 
 pub use config_manager::{
     AgentConfigManager, 
@@ -49,3 +50,5 @@ pub use tool_registry::{
 };
 
 pub use native_tools::NativeToolsManager;
+
+pub use system_prompt::build_agent_system_prompt;

@@ -34,6 +34,7 @@ pub(crate) async fn stream_chat_message_handler(
     question_stream_port,
     format,
     prompt_id,
+    agent_id,
   } = data;
 
   let message_type = match message_type {
@@ -50,6 +51,7 @@ pub(crate) async fn stream_chat_message_handler(
     question_stream_port,
     format,
     prompt_id,
+    agent_id,
   };
 
   let ai_manager = upgrade_ai_manager(ai_manager)?;

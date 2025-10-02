@@ -38,6 +38,7 @@ class ChatStreamManager {
     String message,
     PredefinedFormat? format,
     String? promptId,
+    String? agentId,
   ) {
     final payload = StreamChatPayloadPB(
       chatId: chatId,
@@ -55,6 +56,10 @@ class ChatStreamManager {
       payload.promptId = promptId;
     }
 
+    if (agentId != null) {
+      payload.agentId = agentId;
+    }
+
     return payload;
   }
 
@@ -63,8 +68,9 @@ class ChatStreamManager {
     String message,
     PredefinedFormat? format,
     String? promptId,
+    String? agentId,
   ) async {
-    final payload = buildStreamPayload(message, format, promptId);
+    final payload = buildStreamPayload(message, format, promptId, agentId);
     return AIEventStreamMessage(payload).send();
   }
 

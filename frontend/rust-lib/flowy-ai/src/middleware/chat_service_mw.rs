@@ -15,7 +15,7 @@ use flowy_storage_pub::storage::StorageService;
 use serde_json::Value;
 use std::path::Path;
 use std::sync::{Arc, Weak};
-use tracing::{info, trace};
+use tracing::{info, trace, warn};
 use uuid::Uuid;
 use flowy_sqlite::kv::KVStorePreferences;
 use futures_util::StreamExt;
@@ -65,6 +65,82 @@ impl ChatServiceMiddleware {
       FlowyError::record_not_found().with_context(format!("Message not found: {}", message_id))
     })?;
     Ok(content)
+  }
+
+  /// 附加系统提示词到消息内容
+  fn apply_system_prompt(&self, content: String, system_prompt: Option<String>) -> String {
+    if let Some(prompt) = system_prompt {
+      format!("System Instructions:\n{}\n\n---\n\nUser Message:\n{}", prompt, content)
+    } else {
+      content
+    }
+  }
+
+  /// 带系统提示词的流式应答
+  pub async fn stream_answer_with_system_prompt(
+    &self,
+    workspace_id: &Uuid,
+    chat_id: &Uuid,
+    question_id: i64,
+    format: ResponseFormat,
+    ai_model: AIModel,
+    system_prompt: Option<String>,
+  ) -> Result<StreamAnswer, FlowyError> {
+    // 获取原始消息内容
+    let content = self.get_message_content(question_id)?;
+    // 附加系统提示词
+    let final_content = self.apply_system_prompt(content, system_prompt);
+    
+    info!("stream_answer_with_system_prompt use model: {:?}", ai_model);
+    
+    // 根据模型类型调用不同的服务
+    if ai_model.is_local {
+      if self.local_ai.is_ready().await {
+        self
+          .local_ai
+          .stream_question(chat_id, &final_content, format, &ai_model.name)
+          .await
+      } else {
+        // Fallback to server provider
+        match self
+          .cloud_service
+          .get_workspace_default_model(workspace_id)
+          .await
+        {
+          Ok(name) => {
+            let server_model = AIModel::server(name, String::new());
+            // 注意：这里调用原始的 stream_answer 会再次从数据库读取，所以我们需要直接调用 openai_chat_stream
+            if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
+              let (_init_reasoning, stream) = self
+                .openai_chat_stream(&cfg, Some(&server_model.name), final_content)
+                .await?;
+              return Ok(stream);
+            }
+            Err(FlowyError::local_ai_not_ready()
+              .with_context("本地 AI 未就绪且无 OpenAI 兼容配置"))
+          },
+          Err(_) => Err(
+            FlowyError::local_ai_not_ready()
+              .with_context("本地 AI 未就绪 / Local AI not ready"),
+          ),
+        }
+      }
+    } else {
+      // 如果配置了 OpenAI 兼容服务器，则优先直接调用
+      if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
+        let (_init_reasoning, stream) = self
+          .openai_chat_stream(&cfg, Some(&ai_model.name), final_content)
+          .await?;
+        return Ok(stream);
+      }
+
+      // 默认：走现有 cloud_service（需要另想办法，因为它会从数据库读取）
+      // 这里我们暂时不支持 AppFlowy Cloud 的系统提示词
+      warn!("System prompt not supported for AppFlowy Cloud, falling back to standard stream_answer");
+      self.cloud_service
+        .stream_answer(workspace_id, chat_id, question_id, format, ai_model)
+        .await
+    }
   }
 
   fn read_openai_compat_chat_config(&self, workspace_id: &Uuid) -> Option<OpenAICompatConfig> {

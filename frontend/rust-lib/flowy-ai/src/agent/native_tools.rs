@@ -391,7 +391,7 @@ impl NativeToolsManager {
             .ok_or_else(|| FlowyError::invalid_data().with_context("缺少操作列表"))?;
 
         // 获取可编辑文档
-        let document = document_manager.editable_document(&document_id).await?;
+        let _document = document_manager.editable_document(&document_id).await?;
         
         // 应用操作（这里简化处理，实际应该解析具体的BlockAction）
         let mut applied_actions = 0;

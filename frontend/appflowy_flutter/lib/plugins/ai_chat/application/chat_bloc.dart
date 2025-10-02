@@ -63,6 +63,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   late final ChatSettingsManager _settingsManager;
 
   ChatMessagePB? lastSentMessage;
+  
+  // 当前选中的智能体ID
+  String? selectedAgentId;
 
   bool isLoadingPreviousMessages = false;
   bool hasMorePreviousMessages = true;
@@ -95,6 +98,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
             _handleChatSettings(settings),
         updateSelectedSources: (selectedSourcesIds) async =>
             _handleUpdateSources(selectedSourcesIds),
+
+        // Agent selection
+        selectAgent: (agentId) async => _handleSelectAgent(agentId),
 
         // Message loading
         didLoadLatestMessages: (messages) async =>
@@ -156,6 +162,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
 
   Future<void> _handleUpdateSources(List<String> selectedSourcesIds) async {
     await _settingsManager.updateSelectedSources(selectedSourcesIds);
+  }
+
+  // Agent selection handler
+  Future<void> _handleSelectAgent(String? agentId) async {
+    selectedAgentId = agentId;
+    Log.info('[ChatBloc] Selected agent: ${agentId ?? "None"}');
   }
 
   // Message loading handlers
@@ -470,8 +482,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     );
     add(ChatEvent.receiveMessage(questionStreamMessage));
 
-    // Send stream request
-    await _streamManager.sendStreamRequest(message, format, promptId).fold(
+    // Send stream request with agent_id
+    await _streamManager.sendStreamRequest(message, format, promptId, selectedAgentId).fold(
       (question) {
         if (!isClosed) {
           // Create and add answer stream message
@@ -557,6 +569,9 @@ class ChatEvent with _$ChatEvent {
   const factory ChatEvent.updateSelectedSources({
     required List<String> selectedSourcesIds,
   }) = _UpdateSelectedSources;
+
+  // agent selection
+  const factory ChatEvent.selectAgent(String? agentId) = _SelectAgent;
 
   // send message
   const factory ChatEvent.sendMessage({
