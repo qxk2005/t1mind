@@ -59,6 +59,7 @@ impl EventIntegrationTest {
       question_stream_port: 0,
       format: None,
       prompt_id: None,
+      agent_id: None,  // 🔧 添加缺失的字段
     };
 
     EventBuilder::new(self.clone())

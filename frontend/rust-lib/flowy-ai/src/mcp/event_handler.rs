@@ -65,7 +65,7 @@ pub(crate) async fn get_mcp_server_list_handler(
       let pb_tools = tools.into_iter().map(|tool| {
         MCPToolPB {
           name: tool.name,
-          description: tool.description,
+          description: tool.description.unwrap_or_default(),
           input_schema: tool.input_schema.to_string(),
           annotations: tool.annotations.map(|ann| MCPToolAnnotationsPB {
             title: ann.title,
@@ -442,7 +442,7 @@ pub(crate) async fn get_mcp_tool_list_handler(
   let tools = tools_list.tools.into_iter().map(|tool| {
     MCPToolPB {
       name: tool.name,
-      description: tool.description,
+      description: tool.description.unwrap_or_default(),
       input_schema: serde_json::to_string(&tool.input_schema).unwrap_or_default(),
       annotations: tool.annotations.map(|ann| MCPToolAnnotationsPB {
         title: ann.title,

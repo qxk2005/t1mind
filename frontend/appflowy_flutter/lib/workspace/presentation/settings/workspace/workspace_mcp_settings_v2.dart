@@ -647,24 +647,47 @@ class _AddMCPServerDialogState extends State<_AddMCPServerDialog> {
                     ),
                     const SizedBox(height: 16),
                     // 参数列表
-                    FlowyText.regular("命令参数", fontSize: 14),
+                    Row(
+                      children: [
+                        FlowyText.regular("命令参数", fontSize: 14),
+                        const SizedBox(width: 8),
+                        Tooltip(
+                          message: '每个参数单独添加，例如：第一个参数填"-y"，第二个参数填"@readwise/readwise-mcp"',
+                          child: Icon(
+                            Icons.info_outline,
+                            size: 16,
+                            color: Theme.of(context).hintColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    FlowyText.regular(
+                      "提示：每个参数需要单独添加，不要在一个框中输入多个参数",
+                      fontSize: 11,
+                      color: Theme.of(context).hintColor,
+                    ),
                     const SizedBox(height: 8),
                     ..._arguments.asMap().entries.map((entry) {
                       final index = entry.key;
+                      final argValue = entry.value['value'] ?? '';
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Row(
                           children: [
                             Expanded(
                               child: TextField(
-                                decoration: const InputDecoration(
-                                  hintText: '参数值',
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
+                                controller: TextEditingController(text: argValue),
+                                decoration: InputDecoration(
+                                    hintText: '单个参数，例如：-y 或 @readwise/readwise-mcp',
+                                    helperText: '参数 ${index + 1}',
+                                    helperStyle: TextStyle(fontSize: 10),
+                                    border: OutlineInputBorder(),
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
                                   ),
-                                ),
                                 onChanged: (value) {
                                   _arguments[index]['value'] = value;
                                 },
@@ -690,24 +713,46 @@ class _AddMCPServerDialogState extends State<_AddMCPServerDialog> {
                     ),
                     const SizedBox(height: 16),
                     // 环境变量列表
-                    FlowyText.regular("环境变量", fontSize: 14),
+                    Row(
+                      children: [
+                        FlowyText.regular("环境变量", fontSize: 14),
+                        const SizedBox(width: 8),
+                        Tooltip(
+                          message: 'PATH会自动包含命令所在目录。如需自定义PATH，可手动添加PATH变量（Windows用;分隔，macOS/Linux用:分隔）',
+                          child: Icon(
+                            Icons.info_outline,
+                            size: 16,
+                            color: Theme.of(context).hintColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    FlowyText.regular(
+                      "提示：PATH会自动设置。如需自定义，可手动添加PATH变量；否则只需添加特殊变量（如ACCESS_TOKEN）",
+                      fontSize: 11,
+                      color: Theme.of(context).hintColor,
+                    ),
                     const SizedBox(height: 8),
                     ..._environmentVariables.asMap().entries.map((entry) {
                       final index = entry.key;
+                      final envKey = entry.value['key'] ?? '';
+                      final envValue = entry.value['value'] ?? '';
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: Row(
                           children: [
                             Expanded(
                               child: TextField(
+                                controller: TextEditingController(text: envKey),
                                 decoration: const InputDecoration(
-                                  hintText: '变量名',
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
+                                    hintText: '变量名',
+                                    border: OutlineInputBorder(),
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
                                   ),
-                                ),
                                 onChanged: (value) {
                                   _environmentVariables[index]['key'] = value;
                                 },
@@ -716,14 +761,15 @@ class _AddMCPServerDialogState extends State<_AddMCPServerDialog> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: TextField(
+                                controller: TextEditingController(text: envValue),
                                 decoration: const InputDecoration(
-                                  hintText: '变量值',
-                                  border: OutlineInputBorder(),
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
+                                    hintText: '变量值',
+                                    border: OutlineInputBorder(),
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
                                   ),
-                                ),
                                 onChanged: (value) {
                                   _environmentVariables[index]['value'] = value;
                                 },
@@ -1150,6 +1196,7 @@ class _ServerCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isConnected = serverStatus?.isConnected ?? false;
+    final errorMessage = serverStatus?.errorMessage;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1170,6 +1217,9 @@ class _ServerCard extends StatelessWidget {
                     Flexible(
                       child: FlowyText.medium(server.name, fontSize: 16),
                     ),
+                    const SizedBox(width: 8),
+                    // 连接状态徽章 - 更显眼的状态显示
+                    _buildConnectionStatusBadge(context, isConnected, errorMessage),
                     const SizedBox(width: 8),
                     // 工具数量徽章 - 只要有工具就显示
                     if (tools.isNotEmpty) ...[
@@ -1243,11 +1293,6 @@ class _ServerCard extends StatelessWidget {
                   constraints: const BoxConstraints(),
                 ),
               const SizedBox(width: 8),
-              if (isConnected)
-                const Icon(Icons.check_circle, color: Colors.green, size: 20)
-              else
-                const Icon(Icons.circle, color: Colors.grey, size: 20),
-              const SizedBox(width: 4),
               IconButton(
                 icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
                 onPressed: onEdit,
@@ -1383,6 +1428,68 @@ class _ServerCard extends StatelessWidget {
       default:
         return 'UNKNOWN';
     }
+  }
+
+  /// 构建连接状态徽章
+  Widget _buildConnectionStatusBadge(
+    BuildContext context,
+    bool isConnected,
+    String? errorMessage,
+  ) {
+    final Color bgColor;
+    final Color textColor;
+    final IconData icon;
+    final String statusText;
+
+    if (errorMessage != null && errorMessage.isNotEmpty) {
+      // 连接错误状态
+      bgColor = Colors.red.shade50;
+      textColor = Colors.red.shade700;
+      icon = Icons.error_outline;
+      statusText = '错误';
+    } else if (isConnected) {
+      // 已连接状态
+      bgColor = Colors.green.shade50;
+      textColor = Colors.green.shade700;
+      icon = Icons.check_circle_outline;
+      statusText = '已连接';
+    } else {
+      // 未连接状态
+      bgColor = Colors.grey.shade200;
+      textColor = Colors.grey.shade700;
+      icon = Icons.radio_button_unchecked;
+      statusText = '未连接';
+    }
+
+    return Tooltip(
+      message: errorMessage ?? statusText,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: textColor.withOpacity(0.3),
+            width: 1.0,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: textColor),
+            const SizedBox(width: 4),
+            Text(
+              statusText,
+              style: TextStyle(
+                color: textColor,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

@@ -35,6 +35,10 @@ pub struct StdioMCPClient {
     status: MCPConnectionStatus,
     tools: Vec<MCPTool>,
     process: Option<tokio::process::Child>,
+    // 使用Arc<Mutex>来安全地共享stdin/stdout
+    stdin: std::sync::Arc<tokio::sync::Mutex<Option<tokio::process::ChildStdin>>>,
+    stdout: std::sync::Arc<tokio::sync::Mutex<Option<tokio::io::BufReader<tokio::process::ChildStdout>>>>,
+    request_id: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl StdioMCPClient {
@@ -48,24 +52,172 @@ impl StdioMCPClient {
             status: MCPConnectionStatus::Disconnected,
             tools: Vec::new(),
             process: None,
+            stdin: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+            stdout: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
+            request_id: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(1)),
         })
+    }
+    
+    /// 发送JSON-RPC消息到子进程的stdin
+    async fn send_message(&self, message: &crate::mcp::protocol::MCPMessage) -> Result<(), FlowyError> {
+        use tokio::io::AsyncWriteExt;
+        
+        let mut stdin_guard = self.stdin.lock().await;
+        let stdin = stdin_guard.as_mut()
+            .ok_or_else(|| FlowyError::internal().with_context("Process stdin not available"))?;
+        
+        let json = serde_json::to_string(message)
+            .map_err(|e| FlowyError::internal().with_context(format!("Failed to serialize message: {}", e)))?;
+        
+        tracing::debug!("Sending STDIO message: {}", json);
+        
+        // 写入JSON + 换行符，捕获BrokenPipe错误避免SIGPIPE信号
+        match stdin.write_all(json.as_bytes()).await {
+            Ok(_) => {},
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
+                return Err(FlowyError::internal().with_context("Process stdin closed (broken pipe). The MCP server process may have exited."));
+            },
+            Err(e) => {
+                return Err(FlowyError::internal().with_context(format!("Failed to write to stdin: {}", e)));
+            }
+        }
+        
+        match stdin.write_all(b"\n").await {
+            Ok(_) => {},
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
+                return Err(FlowyError::internal().with_context("Process stdin closed (broken pipe). The MCP server process may have exited."));
+            },
+            Err(e) => {
+                return Err(FlowyError::internal().with_context(format!("Failed to write newline: {}", e)));
+            }
+        }
+        
+        match stdin.flush().await {
+            Ok(_) => {},
+            Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => {
+                return Err(FlowyError::internal().with_context("Process stdin closed (broken pipe). The MCP server process may have exited."));
+            },
+            Err(e) => {
+                return Err(FlowyError::internal().with_context(format!("Failed to flush stdin: {}", e)));
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// 从子进程的stdout读取JSON-RPC响应
+    async fn read_response(&self) -> Result<crate::mcp::protocol::MCPMessage, FlowyError> {
+        use tokio::io::AsyncBufReadExt;
+        
+        let mut stdout_guard = self.stdout.lock().await;
+        let stdout = stdout_guard.as_mut()
+            .ok_or_else(|| FlowyError::internal().with_context("Process stdout not available"))?;
+        
+        let mut line = String::new();
+        let bytes_read = stdout.read_line(&mut line).await
+            .map_err(|e| FlowyError::internal().with_context(format!("Failed to read from stdout: {}", e)))?;
+        
+        if bytes_read == 0 {
+            return Err(FlowyError::internal().with_context("Process closed stdout"));
+        }
+        
+        tracing::debug!("Received STDIO response: {}", line.trim());
+        
+        serde_json::from_str::<crate::mcp::protocol::MCPMessage>(&line)
+            .map_err(|e| FlowyError::internal().with_context(format!("Failed to parse response: {}", e)))
+    }
+    
+    /// 发送请求并等待响应
+    async fn send_request(&self, method: &str, params: Option<serde_json::Value>) -> Result<serde_json::Value, FlowyError> {
+        use crate::mcp::protocol::MCPMessage;
+        
+        let id = self.request_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let request = MCPMessage::request(
+            serde_json::json!(id),
+            method.to_string(),
+            params,
+        );
+        
+        self.send_message(&request).await?;
+        
+        // 等待响应，设置超时
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            self.read_response()
+        ).await
+            .map_err(|_| FlowyError::internal().with_context("Request timeout"))?
+            .map_err(|e| FlowyError::internal().with_context(format!("Failed to read response: {}", e)))?;
+        
+        // 检查是否有错误
+        if let Some(error) = response.error {
+            return Err(FlowyError::internal().with_context(format!("MCP error: {}", error.message)));
+        }
+        
+        response.result
+            .ok_or_else(|| FlowyError::internal().with_context("No result in response"))
     }
 }
 
 #[async_trait]
 impl MCPClient for StdioMCPClient {
     async fn initialize(&mut self) -> Result<(), FlowyError> {
+        use tokio::io::BufReader;
+        
         self.status = MCPConnectionStatus::Connecting;
         
         let stdio_config = self.config.stdio_config.as_ref()
             .ok_or_else(|| FlowyError::invalid_data().with_context("Missing STDIO config"))?;
         
+        tracing::info!("Starting STDIO MCP process: {} {:?}", stdio_config.command, stdio_config.args);
+        
         // 启动子进程
         let mut cmd = tokio::process::Command::new(&stdio_config.command);
         cmd.args(&stdio_config.args);
         
-        // 设置环境变量
+        // 检查用户是否手动设置了 PATH 环境变量
+        let user_set_path = stdio_config.env_vars.contains_key("PATH");
+        
+        // 如果用户没有手动设置 PATH，则自动添加命令所在目录到 PATH
+        if !user_set_path {
+            let command_path = std::path::Path::new(&stdio_config.command);
+            if let Some(command_dir) = command_path.parent() {
+                let command_dir_str = command_dir.to_string_lossy();
+                
+                // 获取当前的PATH环境变量
+                let current_path = std::env::var("PATH").unwrap_or_default();
+                
+                // 获取平台相关的路径分隔符
+                #[cfg(target_os = "windows")]
+                let path_separator = ";";
+                #[cfg(not(target_os = "windows"))]
+                let path_separator = ":";
+                
+                // 构建新的PATH: 命令目录 + 当前PATH
+                let new_path = if current_path.is_empty() {
+                    // 如果没有PATH，创建一个基础的PATH
+                    #[cfg(target_os = "windows")]
+                    let default_path = format!("{};C:\\Windows\\System32;C:\\Windows", command_dir_str);
+                    #[cfg(not(target_os = "windows"))]
+                    let default_path = format!("{}:/usr/local/bin:/usr/bin:/bin", command_dir_str);
+                    default_path
+                } else if !current_path.contains(command_dir_str.as_ref()) {
+                    // 如果命令目录不在PATH中，添加到最前面
+                    format!("{}{}{}", command_dir_str, path_separator, current_path)
+                } else {
+                    // 命令目录已经在PATH中
+                    current_path
+                };
+                
+                tracing::info!("Auto-setting PATH for STDIO process: {}", new_path);
+                cmd.env("PATH", new_path);
+            }
+        } else {
+            tracing::info!("User manually set PATH, skipping auto-configuration");
+        }
+        
+        // 设置用户配置的所有环境变量（包括用户手动设置的PATH）
         for (key, value) in &stdio_config.env_vars {
+            tracing::debug!("Setting env var: {}={}", key, if key == "PATH" { "(user configured)" } else { value });
             cmd.env(key, value);
         }
         
@@ -74,15 +226,95 @@ impl MCPClient for StdioMCPClient {
            .stdout(std::process::Stdio::piped())
            .stderr(std::process::Stdio::piped());
         
-        match cmd.spawn() {
-            Ok(process) => {
-                self.process = Some(process);
+        let mut process = cmd.spawn()
+            .map_err(|e| {
+                let error_msg = format!("Failed to start STDIO process: {}", e);
+                self.status = MCPConnectionStatus::Error(error_msg.clone());
+                FlowyError::internal().with_context(error_msg)
+            })?;
+        
+        // 获取stdin、stdout和stderr句柄
+        let stdin = process.stdin.take()
+            .ok_or_else(|| FlowyError::internal().with_context("Failed to get stdin"))?;
+        let stdout = process.stdout.take()
+            .ok_or_else(|| FlowyError::internal().with_context("Failed to get stdout"))?;
+        let stderr = process.stderr.take()
+            .ok_or_else(|| FlowyError::internal().with_context("Failed to get stderr"))?;
+        
+        *self.stdin.lock().await = Some(stdin);
+        *self.stdout.lock().await = Some(BufReader::new(stdout));
+        self.process = Some(process);
+        
+        // 在后台任务中捕获stderr输出
+        let server_name = self.config.name.clone();
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut stderr_reader = BufReader::new(stderr);
+            let mut line = String::new();
+            while let Ok(n) = stderr_reader.read_line(&mut line).await {
+                if n == 0 { break; }
+                if !line.trim().is_empty() {
+                    tracing::warn!("[STDIO stderr] {}: {}", server_name, line.trim());
+                }
+                line.clear();
+            }
+        });
+        
+        // 给进程一点时间启动，检查是否立即退出
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        
+        // 检查进程是否还在运行
+        if let Some(ref mut proc) = self.process {
+            match proc.try_wait() {
+                Ok(Some(status)) => {
+                    let error_msg = format!(
+                        "MCP server process exited immediately with status: {}. Check stderr logs above for details.",
+                        status
+                    );
+                    tracing::error!("{}", error_msg);
+                    self.status = MCPConnectionStatus::Error(error_msg.clone());
+                    return Err(FlowyError::internal().with_context(error_msg));
+                }
+                Ok(None) => {
+                    tracing::debug!("MCP server process is running, proceeding with initialization");
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to check process status: {}", e);
+                }
+            }
+        }
+        
+        // 发送MCP initialize请求
+        let init_params = serde_json::json!({
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {
+                "name": "AppFlowy",
+                "version": "1.0.0"
+            }
+        });
+        
+        tracing::info!("Sending initialize request to MCP server: {}", self.config.name);
+        
+        match self.send_request("initialize", Some(init_params)).await {
+            Ok(result) => {
+                tracing::info!("MCP server initialized successfully: {} - {:?}", self.config.name, result);
+                
+                // 发送initialized通知
+                let notification = crate::mcp::protocol::MCPMessage::notification(
+                    "notifications/initialized".to_string(),
+                    None,
+                );
+                if let Err(e) = self.send_message(&notification).await {
+                    tracing::warn!("Failed to send initialized notification: {}", e);
+                }
+                
                 self.status = MCPConnectionStatus::Connected;
-                tracing::info!("STDIO MCP client initialized for: {}", self.config.name);
                 Ok(())
             }
             Err(e) => {
-                let error_msg = format!("Failed to start STDIO process: {}", e);
+                let error_msg = format!("Failed to initialize MCP server: {}", e);
+                tracing::error!("{} - Please check stderr logs above for details", error_msg);
                 self.status = MCPConnectionStatus::Error(error_msg.clone());
                 Err(FlowyError::internal().with_context(error_msg))
             }
@@ -114,20 +346,56 @@ impl MCPClient for StdioMCPClient {
             return Err(FlowyError::invalid_data().with_context("Client not connected"));
         }
         
-        // TODO: 实现实际的MCP协议通信
-        // 这里先返回缓存的工具列表
+        tracing::info!("Requesting tool list from MCP server: {}", self.config.name);
+        
+        let result = self.send_request("tools/list", None).await?;
+        
+        tracing::debug!("Received tools/list response: {:?}", result);
+        
+        // 解析工具列表
+        let tools_response: crate::mcp::protocol::ListToolsResponse = serde_json::from_value(result)
+            .map_err(|e| FlowyError::internal().with_context(format!("Failed to parse tools list: {}", e)))?;
+        
+        tracing::info!("Discovered {} tools from MCP server: {}", tools_response.tools.len(), self.config.name);
+        
         Ok(ToolsList {
-            tools: self.tools.clone(),
+            tools: tools_response.tools,
         })
     }
     
-    async fn call_tool(&self, _request: ToolCallRequest) -> Result<ToolCallResponse, FlowyError> {
+    async fn call_tool(&self, request: ToolCallRequest) -> Result<ToolCallResponse, FlowyError> {
         if !self.is_connected() {
             return Err(FlowyError::invalid_data().with_context("Client not connected"));
         }
         
-        // TODO: 实现实际的工具调用
-        Err(FlowyError::not_support().with_context("Tool calling not implemented yet"))
+        tracing::info!("Calling tool '{}' on MCP server: {}", request.name, self.config.name);
+        
+        let params = serde_json::json!({
+            "name": request.name,
+            "arguments": request.arguments,
+        });
+        
+        let result = self.send_request("tools/call", Some(params)).await?;
+        
+        tracing::debug!("Received tools/call response: {:?}", result);
+        
+        // 解析工具调用响应
+        let call_response: crate::mcp::protocol::CallToolResponse = serde_json::from_value(result)
+            .map_err(|e| FlowyError::internal().with_context(format!("Failed to parse tool call response: {}", e)))?;
+        
+        // 转换为我们的响应格式
+        let content = call_response.content.into_iter().map(|c| {
+            ToolCallContent {
+                r#type: c.r#type,
+                text: c.text,
+                data: c.data,
+            }
+        }).collect();
+        
+        Ok(ToolCallResponse {
+            content,
+            is_error: call_response.is_error.unwrap_or(false),
+        })
     }
     
     fn get_status(&self) -> MCPConnectionStatus {
@@ -166,6 +434,32 @@ impl SSEMCPClient {
             client,
             session_id: None,  // 初始化时没有会话ID
         })
+    }
+    
+    /// 解析 SSE 响应为 MCPMessage
+    fn parse_sse_response(&self, response_text: &str) -> Result<crate::mcp::protocol::MCPMessage, FlowyError> {
+        use crate::mcp::protocol::MCPMessage;
+        
+        // 解析 SSE 格式: event: message\ndata: {...}\n\n
+        let mut last_json = None;
+        
+        for line in response_text.lines() {
+            if let Some(data) = line.strip_prefix("data: ") {
+                if !data.trim().is_empty() && data.trim() != "[DONE]" {
+                    match serde_json::from_str::<MCPMessage>(data) {
+                        Ok(msg) => {
+                            tracing::debug!("Parsed SSE message: {:?}", msg.method);
+                            last_json = Some(msg);
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to parse SSE message: {} - data: {}", e, data);
+                        }
+                    }
+                }
+            }
+        }
+        
+        last_json.ok_or_else(|| FlowyError::internal().with_context("No valid SSE message found"))
     }
     
     /// 解析MCP响应（支持SSE格式和纯JSON格式）
@@ -388,13 +682,145 @@ impl MCPClient for SSEMCPClient {
         }
     }
     
-    async fn call_tool(&self, _request: ToolCallRequest) -> Result<ToolCallResponse, FlowyError> {
+    async fn call_tool(&self, request: ToolCallRequest) -> Result<ToolCallResponse, FlowyError> {
         if !self.is_connected() {
             return Err(FlowyError::invalid_data().with_context("Client not connected"));
         }
         
-        // TODO: 实现实际的工具调用
-        Err(FlowyError::not_support().with_context("Tool calling not implemented yet"))
+        let http_config = self.config.http_config.as_ref()
+            .ok_or_else(|| FlowyError::invalid_data().with_context("Missing HTTP config for SSE client"))?;
+        
+        // 构建 MCP 协议的 tools/call 请求
+        use crate::mcp::protocol::{MCPMessage, CallToolRequest as ProtocolCallToolRequest};
+        
+        let mcp_request = ProtocolCallToolRequest {
+            name: request.name.clone(),
+            arguments: Some(request.arguments.clone()),
+        };
+        
+        let message = MCPMessage::request(
+            serde_json::json!(std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()),
+            "tools/call".to_string(),
+            Some(serde_json::to_value(&mcp_request).map_err(|e| {
+                FlowyError::internal().with_context(format!("Failed to serialize request: {}", e))
+            })?),
+        );
+        
+        // 发送 HTTP POST 请求
+        let mut http_request = self.client
+            .post(&http_config.url)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream");  // SSE 需要支持 text/event-stream
+        
+        // 添加会话ID (如果有) - 使用 mcp-session-id 头
+        if let Some(ref session_id) = self.session_id {
+            http_request = http_request.header("mcp-session-id", session_id);
+        }
+        
+        // 添加自定义头信息
+        for (key, value) in &http_config.headers {
+            http_request = http_request.header(key, value);
+        }
+        
+        let json_body = serde_json::to_string(&message).map_err(|e| {
+            FlowyError::internal().with_context(format!("Failed to serialize message: {}", e))
+        })?;
+        
+        tracing::info!("🔧 [SSE CALL] Calling tool: {} on {}", request.name, http_config.url);
+        tracing::info!("🔧 [SSE CALL] Request body: {}", json_body);
+        tracing::info!("🔧 [SSE CALL] Session ID: {:?}", self.session_id);
+        
+        let response = http_request
+            .body(json_body)
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::error!("🔧 [SSE CALL] HTTP request error: {}", e);
+                FlowyError::http().with_context(format!("HTTP request failed: {}", e))
+            })?;
+        
+        let status = response.status();
+        tracing::info!("🔧 [SSE CALL] Response status: {}", status);
+        
+        if !status.is_success() {
+            // 尝试读取响应体以获取更多错误信息
+            if let Ok(error_body) = response.text().await {
+                tracing::error!("🔧 [SSE CALL] Error response body: {}", error_body);
+                return Err(FlowyError::http()
+                    .with_context(format!("HTTP {} - {}", status, error_body)));
+            }
+            return Err(FlowyError::http()
+                .with_context(format!("HTTP request failed with status: {}", status)));
+        }
+        
+        let response_text = response.text().await.map_err(|e| {
+            FlowyError::http().with_context(format!("Failed to read response: {}", e))
+        })?;
+        
+        tracing::info!("🔧 [SSE CALL] Response body: {}", 
+                      response_text.chars().take(500).collect::<String>());
+        
+        // 解析响应 - 可能是 SSE 格式或普通 JSON
+        let response_message: MCPMessage = if response_text.contains("event:") || response_text.contains("data:") {
+            // SSE 格式,需要解析
+            tracing::info!("🔧 [SSE CALL] Parsing SSE format response");
+            self.parse_sse_response(&response_text)?
+        } else {
+            // 普通 JSON 格式
+            tracing::info!("🔧 [SSE CALL] Parsing JSON format response");
+            serde_json::from_str(&response_text).map_err(|e| {
+                FlowyError::internal().with_context(format!("Failed to parse JSON response: {}", e))
+            })?
+        };
+        
+        tracing::info!("🔧 [SSE CALL] Parsed response message - has error: {}, has result: {}", 
+                      response_message.error.is_some(), response_message.result.is_some());
+        
+        // 检查错误
+        if let Some(error) = response_message.error {
+            tracing::error!("🔧 [SSE CALL] MCP protocol error: {} (code: {})", error.message, error.code);
+            return Err(FlowyError::internal()
+                .with_context(format!("MCP error: {} (code: {})", error.message, error.code)));
+        }
+        
+        // 提取工具调用结果
+        let result = response_message.result.ok_or_else(|| {
+            tracing::error!("🔧 [SSE CALL] No result field in MCP response");
+            FlowyError::internal().with_context("No result in MCP response")
+        })?;
+        
+        tracing::info!("🔧 [SSE CALL] Extracting tool response from result: {}", 
+                      serde_json::to_string(&result).unwrap_or_default().chars().take(200).collect::<String>());
+        
+        use crate::mcp::protocol::CallToolResponse as ProtocolCallToolResponse;
+        let tool_response: ProtocolCallToolResponse = serde_json::from_value(result).map_err(|e| {
+            tracing::error!("🔧 [SSE CALL] Failed to parse CallToolResponse: {}", e);
+            FlowyError::internal().with_context(format!("Failed to parse tool response: {}", e))
+        })?;
+        
+        tracing::info!("🔧 [SSE CALL] Tool response parsed - content items: {}, is_error: {:?}", 
+                      tool_response.content.len(), tool_response.is_error);
+        
+        // 转换为我们的响应格式
+        let content = tool_response.content.into_iter().map(|c| {
+            ToolCallContent {
+                r#type: c.r#type,
+                text: c.text,
+                data: None,
+            }
+        }).collect();
+        
+        let final_response = ToolCallResponse {
+            content,
+            is_error: tool_response.is_error.unwrap_or(false),
+        };
+        
+        tracing::info!("🔧 [SSE CALL] ✅ Tool call completed successfully - is_error: {}", final_response.is_error);
+        
+        Ok(final_response)
     }
     
     fn get_status(&self) -> MCPConnectionStatus {
@@ -482,13 +908,103 @@ impl MCPClient for HttpMCPClient {
         })
     }
     
-    async fn call_tool(&self, _request: ToolCallRequest) -> Result<ToolCallResponse, FlowyError> {
+    async fn call_tool(&self, request: ToolCallRequest) -> Result<ToolCallResponse, FlowyError> {
         if !self.is_connected() {
             return Err(FlowyError::invalid_data().with_context("Client not connected"));
         }
         
-        // TODO: 实现实际的工具调用
-        Err(FlowyError::not_support().with_context("Tool calling not implemented yet"))
+        let http_config = self.config.http_config.as_ref()
+            .ok_or_else(|| FlowyError::invalid_data().with_context("Missing HTTP config"))?;
+        
+        // 构建 MCP 协议的 tools/call 请求
+        use crate::mcp::protocol::{MCPMessage, CallToolRequest as ProtocolCallToolRequest};
+        
+        let mcp_request = ProtocolCallToolRequest {
+            name: request.name.clone(),
+            arguments: Some(request.arguments.clone()),
+        };
+        
+        let message = MCPMessage::request(
+            serde_json::json!(std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()),
+            "tools/call".to_string(),
+            Some(serde_json::to_value(&mcp_request).map_err(|e| {
+                FlowyError::internal().with_context(format!("Failed to serialize request: {}", e))
+            })?),
+        );
+        
+        // 发送 HTTP 请求
+        let mut http_request = self.client
+            .post(&http_config.url)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json");
+        
+        // 添加自定义头信息
+        for (key, value) in &http_config.headers {
+            http_request = http_request.header(key, value);
+        }
+        
+        let json_body = serde_json::to_string(&message).map_err(|e| {
+            FlowyError::internal().with_context(format!("Failed to serialize message: {}", e))
+        })?;
+        
+        tracing::debug!("Sending MCP tool call request: {}", json_body.chars().take(200).collect::<String>());
+        
+        let response = http_request
+            .body(json_body)
+            .send()
+            .await
+            .map_err(|e| {
+                FlowyError::http().with_context(format!("HTTP request failed: {}", e))
+            })?;
+        
+        if !response.status().is_success() {
+            return Err(FlowyError::http()
+                .with_context(format!("HTTP request failed with status: {}", response.status())));
+        }
+        
+        let response_text = response.text().await.map_err(|e| {
+            FlowyError::http().with_context(format!("Failed to read response: {}", e))
+        })?;
+        
+        tracing::debug!("Received MCP response: {}", response_text.chars().take(200).collect::<String>());
+        
+        // 解析 MCP 响应
+        let response_message: MCPMessage = serde_json::from_str(&response_text).map_err(|e| {
+            FlowyError::internal().with_context(format!("Failed to parse MCP response: {}", e))
+        })?;
+        
+        // 检查错误
+        if let Some(error) = response_message.error {
+            return Err(FlowyError::internal()
+                .with_context(format!("MCP error: {} (code: {})", error.message, error.code)));
+        }
+        
+        // 提取工具调用结果
+        let result = response_message.result.ok_or_else(|| {
+            FlowyError::internal().with_context("No result in MCP response")
+        })?;
+        
+        use crate::mcp::protocol::CallToolResponse as ProtocolCallToolResponse;
+        let tool_response: ProtocolCallToolResponse = serde_json::from_value(result).map_err(|e| {
+            FlowyError::internal().with_context(format!("Failed to parse tool response: {}", e))
+        })?;
+        
+        // 转换为我们的响应格式
+        let content = tool_response.content.into_iter().map(|c| {
+            ToolCallContent {
+                r#type: c.r#type,
+                text: c.text,
+                data: None,
+            }
+        }).collect();
+        
+        Ok(ToolCallResponse {
+            content,
+            is_error: tool_response.is_error.unwrap_or(false),
+        })
     }
     
     fn get_status(&self) -> MCPConnectionStatus {

@@ -6,6 +6,8 @@ import 'package:appflowy/plugins/ai_chat/application/chat_entity.dart';
 import 'package:appflowy/plugins/ai_chat/application/chat_message_height_manager.dart';
 import 'package:appflowy/plugins/ai_chat/application/chat_message_stream.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/widgets/message_height_calculator.dart';
+import 'package:appflowy/plugins/ai_chat/presentation/message/tool_call_display.dart';
+import 'package:appflowy/plugins/ai_chat/presentation/message/task_plan_display.dart';
 import 'package:appflowy_backend/log.dart';
 import 'package:appflowy_backend/protobuf/flowy-ai/protobuf.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -311,6 +313,21 @@ class _NonEmptyMessage extends StatelessWidget {
                     isStreaming: isStreaming,
                   ),
                 ),
+              
+              // 🔧 任务计划显示（在消息内容之前）
+              if (state.taskPlan != null)
+                Padding(
+                  padding: EdgeInsetsDirectional.only(start: 4.0, bottom: 8.0),
+                  child: TaskPlanDisplay(plan: state.taskPlan!),
+                ),
+              
+              // 🔧 工具调用显示（在消息内容之前）
+              if (state.toolCalls.isNotEmpty)
+                Padding(
+                  padding: EdgeInsetsDirectional.only(start: 4.0, bottom: 8.0),
+                  child: ToolCallDisplay(toolCalls: state.toolCalls),
+                ),
+              
               Padding(
                 padding: EdgeInsetsDirectional.only(start: 4.0),
                 child: AIMarkdownText(

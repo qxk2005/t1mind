@@ -536,7 +536,7 @@ impl ToolRegistry {
         for mcp_tool in tools {
             let tool_definition = ToolDefinitionPB {
                 name: mcp_tool.name.clone(),
-                description: mcp_tool.description.clone(),
+                description: mcp_tool.description.clone().unwrap_or_default(),
                 tool_type: ToolTypePB::MCP,
                 source: server_id.to_string(),
                 parameters_schema: serde_json::to_string(&mcp_tool.input_schema).unwrap_or_default(),
@@ -934,7 +934,11 @@ impl ToolRegistry {
         
         Some(MCPTool {
             name: definition.name.clone(),
-            description: definition.description.clone(),
+            description: if definition.description.is_empty() { 
+                None 
+            } else { 
+                Some(definition.description.clone()) 
+            },
             input_schema,
             annotations: None, // 可以从metadata中提取
         })

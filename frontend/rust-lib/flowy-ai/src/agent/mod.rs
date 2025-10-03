@@ -7,6 +7,9 @@ pub mod native_tools;
 pub mod event_handler;
 pub mod system_prompt;
 pub mod agent_capabilities;
+pub mod tool_call_handler;
+pub mod plan_integration;
+pub mod stream_tool_handler;
 
 pub use config_manager::{
     AgentConfigManager, 
@@ -55,3 +58,17 @@ pub use native_tools::NativeToolsManager;
 pub use system_prompt::build_agent_system_prompt;
 
 pub use agent_capabilities::AgentCapabilityExecutor;
+
+pub use tool_call_handler::{
+    ToolCallHandler,
+    ToolCallRequest,
+    ToolCallResponse,
+    ToolCallProtocol,
+};
+
+pub use plan_integration::{
+    PlanIntegration,
+    PlanExecutionEvent,
+};
+
+pub use stream_tool_handler::StreamToolWrapper;

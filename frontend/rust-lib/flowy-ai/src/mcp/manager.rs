@@ -126,7 +126,30 @@ impl MCPClientManager {
 
     /// 根据名称查找工具
     pub async fn find_tool_by_name(&self, tool_name: &str) -> Option<(String, MCPTool)> {
-        self.tool_discovery.find_tool_by_name(tool_name).await
+        // 🔍 优先从工具注册表中查找(已连接的服务器)
+        if let Some(result) = self.tool_discovery.find_tool_by_name(tool_name).await {
+            tracing::info!("🔍 [FIND TOOL] Found '{}' in connected server '{}'", tool_name, result.0);
+            return Some(result);
+        }
+        
+        // 🔍 如果注册表中没有,从配置的缓存中查找
+        tracing::info!("🔍 [FIND TOOL] Tool '{}' not in registry, searching cached tools...", tool_name);
+        
+        let all_servers = self.config_manager.get_all_servers();
+        for server in all_servers {
+            if let Some(cached_tools) = &server.cached_tools {
+                for tool in cached_tools {
+                    if tool.name == tool_name {
+                        tracing::info!("🔍 [FIND TOOL] Found '{}' in cached tools of server '{}'", 
+                                     tool_name, server.id);
+                        return Some((server.id.clone(), tool.clone()));
+                    }
+                }
+            }
+        }
+        
+        tracing::warn!("🔍 [FIND TOOL] Tool '{}' not found in any server (registry or cache)", tool_name);
+        None
     }
 
     /// 获取工具统计信息

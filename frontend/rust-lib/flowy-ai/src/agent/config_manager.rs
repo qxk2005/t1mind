@@ -107,6 +107,12 @@ impl AgentConfigManager {
         let agent_id = self.generate_agent_id();
         let now = Utc::now().timestamp();
         
+        // 自动填充可用工具（如果为空且启用了工具调用）
+        let mut available_tools = request.available_tools;
+        if available_tools.is_empty() && request.capabilities.enable_tool_calling {
+            available_tools = self.get_default_tools();
+        }
+        
         // 创建智能体配置
         let mut agent_config = AgentConfigPB {
             id: agent_id.clone(),
@@ -115,7 +121,7 @@ impl AgentConfigManager {
             avatar: request.avatar,
             personality: request.personality,
             capabilities: request.capabilities,
-            available_tools: request.available_tools,
+            available_tools,
             status: AgentStatusPB::AgentActive,
             created_at: now,
             updated_at: now,
@@ -174,6 +180,9 @@ impl AgentConfigManager {
         
         if !request.available_tools.is_empty() {
             agent_config.available_tools = request.available_tools;
+        } else if agent_config.available_tools.is_empty() && agent_config.capabilities.enable_tool_calling {
+            // 为现有智能体自动填充默认工具
+            agent_config.available_tools = self.get_default_tools();
         }
         
         if let Some(status) = request.status {
@@ -455,8 +464,8 @@ impl AgentConfigManager {
             errors.push("会话记忆长度限制必须在10-10000之间".to_string());
         }
         
-        if config.available_tools.is_empty() {
-            errors.push("至少需要选择一个可用工具".to_string());
+        if config.available_tools.is_empty() && config.capabilities.enable_tool_calling {
+            errors.push("启用工具调用时至少需要选择一个可用工具".to_string());
         }
         
         Ok(errors)
@@ -497,6 +506,34 @@ impl AgentConfigManager {
         if capabilities.memory_limit <= 0 {
             capabilities.memory_limit = global_settings.default_memory_limit;
         }
+    }
+    
+    /// 从 MCP 服务器动态获取默认工具列表
+    /// 
+    /// 此方法需要访问 MCP 管理器，因此需要异步调用
+    /// 为了保持向后兼容，我们提供同步版本返回空列表
+    fn get_default_tools(&self) -> Vec<String> {
+        // 同步版本返回空列表
+        // 实际工具发现应该在 AIManager 中通过异步方法完成
+        Vec::new()
+    }
+    
+    /// 为现有智能体自动填充工具（如果工具列表为空）
+    pub fn auto_populate_agent_tools(&self, agent_id: &str) -> FlowyResult<bool> {
+        if let Some(mut config) = self.get_agent_config(agent_id) {
+            if config.available_tools.is_empty() && config.capabilities.enable_tool_calling {
+                config.available_tools = self.get_default_tools();
+                config.updated_at = Utc::now().timestamp();
+                
+                self.save_agent_config(&config)?;
+                
+                info!("为智能体 {} 自动填充了 {} 个默认工具", 
+                      config.name, config.available_tools.len());
+                return Ok(true);
+            }
+        }
+        
+        Ok(false)
     }
 
     /// 更新智能体列表

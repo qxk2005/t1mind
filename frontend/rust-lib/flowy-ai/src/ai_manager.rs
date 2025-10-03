@@ -341,9 +341,59 @@ impl AIManager {
     // 如果有 agent_id，加载智能体配置
     let agent_config = if let Some(ref agent_id) = params.agent_id {
       match self.agent_manager.get_agent_config(agent_id) {
-        Some(config) => {
+        Some(mut config) => {
           info!("[Chat] Using agent: {} ({})", config.name, config.id);
-          Some(config)
+          info!("[Chat] Agent has {} tools, tool_calling enabled: {}", 
+                config.available_tools.len(), config.capabilities.enable_tool_calling);
+          
+          // 🔍 获取工具详情用于增强系统提示
+          let (discovered_tool_names, tool_details) = self.discover_available_tools().await;
+          info!("[Chat] Discovered {} tools with {} tool details", 
+                discovered_tool_names.len(), tool_details.len());
+          
+          // 自动填充工具列表（如果为空）
+          if config.available_tools.is_empty() && config.capabilities.enable_tool_calling {
+            info!("[Chat] 智能体工具列表为空，开始自动发现 MCP 工具...");
+            
+            if !discovered_tool_names.is_empty() {
+              config.available_tools = discovered_tool_names.clone();
+              config.updated_at = chrono::Utc::now().timestamp();
+              
+              // 使用更新方法保存配置
+              let update_request = crate::entities::UpdateAgentRequestPB {
+                id: config.id.clone(),
+                name: None,
+                description: None,
+                avatar: None,
+                personality: None,
+                capabilities: None,
+                available_tools: config.available_tools.clone(),
+                status: None,
+                metadata: std::collections::HashMap::new(),
+              };
+              
+              if let Err(e) = self.agent_manager.update_agent(update_request) {
+                warn!("Failed to save agent config after tool population: {}", e);
+              } else {
+                info!("为智能体 {} 自动发现并填充了 {} 个工具", 
+                      config.name, config.available_tools.len());
+              }
+            } else {
+              warn!("未发现任何可用的 MCP 工具，智能体 {} 将无法使用工具调用功能", config.name);
+            }
+          }
+          
+          // 🆕 构建增强的系统提示（包含工具详情）
+          let enhanced_prompt = if !tool_details.is_empty() && config.capabilities.enable_tool_calling {
+            use crate::agent::system_prompt::build_agent_system_prompt_with_tools;
+            let prompt = build_agent_system_prompt_with_tools(&config, &tool_details);
+            info!("[Chat] 🔧 Using enhanced system prompt with {} tool details", tool_details.len());
+            Some(prompt)
+          } else {
+            None
+          };
+          
+          Some((config, enhanced_prompt))
         },
         None => {
           warn!("[Chat] Agent not found: {}", agent_id);
@@ -354,9 +404,28 @@ impl AIManager {
       None
     };
 
+    // 🔧 任务规划提示（实际规划由AI自动判断，通过系统提示词指导）
+    // TODO: 如果需要自动任务规划，需要在 AIManager 中添加 plan_integration 字段
+    // 目前任务规划功能通过增强的系统提示词实现，AI会根据需要创建计划
+
+    // 解包 agent_config 和 enhanced_prompt
+    let (agent_config, enhanced_prompt) = if let Some((config, prompt)) = agent_config {
+      (Some(config), prompt)
+    } else {
+      (None, None)
+    };
+
+    // 🔧 创建工具调用处理器（如果有智能体配置）
+    let tool_call_handler = if agent_config.is_some() {
+      use crate::agent::ToolCallHandler;
+      Some(Arc::new(ToolCallHandler::from_ai_manager(self)))
+    } else {
+      None
+    };
+
     let chat = self.get_or_create_chat_instance(&params.chat_id).await?;
     let ai_model = self.get_active_model(&params.chat_id.to_string()).await;
-    let question = chat.stream_chat_message(&params, ai_model, agent_config).await?;
+    let question = chat.stream_chat_message(&params, ai_model, agent_config, tool_call_handler, enhanced_prompt).await?;
     let _ = self
       .external_service
       .notify_did_send_message(&params.chat_id, &params.message)
@@ -821,7 +890,19 @@ impl AIManager {
   }
 
   /// 创建智能体
-  pub async fn create_agent(&self, request: CreateAgentRequestPB) -> FlowyResult<AgentConfigPB> {
+  pub async fn create_agent(&self, mut request: CreateAgentRequestPB) -> FlowyResult<AgentConfigPB> {
+    // 如果工具列表为空且启用了工具调用，动态发现工具
+    if request.available_tools.is_empty() && request.capabilities.enable_tool_calling {
+      let (discovered_tool_names, _tool_details) = self.discover_available_tools().await;
+      
+      if !discovered_tool_names.is_empty() {
+        info!("为新智能体 '{}' 自动发现了 {} 个工具", request.name, discovered_tool_names.len());
+        request.available_tools = discovered_tool_names;
+      } else {
+        warn!("未发现任何可用的 MCP 工具，智能体 '{}' 将以空工具列表创建", request.name);
+      }
+    }
+    
     self.agent_manager.create_agent(request)
   }
 
@@ -831,8 +912,60 @@ impl AIManager {
   }
 
   /// 更新智能体配置
-  pub async fn update_agent(&self, request: UpdateAgentRequestPB) -> FlowyResult<AgentConfigPB> {
-    self.agent_manager.update_agent(request)
+  pub async fn update_agent(&self, mut request: UpdateAgentRequestPB) -> FlowyResult<AgentConfigPB> {
+    // 获取现有配置用于调试和比较
+    let existing_config = self.agent_manager.get_agent_config(&request.id);
+    
+    info!("🔄 [Agent Update] 开始更新智能体: {}", request.id);
+    info!("🔄 [Agent Update] 请求工具列表长度: {}", request.available_tools.len());
+    info!("🔄 [Agent Update] 请求是否包含 capabilities: {}", request.capabilities.is_some());
+    
+    if let Some(ref existing) = existing_config {
+      info!("🔄 [Agent Update] 现有智能体: {}", existing.name);
+      info!("🔄 [Agent Update] 现有工具列表长度: {}", existing.available_tools.len());
+      info!("🔄 [Agent Update] 现有 enable_tool_calling: {}", existing.capabilities.enable_tool_calling);
+    }
+    
+    // 如果更新了能力配置，且启用了工具调用，但请求中的工具列表为空
+    if let Some(ref capabilities) = request.capabilities {
+      info!("🔄 [Agent Update] 新能力配置 - enable_tool_calling: {}", capabilities.enable_tool_calling);
+      
+      if capabilities.enable_tool_calling && request.available_tools.is_empty() {
+        info!("🔄 [Agent Update] 条件满足：工具调用已启用且工具列表为空");
+        
+        if let Some(existing) = existing_config {
+          let should_discover = existing.available_tools.is_empty() || 
+                                capabilities.enable_tool_calling != existing.capabilities.enable_tool_calling;
+          
+          info!("🔄 [Agent Update] 是否需要发现工具: {}", should_discover);
+          
+          if should_discover {
+            info!("✨ [Agent Update] 检测到工具调用能力变更或工具列表为空，开始自动发现工具...");
+            let (discovered_tool_names, _tool_details) = self.discover_available_tools().await;
+            
+            if !discovered_tool_names.is_empty() {
+              info!("✅ [Agent Update] 为智能体 '{}' 自动发现了 {} 个工具", 
+                    existing.name, discovered_tool_names.len());
+              request.available_tools = discovered_tool_names;
+            } else {
+              warn!("⚠️  [Agent Update] 未发现任何可用的 MCP 工具");
+            }
+          } else {
+            info!("ℹ️  [Agent Update] 智能体已有工具且能力未变更，跳过工具发现");
+          }
+        }
+      } else if !capabilities.enable_tool_calling {
+        info!("ℹ️  [Agent Update] 工具调用未启用，跳过工具发现");
+      } else {
+        info!("ℹ️  [Agent Update] 请求中已包含 {} 个工具，跳过自动发现", request.available_tools.len());
+      }
+    } else {
+      info!("ℹ️  [Agent Update] 未更新能力配置，跳过工具发现");
+    }
+    
+    let result = self.agent_manager.update_agent(request);
+    info!("🔄 [Agent Update] 更新完成");
+    result
   }
 
   /// 删除智能体
@@ -1036,3 +1169,70 @@ fn setting_store_key(chat_id: &Uuid) -> String {
 }
 
 const CUSTOM_PROMPT_DATABASE_CONFIGURATION_KEY: &str = "custom_prompt_database_config";
+
+impl AIManager {
+  /// 从已配置的 MCP 服务器动态发现所有可用工具
+  async fn discover_available_tools(&self) -> (Vec<String>, HashMap<String, crate::mcp::entities::MCPTool>) {
+    let mut tool_names = Vec::new();
+    let mut tool_details = HashMap::new();
+    
+    // 🔍 关键修复：从配置管理器获取所有已配置的服务器，而不是只查询已连接的客户端池
+    let server_configs = self.mcp_manager.config_manager().get_all_servers();
+    let config_count = server_configs.len();
+    
+    info!("[Tool Discovery] 开始扫描 {} 个已配置的 MCP 服务器...", config_count);
+    
+    if server_configs.is_empty() {
+      info!("[Tool Discovery] 未找到任何已配置的 MCP 服务器");
+      return (tool_names, tool_details);
+    }
+    
+    // 遍历所有已配置且活跃的服务器
+    for config in server_configs {
+      info!("[Tool Discovery] 检查配置: {} (ID: {}, 激活: {})", 
+            config.name, config.id, config.is_active);
+      
+      // 跳过未激活的服务器
+      if !config.is_active {
+        info!("[Tool Discovery] 跳过未激活的服务器: {}", config.name);
+        continue;
+      }
+      
+      // 优先使用缓存的工具列表（避免重复连接）
+      if let Some(cached_tools) = &config.cached_tools {
+        let tool_count = cached_tools.len();
+        info!("[Tool Discovery] 从服务器 '{}' 的缓存中发现 {} 个工具", config.name, tool_count);
+        
+        for tool in cached_tools {
+          tool_names.push(tool.name.clone());
+          tool_details.insert(tool.name.clone(), tool.clone());
+        }
+        continue;
+      }
+      
+      // 如果没有缓存，尝试从已连接的客户端获取
+      info!("[Tool Discovery] 服务器 '{}' 没有缓存，尝试从客户端获取...", config.name);
+      match self.mcp_manager.tool_list(&config.id).await {
+        Ok(tools_list) => {
+          let tool_count = tools_list.tools.len();
+          if tool_count > 0 {
+            info!("[Tool Discovery] 从服务器 '{}' 的客户端获取到 {} 个工具", config.name, tool_count);
+            for tool in tools_list.tools {
+              tool_names.push(tool.name.clone());
+              tool_details.insert(tool.name.clone(), tool);
+            }
+          } else {
+            warn!("[Tool Discovery] 服务器 '{}' 已激活但未返回任何工具", config.name);
+          }
+        }
+        Err(e) => {
+          warn!("[Tool Discovery] 从服务器 '{}' 获取工具列表失败: {} - 可能未连接", config.name, e);
+        }
+      }
+    }
+    
+    info!("✅ [Tool Discovery] 共从 {} 个已配置服务器发现 {} 个可用工具", 
+          config_count, tool_names.len());
+    (tool_names, tool_details)
+  }
+}

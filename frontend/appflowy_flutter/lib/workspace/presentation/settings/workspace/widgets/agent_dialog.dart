@@ -187,8 +187,8 @@ class _AgentDialogState extends State<AgentDialog> {
         ..description = _descriptionController.text.trim()
         ..personality = _personalityController.text.trim()
         ..avatar = _avatarController.text.trim()
-        ..capabilities = capabilities
-        ..availableTools.addAll(['default_tool']);
+        ..capabilities = capabilities;
+        // 移除 availableTools，让系统自动从 MCP 服务器发现
 
       context.read<AgentSettingsBloc>().add(
         AgentSettingsEvent.updateAgent(request),
@@ -199,8 +199,8 @@ class _AgentDialogState extends State<AgentDialog> {
         ..description = _descriptionController.text.trim()
         ..personality = _personalityController.text.trim()
         ..avatar = _avatarController.text.trim()
-        ..capabilities = capabilities
-        ..availableTools.addAll(['default_tool']);
+        ..capabilities = capabilities;
+        // 移除 availableTools，让系统自动从 MCP 服务器发现
 
       context.read<AgentSettingsBloc>().add(
         AgentSettingsEvent.createAgent(request),

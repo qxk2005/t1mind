@@ -86,7 +86,7 @@ impl ToolDiscoveryManager {
         for (server_id, tools) in registry.iter() {
             for tool in tools {
                 if tool.name.to_lowercase().contains(&query_lower) ||
-                   tool.description.to_lowercase().contains(&query_lower) {
+                   tool.description.as_deref().unwrap_or("").to_lowercase().contains(&query_lower) {
                     results.push((server_id.clone(), tool.clone()));
                 }
             }

@@ -1,4 +1,6 @@
 use crate::entities::AgentConfigPB;
+use crate::mcp::entities::MCPTool;
+use std::collections::HashMap;
 
 /// 根据智能体配置构建系统提示词
 pub fn build_agent_system_prompt(config: &AgentConfigPB) -> String {
@@ -24,11 +26,19 @@ pub fn build_agent_system_prompt(config: &AgentConfigPB) -> String {
         "- Task Planning: Break down complex tasks systematically (max {} steps)\n",
         cap.max_planning_steps
       ));
-      prompt.push_str("  For complex requests:\n");
-      prompt.push_str("    • Analyze the goal and identify key requirements\n");
-      prompt.push_str("    • Create a step-by-step plan\n");
-      prompt.push_str("    • Execute each step methodically\n");
-      prompt.push_str("    • Validate results and adjust if needed\n");
+      prompt.push_str("  **When to Create a Plan:**\n");
+      prompt.push_str("    • Complex multi-step tasks\n");
+      prompt.push_str("    • Tasks requiring multiple tools or resources\n");
+      prompt.push_str("    • Tasks with dependencies between steps\n");
+      prompt.push_str("    • Tasks that need careful sequencing\n\n");
+      prompt.push_str("  **Planning Process:**\n");
+      prompt.push_str("    1. Analyze the goal and identify key requirements\n");
+      prompt.push_str("    2. Break down into logical, sequential steps\n");
+      prompt.push_str("    3. Identify required tools and resources for each step\n");
+      prompt.push_str("    4. Execute steps methodically, one at a time\n");
+      prompt.push_str("    5. Validate results after each step\n");
+      prompt.push_str("    6. Adjust plan if needed based on intermediate results\n");
+      prompt.push_str("    7. Summarize final outcome for the user\n\n");
     }
     
     if cap.enable_tool_calling && !config.available_tools.is_empty() {
@@ -41,11 +51,33 @@ pub fn build_agent_system_prompt(config: &AgentConfigPB) -> String {
         "  Max {} tool calls per conversation\n",
         cap.max_tool_calls
       ));
-      prompt.push_str("  When using tools:\n");
-      prompt.push_str("    • Clearly state which tool you're using and why\n");
-      prompt.push_str("    • Provide required parameters accurately\n");
-      prompt.push_str("    • Interpret and explain results to the user\n");
-      prompt.push_str("    • Handle errors gracefully\n");
+      
+      // 添加详细的工具调用协议
+      prompt.push_str("\n  **Tool Calling Protocol:**\n");
+      prompt.push_str("  When you need to use a tool, DIRECTLY output the following format (WITHOUT markdown code blocks):\n\n");
+      prompt.push_str("  <tool_call>\n");
+      prompt.push_str("  {\n");
+      prompt.push_str("    \"id\": \"unique_call_id\",\n");
+      prompt.push_str("    \"tool_name\": \"tool_name_here\",\n");
+      prompt.push_str("    \"arguments\": {\n");
+      prompt.push_str("      \"param1\": \"value1\",\n");
+      prompt.push_str("      \"param2\": \"value2\"\n");
+      prompt.push_str("    }\n");
+      prompt.push_str("  }\n");
+      prompt.push_str("  </tool_call>\n\n");
+      prompt.push_str("  **CRITICAL:** Do NOT wrap the tool call in markdown code blocks (``` or ```tool_call). Output the <tool_call> tags directly!\n\n");
+      prompt.push_str("  **Note:** Do not specify 'source' field - the system will automatically detect whether the tool is native or external.\n\n");
+      
+      prompt.push_str("  **Important Rules:**\n");
+      prompt.push_str("    • Generate a unique ID for each tool call (e.g., \"call_001\", \"call_002\")\n");
+      prompt.push_str("    • Use valid JSON format inside the <tool_call> tags\n");
+      prompt.push_str("    • Output <tool_call> tags directly in your response, NOT inside markdown code blocks\n");
+      prompt.push_str("    • Specify correct tool names from the available tools list\n");
+      prompt.push_str("    • Provide all required arguments with correct types\n");
+      prompt.push_str("    • Wait for tool results before continuing your response\n");
+      prompt.push_str("    • Explain to the user what tool you're using and why\n");
+      prompt.push_str("    • Interpret and summarize tool results for the user\n");
+      prompt.push_str("    • Handle errors gracefully with helpful messages\n\n");
     }
     
     if cap.enable_reflection {
@@ -186,5 +218,92 @@ mod tests {
     assert!(prompt.contains("domain"));
     assert!(prompt.contains("software engineering"));
   }
+}
+
+/// 格式化单个工具的详细信息
+fn format_tool_details(tool: &MCPTool) -> String {
+  let mut details = String::new();
+  
+  details.push_str(&format!("**{}**\n", tool.name));
+  details.push_str(&format!("  {}\n", tool.description.as_deref().unwrap_or("No description available")));
+  
+  // 解析 JSON Schema 获取参数信息
+  if let Some(properties) = tool.input_schema.get("properties").and_then(|p| p.as_object()) {
+    details.push_str("  Parameters:\n");
+    
+    let required_fields = tool.input_schema.get("required")
+      .and_then(|r| r.as_array())
+      .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect::<Vec<_>>())
+      .unwrap_or_default();
+    
+    for (name, schema) in properties {
+      let param_type = schema.get("type")
+        .and_then(|t| t.as_str())
+        .unwrap_or("any");
+      
+      let description = schema.get("description")
+        .and_then(|d| d.as_str())
+        .unwrap_or("");
+      
+      let required_mark = if required_fields.contains(name) {
+        "required"
+      } else {
+        "optional"
+      };
+      
+      details.push_str(&format!(
+        "    - {} ({}): {} [{}]\n",
+        name, param_type, description, required_mark
+      ));
+    }
+  }
+  
+  // 添加注解信息(如果有)
+  if let Some(annotations) = &tool.annotations {
+    let mut hints = Vec::new();
+    if let Some(true) = annotations.read_only_hint {
+      hints.push("read-only");
+    }
+    if let Some(true) = annotations.destructive_hint {
+      hints.push("destructive");
+    }
+    if let Some(true) = annotations.idempotent_hint {
+      hints.push("idempotent");
+    }
+    if !hints.is_empty() {
+      details.push_str(&format!("  Hints: {}\n", hints.join(", ")));
+    }
+  }
+  
+  details.push_str("\n");
+  details
+}
+
+/// 构建包含工具详细信息的增强系统提示
+pub fn build_agent_system_prompt_with_tools(
+  config: &AgentConfigPB,
+  tool_details: &HashMap<String, MCPTool>,
+) -> String {
+  let mut prompt = build_agent_system_prompt(config);
+  
+  // 如果启用了工具调用且有工具详情,添加详细的工具信息
+  if config.capabilities.enable_tool_calling && !tool_details.is_empty() {
+    prompt.push_str("\n\n## 🔧 Available Tools (Detailed Information)\n\n");
+    prompt.push_str("You have access to the following tools with their detailed specifications:\n\n");
+    
+    let mut tool_count = 0;
+    for tool_name in &config.available_tools {
+      if let Some(tool) = tool_details.get(tool_name) {
+        tool_count += 1;
+        prompt.push_str(&format!("{}. ", tool_count));
+        prompt.push_str(&format_tool_details(tool));
+      }
+    }
+    
+    prompt.push_str(&format!("\n**You have {} tools available.** ", tool_count));
+    prompt.push_str("Use them when needed to help the user accomplish their tasks.\n");
+  }
+  
+  prompt
 }
 

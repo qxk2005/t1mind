@@ -1,6 +1,8 @@
 import 'package:appflowy/plugins/ai_chat/application/chat_entity.dart';
 import 'package:appflowy/plugins/ai_chat/application/chat_message_stream.dart';
 import 'package:appflowy/plugins/ai_chat/application/reasoning_manager.dart';
+import 'package:appflowy/plugins/ai_chat/presentation/message/tool_call_display.dart';
+import 'package:appflowy/plugins/ai_chat/presentation/message/task_plan_display.dart';
 import 'package:appflowy_backend/dispatch/dispatch.dart';
 import 'package:appflowy_backend/log.dart';
 import 'package:appflowy_backend/protobuf/flowy-ai/entities.pb.dart';
@@ -157,12 +159,26 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
         Log.debug("🚀 [REALTIME] Reasoning is active, isReasoningComplete: false");
       }
       
+      // 🔧 处理工具调用 Metadata
+      List<ToolCallInfo> updatedToolCalls = state.toolCalls;
+      if (event.metadata.rawMetadata != null) {
+        updatedToolCalls = _handleToolCallMetadata(event.metadata.rawMetadata!, state.toolCalls);
+      }
+      
+      // 🔧 处理任务规划 Metadata
+      TaskPlanInfo? updatedTaskPlan = state.taskPlan;
+      if (event.metadata.rawMetadata != null) {
+        updatedTaskPlan = _handleTaskPlanMetadata(event.metadata.rawMetadata!, state.taskPlan);
+      }
+      
       emit(
         state.copyWith(
           sources: event.metadata.sources,
           progress: event.metadata.progress,
           reasoningText: updatedReasoningText,
           isReasoningComplete: isReasoningActive ? false : state.isReasoningComplete, // 保持推理状态
+          toolCalls: updatedToolCalls,
+          taskPlan: updatedTaskPlan,
         ),
       );
     });
@@ -237,6 +253,155 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
       add(event);
     }
   }
+
+  // 🔧 处理工具调用 Metadata
+  List<ToolCallInfo> _handleToolCallMetadata(
+    Map<String, dynamic> metadata,
+    List<ToolCallInfo> currentToolCalls,
+  ) {
+    try {
+      if (!metadata.containsKey('tool_call')) {
+        return currentToolCalls;
+      }
+
+      final toolCallData = metadata['tool_call'] as Map<String, dynamic>?;
+      if (toolCallData == null) return currentToolCalls;
+
+      final callId = toolCallData['id'] as String?;
+      if (callId == null) return currentToolCalls;
+
+      // 查找是否已存在相同ID的工具调用
+      final existingIndex = currentToolCalls.indexWhere((call) => call.id == callId);
+
+      // 解析工具调用信息
+      final toolCall = ToolCallInfo(
+        id: callId,
+        toolName: toolCallData['tool_name'] as String? ?? 'Unknown',
+        status: _parseToolCallStatus(toolCallData['status'] as String?),
+        arguments: (toolCallData['arguments'] as Map<String, dynamic>?) ?? {},
+        description: toolCallData['description'] as String?,
+        result: toolCallData['result'] as String?,
+        error: toolCallData['error'] as String?,
+        startTime: toolCallData['start_time'] != null 
+            ? DateTime.tryParse(toolCallData['start_time'] as String)
+            : null,
+        endTime: toolCallData['end_time'] != null
+            ? DateTime.tryParse(toolCallData['end_time'] as String)
+            : null,
+      );
+
+      Log.debug("🔧 [TOOL] Tool call ${toolCall.status.name}: ${toolCall.toolName} (id: $callId)");
+
+      // 更新或添加工具调用
+      if (existingIndex != -1) {
+        final updatedList = List<ToolCallInfo>.from(currentToolCalls);
+        updatedList[existingIndex] = toolCall;
+        return updatedList;
+      } else {
+        return [...currentToolCalls, toolCall];
+      }
+    } catch (e) {
+      Log.error("Failed to parse tool call metadata: $e");
+      return currentToolCalls;
+    }
+  }
+
+  // 🔧 处理任务规划 Metadata
+  TaskPlanInfo? _handleTaskPlanMetadata(
+    Map<String, dynamic> metadata,
+    TaskPlanInfo? currentPlan,
+  ) {
+    try {
+      if (!metadata.containsKey('task_plan')) {
+        return currentPlan;
+      }
+
+      final planData = metadata['task_plan'] as Map<String, dynamic>?;
+      if (planData == null) return currentPlan;
+
+      final planId = planData['id'] as String?;
+      if (planId == null) return currentPlan;
+
+      // 解析步骤列表
+      final stepsData = planData['steps'] as List<dynamic>?;
+      final steps = stepsData?.map((stepData) {
+        final stepMap = stepData as Map<String, dynamic>;
+        return TaskStepInfo(
+          id: stepMap['id'] as String? ?? '',
+          description: stepMap['description'] as String? ?? '',
+          status: _parseTaskStepStatus(stepMap['status'] as String?),
+          tools: (stepMap['tools'] as List<dynamic>?)
+              ?.map((t) => t.toString())
+              .toList() ?? [],
+          error: stepMap['error'] as String?,
+        );
+      }).toList() ?? [];
+
+      final plan = TaskPlanInfo(
+        id: planId,
+        goal: planData['goal'] as String? ?? '',
+        status: _parseTaskPlanStatus(planData['status'] as String?),
+        steps: steps,
+      );
+
+      Log.debug("📋 [PLAN] Task plan ${plan.status.name}: ${plan.goal} (${plan.completedSteps}/${plan.steps.length} steps)");
+
+      return plan;
+    } catch (e) {
+      Log.error("Failed to parse task plan metadata: $e");
+      return currentPlan;
+    }
+  }
+
+  // 解析工具调用状态
+  ToolCallStatus _parseToolCallStatus(String? status) {
+    switch (status) {
+      case 'pending':
+        return ToolCallStatus.pending;
+      case 'running':
+        return ToolCallStatus.running;
+      case 'success':
+        return ToolCallStatus.success;
+      case 'failed':
+        return ToolCallStatus.failed;
+      default:
+        return ToolCallStatus.pending;
+    }
+  }
+
+  // 解析任务计划状态
+  TaskPlanStatus _parseTaskPlanStatus(String? status) {
+    switch (status) {
+      case 'pending':
+        return TaskPlanStatus.pending;
+      case 'running':
+        return TaskPlanStatus.running;
+      case 'completed':
+        return TaskPlanStatus.completed;
+      case 'failed':
+        return TaskPlanStatus.failed;
+      case 'cancelled':
+        return TaskPlanStatus.cancelled;
+      default:
+        return TaskPlanStatus.pending;
+    }
+  }
+
+  // 解析任务步骤状态
+  TaskStepStatus _parseTaskStepStatus(String? status) {
+    switch (status) {
+      case 'pending':
+        return TaskStepStatus.pending;
+      case 'running':
+        return TaskStepStatus.running;
+      case 'completed':
+        return TaskStepStatus.completed;
+      case 'failed':
+        return TaskStepStatus.failed;
+      default:
+        return TaskStepStatus.pending;
+    }
+  }
 }
 
 @freezed
@@ -274,6 +439,9 @@ class ChatAIMessageState with _$ChatAIMessageState {
     required AIChatProgress? progress,
     String? reasoningText,
     @Default(false) bool isReasoningComplete,
+    // 🔧 新增字段：工具调用和任务规划
+    @Default([]) List<ToolCallInfo> toolCalls,
+    TaskPlanInfo? taskPlan,
   }) = _ChatAIMessageState;
 
   factory ChatAIMessageState.initial(

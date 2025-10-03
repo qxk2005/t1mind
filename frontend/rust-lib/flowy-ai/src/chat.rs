@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64};
 use tokio::sync::{Mutex, RwLock};
-use tracing::{error, instrument, trace};
+use tracing::{error, instrument, trace, warn};
 use uuid::Uuid;
 
 enum PrevMessageState {
@@ -76,6 +76,8 @@ impl Chat {
     params: &StreamMessageParams,
     preferred_ai_model: AIModel,
     agent_config: Option<AgentConfigPB>,
+    tool_call_handler: Option<Arc<crate::agent::ToolCallHandler>>,  // 🔧 工具调用处理器
+    custom_system_prompt: Option<String>,  // 🆕 自定义系统提示(已包含工具详情)
   ) -> Result<ChatMessagePB, FlowyError> {
     let agent_name = agent_config.as_ref().map(|c| c.name.as_str()).unwrap_or("None");
     trace!(
@@ -95,7 +97,11 @@ impl Chat {
     let workspace_id = self.user_service.workspace_id()?;
 
     // 构建增强的系统提示词（如果有智能体配置）
-    let system_prompt = if let Some(ref config) = agent_config {
+    let system_prompt = if let Some(custom_prompt) = custom_system_prompt {
+      // 🆕 使用自定义提示(已包含工具详情)
+      info!("[Chat] 🔧 Using custom system prompt (with tool details)");
+      Some(custom_prompt)
+    } else if let Some(ref config) = agent_config {
       use crate::agent::{build_agent_system_prompt, AgentCapabilityExecutor};
       
       // 创建能力执行器
@@ -168,7 +174,7 @@ impl Chat {
     notify_message(&self.chat_id, question.clone())?;
     let format = params.format.clone().map(Into::into).unwrap_or_default();
     
-    // 传递系统提示词给 stream_response
+    // 传递系统提示词、智能体配置和工具调用处理器给 stream_response
     self.stream_response(
       params.answer_stream_port,
       answer_stream_buffer,
@@ -178,6 +184,8 @@ impl Chat {
       format,
       preferred_ai_model,
       system_prompt,
+      agent_config,  // 🔧 传递智能体配置
+      tool_call_handler,  // 🔧 传递工具调用处理器
     );
 
     let question_pb = ChatMessagePB::from(question);
@@ -217,6 +225,8 @@ impl Chat {
       format,
       ai_model,
       None, // 重新生成时不使用系统提示词
+      None, // 🔧 重新生成时不使用智能体配置
+      None, // 🔧 重新生成时不使用工具调用处理器
     );
 
     Ok(())
@@ -233,12 +243,21 @@ impl Chat {
     format: ResponseFormat,
     ai_model: AIModel,
     system_prompt: Option<String>,
+    agent_config: Option<AgentConfigPB>,
+    tool_call_handler: Option<Arc<crate::agent::ToolCallHandler>>,  // 🔧 新增工具调用处理器
   ) {
     let stop_stream = self.stop_stream.clone();
     let chat_id = self.chat_id;
     let cloud_service = self.chat_service.clone();
+    
+    // 🔧 工具调用支持
+    let has_agent = agent_config.is_some();
+    let has_tool_handler = tool_call_handler.is_some();
+    
     tokio::spawn(async move {
       let mut answer_sink = IsolateSink::new(Isolate::new(answer_stream_port));
+      let mut accumulated_text = String::new();  // 🔧 累积文本用于检测工具调用
+      
       match cloud_service
         .stream_answer_with_system_prompt(&workspace_id, &chat_id, question_id, format, ai_model, system_prompt)
         .await
@@ -253,12 +272,207 @@ impl Chat {
                 }
                 match message {
                   QuestionStreamValue::Answer { value } => {
-                    answer_stream_buffer.lock().await.push_str(&value);
-                    if let Err(err) = answer_sink
-                      .send(StreamMessage::OnData(value).to_string())
-                      .await
-                    {
-                      error!("Failed to stream answer via IsolateSink: {}", err);
+                    // 🔧 累积文本以检测工具调用
+                    if has_agent {
+                      accumulated_text.push_str(&value);
+                      
+                      // 🐛 DEBUG: 每次接收到数据时打印累积文本的长度
+                      if accumulated_text.len() % 100 == 0 || accumulated_text.len() < 50 {
+                        info!("🔧 [DEBUG] Accumulated text length: {} chars", accumulated_text.len());
+                        if accumulated_text.len() < 200 {
+                          info!("🔧 [DEBUG] Current text: {}", accumulated_text);
+                        } else if accumulated_text.len() <= 300 {
+                          // 安全截取前 200 字符
+                          let mut preview_len = std::cmp::min(200, accumulated_text.len());
+                          while preview_len > 0 && !accumulated_text.is_char_boundary(preview_len) {
+                            preview_len -= 1;
+                          }
+                          info!("🔧 [DEBUG] Current text preview: {}", &accumulated_text[..preview_len]);
+                        }
+                      }
+                      
+                      // 检测是否包含**完整的**工具调用（必须有开始和结束标签）
+                      let has_start_tag = accumulated_text.contains("<tool_call>");
+                      let has_end_tag = accumulated_text.contains("</tool_call>");
+                      
+                      // 🔧 同时检测 markdown 代码块格式 (AI 可能误用)
+                      let has_markdown_tool_call = accumulated_text.contains("```tool_call") && 
+                                                   accumulated_text.contains("```\n");
+                      
+                      // 🐛 DEBUG: 如果检测到标签,打印状态
+                      if has_start_tag || has_end_tag || has_markdown_tool_call {
+                        info!("🔧 [DEBUG] Tool call tags detected - XML start: {}, XML end: {}, Markdown: {}", 
+                              has_start_tag, has_end_tag, has_markdown_tool_call);
+                      }
+                      
+                      // 如果检测到 markdown 格式,转换为 XML 格式
+                      if has_markdown_tool_call && !has_start_tag {
+                        warn!("🔧 [TOOL] ⚠️ AI used markdown code block format instead of XML tags! Converting...");
+                        accumulated_text = accumulated_text
+                          .replace("```tool_call\n", "<tool_call>\n")
+                          .replace("\n```", "\n</tool_call>");
+                        info!("🔧 [TOOL] Converted markdown format to XML format");
+                      }
+                      
+                      if has_start_tag && has_end_tag {
+                        info!("🔧 [TOOL] Complete tool call detected in response");
+                        
+                        // 提取工具调用
+                        let calls = crate::agent::ToolCallHandler::extract_tool_calls(&accumulated_text);
+                        
+                        info!("🔧 [TOOL] Extracted {} tool calls from accumulated text", calls.len());
+                        
+                        if calls.is_empty() {
+                          warn!("🔧 [TOOL] ⚠️ Tool call tag found but extraction failed!");
+                          warn!("🔧 [TOOL] Accumulated text length: {} chars", accumulated_text.len());
+                          warn!("🔧 [TOOL] Number of <tool_call> tags: {}", accumulated_text.matches("<tool_call>").count());
+                          warn!("🔧 [TOOL] Number of </tool_call> tags: {}", accumulated_text.matches("</tool_call>").count());
+                          
+                          // 显示更长的预览，包括可能的多个工具调用
+                          let preview_len = std::cmp::min(accumulated_text.len(), 1500);
+                          warn!("🔧 [TOOL] Accumulated text preview (first {} chars):", preview_len);
+                          warn!("🔧 [TOOL] {}", &accumulated_text[..preview_len]);
+                        }
+                        
+                        for (request, start, end) in calls {
+                          // 发送工具调用前的文本
+                          let before_text = &accumulated_text[..start];
+                          if !before_text.is_empty() {
+                            answer_stream_buffer.lock().await.push_str(before_text);
+                            let _ = answer_sink
+                              .send(StreamMessage::OnData(before_text.to_string()).to_string())
+                              .await;
+                          }
+                          
+                          // 发送工具调用元数据（通知 UI 工具正在执行）
+                          let tool_metadata = serde_json::json!({
+                            "tool_call": {
+                              "id": request.id,
+                              "tool_name": request.tool_name,
+                              "status": "running",
+                              "arguments": request.arguments,
+                            }
+                          });
+                          let _ = answer_sink
+                            .send(StreamMessage::Metadata(serde_json::to_string(&tool_metadata).unwrap()).to_string())
+                            .await;
+                          
+                          info!("🔧 [TOOL] Executing tool: {} (id: {})", request.tool_name, request.id);
+                          
+                          // ✅ 实际执行工具
+                          if has_tool_handler {
+                            if let Some(ref handler) = tool_call_handler {
+                              let response = handler.execute_tool_call(&request, agent_config.as_ref()).await;
+                              
+                              info!("🔧 [TOOL] Tool execution completed: {} - success: {}, has_result: {}",
+                                    response.id, response.success, response.result.is_some());
+                              
+                              // 发送工具执行结果元数据
+                              let result_status = if response.success { "success" } else { "failed" };
+                              let result_metadata = serde_json::json!({
+                                "tool_call": {
+                                  "id": response.id,
+                                  "tool_name": request.tool_name,
+                                  "status": result_status,
+                                  "result": response.result,
+                                  "error": response.error,
+                                  "duration_ms": response.duration_ms,
+                                }
+                              });
+                              let _ = answer_sink
+                                .send(StreamMessage::Metadata(serde_json::to_string(&result_metadata).unwrap()).to_string())
+                                .await;
+                              
+                              // ✅ 将工具执行结果发送给用户
+                              // ⚠️ 注意：这个结果只发送到UI，AI模型在单轮对话中看不到
+                              // TODO: 实现多轮对话，将工具结果反馈给AI生成后续响应
+                              if response.success {
+                                if let Some(result_text) = response.result {
+                                  let formatted_result = format!(
+                                    "\n<tool_result>\n工具执行成功：{}\n结果：{}\n</tool_result>\n",
+                                    request.tool_name,
+                                    result_text
+                                  );
+                                  
+                                  info!("🔧 [TOOL] Sending tool result to UI ({}ms): {}", 
+                                        response.duration_ms, 
+                                        if result_text.len() > 100 { 
+                                          format!("{}...", &result_text[..100]) 
+                                        } else { 
+                                          result_text.clone() 
+                                        });
+                                  
+                                  // 发送工具结果到 UI
+                                  answer_stream_buffer.lock().await.push_str(&formatted_result);
+                                  let _ = answer_sink
+                                    .send(StreamMessage::OnData(formatted_result).to_string())
+                                    .await;
+                                  
+                                  info!("🔧 [TOOL] ⚠️ Tool result sent to UI - AI model won't see this in current conversation turn");
+                                }
+                              } else {
+                                // 工具执行失败，通知用户
+                                let error_msg = format!(
+                                  "\n<tool_error>\n工具执行失败：{}\n错误：{}\n</tool_error>\n",
+                                  request.tool_name,
+                                  response.error.unwrap_or_else(|| "Unknown error".to_string())
+                                );
+                                
+                                error!("🔧 [TOOL] Tool failed: {} - sending error to UI", response.id);
+                                
+                                answer_stream_buffer.lock().await.push_str(&error_msg);
+                                let _ = answer_sink
+                                  .send(StreamMessage::OnData(error_msg).to_string())
+                                  .await;
+                              }
+                            }
+                          } else {
+                            // 没有工具处理器，发送占位消息
+                            warn!("🔧 [TOOL] Tool handler not available, skipping execution");
+                            let placeholder_metadata = serde_json::json!({
+                              "tool_call": {
+                                "id": request.id,
+                                "tool_name": request.tool_name,
+                                "status": "skipped",
+                                "result": "Tool execution not configured",
+                              }
+                            });
+                            let _ = answer_sink
+                              .send(StreamMessage::Metadata(serde_json::to_string(&placeholder_metadata).unwrap()).to_string())
+                              .await;
+                          }
+                          
+                          // 清除已处理的文本
+                          accumulated_text = accumulated_text[end..].to_string();
+                        }
+                        
+                        // 发送剩余文本
+                        if !accumulated_text.is_empty() {
+                          answer_stream_buffer.lock().await.push_str(&accumulated_text);
+                          let _ = answer_sink
+                            .send(StreamMessage::OnData(accumulated_text.clone()).to_string())
+                            .await;
+                          accumulated_text.clear();
+                        }
+                      } else {
+                        // 没有检测到工具调用，正常发送
+                        answer_stream_buffer.lock().await.push_str(&value);
+                        if let Err(err) = answer_sink
+                          .send(StreamMessage::OnData(value).to_string())
+                          .await
+                        {
+                          error!("Failed to stream answer via IsolateSink: {}", err);
+                        }
+                      }
+                    } else {
+                      // 没有智能体配置，正常发送
+                      answer_stream_buffer.lock().await.push_str(&value);
+                      if let Err(err) = answer_sink
+                        .send(StreamMessage::OnData(value).to_string())
+                        .await
+                      {
+                        error!("Failed to stream answer via IsolateSink: {}", err);
+                      }
                     }
                   },
                   QuestionStreamValue::Metadata { value } => {
@@ -305,6 +519,41 @@ impl Chat {
                   return Err(err);
                 }
               },
+            }
+          }
+          
+          // 🐛 DEBUG: 流结束时打印完整的累积文本
+          if has_agent && !accumulated_text.is_empty() {
+            info!("🔧 [DEBUG] Stream ended with accumulated text length: {} chars", accumulated_text.len());
+            
+            // 安全地截取前 500 字符(考虑 UTF-8 字符边界)
+            let preview = if accumulated_text.len() <= 500 {
+              accumulated_text.as_str()
+            } else {
+              // 找到最近的 UTF-8 字符边界
+              let mut preview_len = 500;
+              while preview_len > 0 && !accumulated_text.is_char_boundary(preview_len) {
+                preview_len -= 1;
+              }
+              &accumulated_text[..preview_len]
+            };
+            info!("🔧 [DEBUG] Final text preview (first {} chars): {}", preview.len(), preview);
+            
+            // 检查是否包含任何工具调用标签
+            let has_start = accumulated_text.contains("<tool_call>");
+            let has_end = accumulated_text.contains("</tool_call>");
+            info!("🔧 [DEBUG] Final check - has <tool_call>: {}, has </tool_call>: {}", has_start, has_end);
+            
+            // 如果文本很长,也打印最后 200 字符
+            if accumulated_text.len() > 500 {
+              let end_preview_start = accumulated_text.len().saturating_sub(200);
+              let mut end_start = end_preview_start;
+              while end_start < accumulated_text.len() && !accumulated_text.is_char_boundary(end_start) {
+                end_start += 1;
+              }
+              info!("🔧 [DEBUG] Final text ending (last {} chars): {}", 
+                    accumulated_text.len() - end_start, 
+                    &accumulated_text[end_start..]);
             }
           }
         },

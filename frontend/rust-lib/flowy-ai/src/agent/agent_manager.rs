@@ -358,10 +358,9 @@ impl AgentManager {
     pub async fn on_mcp_server_disconnected(&self, server_id: &str) -> FlowyResult<()> {
         info!("MCP服务器已断开，清理工具: {}", server_id);
         
-        self.tool_registry.cleanup_server_tools(server_id).await?;
-        
-        Ok(())
+        self.tool_registry.cleanup_server_tools(server_id).await
     }
+    
 
     /// 导出工具注册表
     pub async fn export_tool_registry(&self) -> FlowyResult<String> {

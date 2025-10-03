@@ -802,7 +802,7 @@ impl AITaskPlanner {
     fn convert_mcp_tool_to_definition(&self, mcp_tool: MCPTool, server_id: &str) -> ToolDefinitionPB {
         ToolDefinitionPB {
             name: mcp_tool.name,
-            description: mcp_tool.description,
+            description: mcp_tool.description.unwrap_or_default(),
             tool_type: ToolTypePB::MCP,
             source: server_id.to_string(),
             parameters_schema: serde_json::to_string(&mcp_tool.input_schema).unwrap_or_default(),

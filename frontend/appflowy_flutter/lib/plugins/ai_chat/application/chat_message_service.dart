@@ -71,10 +71,13 @@ class MetadataCollection {
     required this.sources,
     this.progress,
     this.reasoningDelta,
+    this.rawMetadata,
   });
   final List<ChatMessageRefSource> sources;
   final AIChatProgress? progress;
   final String? reasoningDelta;
+  // 🔧 新增字段：原始 Metadata 用于解析工具调用和任务规划
+  final Map<String, dynamic>? rawMetadata;
 }
 
 MetadataCollection parseMetadata(String? s) {
@@ -85,11 +88,19 @@ MetadataCollection parseMetadata(String? s) {
   final List<ChatMessageRefSource> metadata = [];
   AIChatProgress? progress;
   String? reasoningDelta;
+  Map<String, dynamic>? rawMetadata;
 
   try {
     final dynamic decodedJson = jsonDecode(s);
     if (decodedJson == null) {
       return MetadataCollection(sources: []);
+    }
+
+    // 🔧 保存原始 Metadata
+    if (decodedJson is Map<String, dynamic>) {
+      rawMetadata = Map<String, dynamic>.from(decodedJson);
+    } else if (decodedJson is List && decodedJson.isNotEmpty && decodedJson.first is Map) {
+      rawMetadata = Map<String, dynamic>.from(decodedJson.first as Map);
     }
 
     void processMap(Map<String, dynamic> map) {
@@ -127,7 +138,12 @@ MetadataCollection parseMetadata(String? s) {
     Log.debug(stacktrace.toString());
   }
 
-  return MetadataCollection(sources: metadata, progress: progress, reasoningDelta: reasoningDelta);
+  return MetadataCollection(
+    sources: metadata, 
+    progress: progress, 
+    reasoningDelta: reasoningDelta,
+    rawMetadata: rawMetadata,
+  );
 }
 
 Future<List<ChatMessageMetaPB>> metadataPBFromMetadata(

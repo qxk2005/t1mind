@@ -65,8 +65,9 @@ pub struct MCPHttpConfig {
 pub struct MCPTool {
     /// 工具的唯一标识符
     pub name: String,
-    /// 工具功能的描述
-    pub description: String,
+    /// 工具功能的描述（可选，某些MCP服务器可能不提供）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// 工具输入参数的JSON Schema定义
     #[serde(rename = "inputSchema")]
     pub input_schema: Value,
@@ -144,7 +145,7 @@ pub struct MCPClientInfo {
 
 impl MCPTool {
     /// 创建一个基本的MCP工具
-    pub fn new(name: String, description: String, input_schema: Value) -> Self {
+    pub fn new(name: String, description: Option<String>, input_schema: Value) -> Self {
         Self {
             name,
             description,
@@ -156,7 +157,7 @@ impl MCPTool {
     /// 创建带有注解的MCP工具
     pub fn with_annotations(
         name: String,
-        description: String,
+        description: Option<String>,
         input_schema: Value,
         annotations: MCPToolAnnotations,
     ) -> Self {
