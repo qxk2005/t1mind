@@ -60,43 +60,31 @@ class _LoadChatMessageStatusReadyState extends State<LoadChatMessageStatusReady>
           allMessages: widget.chatController.messages,
         ),
         
-        // 智能体选择器和执行状态
+        // 智能体选择器（包含执行状态）
         _wrapConstraints(
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
+            child: Row(
               children: [
-                // 智能体选择器
-                Row(
-                  children: [
-                    Expanded(
-                      child: AgentSelector(
-                        selectedAgent: selectedAgent,
-                        onAgentSelected: (agent) {
-                          setState(() {
-                            selectedAgent = agent;
-                          });
-                          // 通知聊天BLoC智能体已更改
-                          context.read<ChatBloc>().add(
-                            ChatEvent.selectAgent(agent?.id),
-                          );
-                        },
-                        showStatus: true,
-                        compact: UniversalPlatform.isMobile,
-                      ),
-                    ),
-                  ],
-                ),
-                
-                // 智能体执行状态
-                if (selectedAgent != null)
-                  AgentExecutionStatus(
-                    agent: selectedAgent!,
-                    isExecuting: isAgentExecuting,
-                    currentTask: currentAgentTask,
-                    progress: executionProgress,
+                Expanded(
+                  child: AgentSelector(
+                    selectedAgent: selectedAgent,
+                    onAgentSelected: (agent) {
+                      setState(() {
+                        selectedAgent = agent;
+                      });
+                      // 通知聊天BLoC智能体已更改
+                      context.read<ChatBloc>().add(
+                        ChatEvent.selectAgent(agent?.id),
+                      );
+                    },
+                    showStatus: true,
                     compact: UniversalPlatform.isMobile,
+                    // 执行状态 - 直接集成在选择器内
+                    isExecuting: isAgentExecuting && selectedAgent != null,
+                    executionStatus: isAgentExecuting ? (currentAgentTask ?? '思考中') : null,
                   ),
+                ),
               ],
             ),
           ),

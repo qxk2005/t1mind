@@ -14,6 +14,8 @@ class AgentSelector extends StatefulWidget {
     this.onAgentSelected,
     this.showStatus = true,
     this.compact = false,
+    this.isExecuting = false,
+    this.executionStatus,
   });
 
   /// 当前选中的智能体
@@ -27,17 +29,49 @@ class AgentSelector extends StatefulWidget {
   
   /// 是否使用紧凑模式
   final bool compact;
+  
+  /// 是否正在执行
+  final bool isExecuting;
+  
+  /// 执行状态文本（如"思考中"、"正在生成回复"、"调用工具"等）
+  final String? executionStatus;
 
   @override
   State<AgentSelector> createState() => _AgentSelectorState();
 }
 
-class _AgentSelectorState extends State<AgentSelector> {
+class _AgentSelectorState extends State<AgentSelector> with TickerProviderStateMixin {
+  late AnimationController _rotationController;
+  
   @override
   void initState() {
     super.initState();
     // 初始化时加载智能体列表
     context.read<AgentSettingsBloc>().add(const AgentSettingsEvent.loadAgentList());
+    
+    // 初始化旋转动画控制器
+    _rotationController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    );
+  }
+  
+  @override
+  void didUpdateWidget(AgentSelector oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 根据执行状态控制动画
+    if (widget.isExecuting && !oldWidget.isExecuting) {
+      _rotationController.repeat();
+    } else if (!widget.isExecuting && oldWidget.isExecuting) {
+      _rotationController.stop();
+      _rotationController.reset();
+    }
+  }
+  
+  @override
+  void dispose() {
+    _rotationController.dispose();
+    super.dispose();
   }
 
   @override
@@ -156,6 +190,7 @@ class _AgentSelectorState extends State<AgentSelector> {
   /// 构建当前选中智能体的显示
   Widget _buildSelectedAgentDisplay() {
     final agent = widget.selectedAgent;
+    final isExecuting = widget.isExecuting;
     
     return Container(
       constraints: BoxConstraints(
@@ -163,29 +198,53 @@ class _AgentSelectorState extends State<AgentSelector> {
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).dividerColor),
+        border: Border.all(
+          color: isExecuting 
+            ? Theme.of(context).colorScheme.primary.withOpacity(0.5)
+            : Theme.of(context).dividerColor,
+        ),
         borderRadius: BorderRadius.circular(8),
-        color: Theme.of(context).colorScheme.surface,
+        color: isExecuting
+          ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.1)
+          : Theme.of(context).colorScheme.surface,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _getAgentIcon(agent),
+          // 智能体图标 - 执行时旋转
+          RotationTransition(
+            turns: isExecuting ? _rotationController : const AlwaysStoppedAnimation(0),
+            child: _getAgentIcon(agent, isExecuting: isExecuting),
+          ),
           const SizedBox(width: 8),
+          // 智能体名称和状态
           Flexible(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
-          Text(
-            agent?.name ?? '无智能体',
-            style: widget.compact 
-              ? Theme.of(context).textTheme.bodySmall
-              : Theme.of(context).textTheme.bodyMedium,
-            overflow: TextOverflow.ellipsis,
-          ),
-                if (!widget.compact && widget.showStatus && agent != null)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        agent?.name ?? '无智能体',
+                        style: widget.compact 
+                          ? Theme.of(context).textTheme.bodySmall
+                          : Theme.of(context).textTheme.bodyMedium,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    // 执行状态文本 - 显示在名字后方
+                    if (isExecuting && widget.executionStatus != null) ...[
+                      const SizedBox(width: 6),
+                      _buildExecutionStatusBadge(widget.executionStatus!),
+                    ],
+                  ],
+                ),
+                // 智能体状态 - 仅在非执行状态时显示
+                if (!widget.compact && widget.showStatus && agent != null && !isExecuting)
                   _buildAgentStatus(agent),
               ],
             ),
@@ -195,6 +254,49 @@ class _AgentSelectorState extends State<AgentSelector> {
             Icons.arrow_drop_down,
             color: Theme.of(context).iconTheme.color,
             size: 16,
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// 构建执行状态徽章
+  Widget _buildExecutionStatusBadge(String status) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 脉动圆点
+          TweenAnimationBuilder<double>(
+            duration: const Duration(milliseconds: 1000),
+            tween: Tween(begin: 0.3, end: 1.0),
+            onEnd: () {
+              setState(() {});
+            },
+            builder: (context, value, child) {
+              return Container(
+                width: 4,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary.withOpacity(value),
+                  shape: BoxShape.circle,
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 4),
+          Text(
+            status,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.primary,
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ],
       ),
@@ -278,7 +380,16 @@ class _AgentSelectorState extends State<AgentSelector> {
   }
 
   /// 获取智能体图标
-  Widget _getAgentIcon(AgentConfigPB? agent) {
+  Widget _getAgentIcon(AgentConfigPB? agent, {bool isExecuting = false}) {
+    // 执行时使用主题色
+    if (isExecuting) {
+      return FlowySvg(
+        FlowySvgs.ai_chat_logo_s,
+        color: Theme.of(context).colorScheme.primary,
+        size: const Size(16, 16),
+      );
+    }
+    
     if (agent == null) {
       return FlowySvg(
         FlowySvgs.ai_chat_logo_s,
@@ -332,6 +443,10 @@ class _AgentSelectorState extends State<AgentSelector> {
 }
 
 /// 智能体执行状态显示组件
+/// 
+/// @deprecated 此组件已废弃，请使用 [AgentSelector] 的 isExecuting 和 executionStatus 参数
+/// 来显示执行状态。新版本将状态信息集成在智能体选择框内，更加紧凑美观。
+@Deprecated('Use AgentSelector with isExecuting and executionStatus parameters instead')
 class AgentExecutionStatus extends StatelessWidget {
   const AgentExecutionStatus({
     super.key,
