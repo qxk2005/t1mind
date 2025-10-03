@@ -91,7 +91,48 @@ impl MCPClientManager {
         arguments: serde_json::Value,
     ) -> Result<ToolCallResponse, FlowyError> {
         // 验证工具可用性
-        if !self.tool_discovery.validate_tool(server_id, tool_name).await? {
+        let is_valid = self.tool_discovery.validate_tool(server_id, tool_name).await;
+        
+        // 如果工具不可用，检查是否需要重新发现工具
+        if let Err(e) = &is_valid {
+            tracing::warn!("Tool validation failed: {}", e);
+            
+            // 检查服务器是否已连接但工具注册表为空
+            if self.is_server_connected(server_id) {
+                let tools = self.tool_discovery.get_tools(server_id).await;
+                if tools.is_none() || tools.as_ref().map(|t| t.is_empty()).unwrap_or(true) {
+                    tracing::info!("🔄 Server '{}' is connected but has no tools in registry, attempting to rediscover tools...", server_id);
+                    
+                    match self.tool_discovery.discover_tools(server_id).await {
+                        Ok(discovered_tools) => {
+                            tracing::info!("✅ Rediscovered {} tools for server '{}'", discovered_tools.len(), server_id);
+                            
+                            // 保存工具缓存
+                            if let Err(cache_err) = self.config_manager.save_tools_cache(server_id, discovered_tools) {
+                                tracing::warn!("Failed to save tools cache: {}", cache_err);
+                            }
+                            
+                            // 重新验证工具
+                            if !self.tool_discovery.validate_tool(server_id, tool_name).await? {
+                                return Err(FlowyError::invalid_data()
+                                    .with_context(format!("Tool '{}' not found even after rediscovery on server '{}'", tool_name, server_id)));
+                            }
+                        }
+                        Err(rediscover_err) => {
+                            tracing::error!("Failed to rediscover tools: {}", rediscover_err);
+                            return Err(FlowyError::invalid_data()
+                                .with_context(format!("Tool '{}' not available and rediscovery failed: {}", tool_name, rediscover_err)));
+                        }
+                    }
+                } else {
+                    return Err(FlowyError::invalid_data()
+                        .with_context(format!("Tool '{}' not available on server '{}'", tool_name, server_id)));
+                }
+            } else {
+                return Err(FlowyError::invalid_data()
+                    .with_context(format!("Server '{}' is not connected", server_id)));
+            }
+        } else if !is_valid.unwrap() {
             return Err(FlowyError::invalid_data()
                 .with_context(format!("Tool '{}' not available on server '{}'", tool_name, server_id)));
         }

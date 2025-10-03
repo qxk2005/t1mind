@@ -251,10 +251,60 @@ fn format_tool_details(tool: &MCPTool) -> String {
         "optional"
       };
       
+      // 基本参数描述
       details.push_str(&format!(
         "    - {} ({}): {} [{}]\n",
         name, param_type, description, required_mark
       ));
+      
+      // 对于数组类型，展示数组元素的结构
+      if param_type == "array" {
+        if let Some(items) = schema.get("items") {
+          if let Some(item_type) = items.get("type").and_then(|t| t.as_str()) {
+            if item_type == "object" {
+              // 数组元素是对象，展示对象的属性
+              if let Some(item_props) = items.get("properties").and_then(|p| p.as_object()) {
+                details.push_str(&format!("      Array items must be objects with:\n"));
+                for (prop_name, prop_schema) in item_props {
+                  let prop_type = prop_schema.get("type").and_then(|t| t.as_str()).unwrap_or("any");
+                  let prop_desc = prop_schema.get("description").and_then(|d| d.as_str()).unwrap_or("");
+                  
+                  // 检查枚举值
+                  let enum_hint = if let Some(enum_vals) = prop_schema.get("enum").and_then(|e| e.as_array()) {
+                    let vals: Vec<String> = enum_vals.iter()
+                      .filter_map(|v| v.as_str().map(|s| format!("\"{}\"", s)))
+                      .collect();
+                    if !vals.is_empty() {
+                      format!(" (enum: {})", vals.join(", "))
+                    } else {
+                      String::new()
+                    }
+                  } else {
+                    String::new()
+                  };
+                  
+                  details.push_str(&format!(
+                    "        • {} ({}){}: {}\n",
+                    prop_name, prop_type, enum_hint, prop_desc
+                  ));
+                }
+              }
+            } else {
+              details.push_str(&format!("      Array of: {}\n", item_type));
+            }
+          }
+        }
+      }
+      
+      // 展示枚举值
+      if let Some(enum_vals) = schema.get("enum").and_then(|e| e.as_array()) {
+        let vals: Vec<String> = enum_vals.iter()
+          .filter_map(|v| v.as_str().map(|s| s.to_string()))
+          .collect();
+        if !vals.is_empty() {
+          details.push_str(&format!("      Allowed values: {}\n", vals.join(", ")));
+        }
+      }
     }
   }
   
