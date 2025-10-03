@@ -19,6 +19,7 @@ class _AgentDialogState extends State<AgentDialog> {
   late final TextEditingController _descriptionController;
   late final TextEditingController _personalityController;
   late final TextEditingController _avatarController;
+  late final TextEditingController _maxToolResultLengthController;
   
   bool _enablePlanning = true;
   bool _enableToolCalling = true;
@@ -34,13 +35,19 @@ class _AgentDialogState extends State<AgentDialog> {
     _personalityController = TextEditingController(text: widget.existingAgent?.personality ?? '');
     _avatarController = TextEditingController(text: widget.existingAgent?.avatar ?? '');
     
+    // 初始化工具结果最大长度，默认 4000
+    int defaultLength = 4000;
     if (widget.existingAgent?.hasCapabilities() == true) {
       final cap = widget.existingAgent!.capabilities;
       _enablePlanning = cap.enablePlanning;
       _enableToolCalling = cap.enableToolCalling;
       _enableReflection = cap.enableReflection;
       _enableMemory = cap.enableMemory;
+      if (cap.maxToolResultLength > 0) {
+        defaultLength = cap.maxToolResultLength;
+      }
     }
+    _maxToolResultLengthController = TextEditingController(text: defaultLength.toString());
   }
 
   @override
@@ -49,6 +56,7 @@ class _AgentDialogState extends State<AgentDialog> {
     _descriptionController.dispose();
     _personalityController.dispose();
     _avatarController.dispose();
+    _maxToolResultLengthController.dispose();
     super.dispose();
   }
 
@@ -125,6 +133,45 @@ class _AgentDialogState extends State<AgentDialog> {
                         Switch(value: _enableToolCalling, onChanged: (v) => setState(() => _enableToolCalling = v)),
                       ],
                     ),
+                    // 工具结果最大长度配置（仅在启用工具调用时显示）
+                    if (_enableToolCalling) ...[
+                      const VSpace(12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          FlowyText.regular(
+                            "工具结果最大长度 (字符)",
+                            fontSize: 13,
+                            color: Theme.of(context).textTheme.bodySmall?.color,
+                          ),
+                          const VSpace(4),
+                          TextField(
+                            controller: _maxToolResultLengthController,
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              hintText: '默认: 4000',
+                              helperText: '推荐范围: 1000-16000，根据模型上下文调整',
+                              helperMaxLines: 2,
+                              border: const OutlineInputBorder(),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                          ),
+                          const VSpace(4),
+                          BlocBuilder<AgentSettingsBloc, AgentSettingsState>(
+                            builder: (context, state) {
+                              final length = int.tryParse(_maxToolResultLengthController.text);
+                              final recommendation = context.read<AgentSettingsBloc>().getMaxToolResultLengthRecommendation(length);
+                              return FlowyText.regular(
+                                recommendation,
+                                fontSize: 11,
+                                color: Theme.of(context).colorScheme.primary.withOpacity(0.7),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                    const VSpace(8),
                     Row(
                       children: [
                         Expanded(child: FlowyText.regular("反思机制", fontSize: 14)),
@@ -171,6 +218,18 @@ class _AgentDialogState extends State<AgentDialog> {
       return;
     }
 
+    // 解析工具结果最大长度
+    final maxToolResultLength = int.tryParse(_maxToolResultLengthController.text) ?? 4000;
+    
+    // 验证工具结果最大长度
+    if (_enableToolCalling && maxToolResultLength > 0 && 
+        (maxToolResultLength < 1000 || maxToolResultLength > 32000)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('工具结果最大长度必须在 1000-32000 字符之间')),
+      );
+      return;
+    }
+
     final capabilities = AgentCapabilitiesPB()
       ..enablePlanning = _enablePlanning
       ..enableToolCalling = _enableToolCalling
@@ -178,7 +237,8 @@ class _AgentDialogState extends State<AgentDialog> {
       ..enableMemory = _enableMemory
       ..maxPlanningSteps = 10
       ..maxToolCalls = 50
-      ..memoryLimit = 100;
+      ..memoryLimit = 100
+      ..maxToolResultLength = maxToolResultLength;
 
     if (widget.existingAgent != null) {
       final request = UpdateAgentRequestPB()

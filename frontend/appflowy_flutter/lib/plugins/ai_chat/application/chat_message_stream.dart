@@ -73,7 +73,7 @@ class AnswerStream {
       _onError?.call(_error!);
     } else if (event.startsWith(AIStreamEventPrefix.metadata)) {
       final s = event.substring(AIStreamEventPrefix.metadata.length);
-      Log.debug("🌊 [REALTIME] Stream received metadata: '$s'");
+      // Log.debug("🌊 [REALTIME] Stream received metadata: '$s'");
       _onMetadata?.call(parseMetadata(s));
     } else if (event == AIStreamEventPrefix.aiResponseLimit) {
       _aiLimitReached = true;

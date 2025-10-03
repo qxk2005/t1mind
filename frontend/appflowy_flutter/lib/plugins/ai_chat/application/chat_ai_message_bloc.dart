@@ -42,7 +42,7 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
     final isComplete = _reasoningManager.isReasoningComplete(chatId);
     
     if (globalReasoningText != null && globalReasoningText.isNotEmpty) {
-      Log.debug("🌐 [GLOBAL] Initializing with existing reasoning text length: ${globalReasoningText.length}");
+      // Log.debug("🌐 [GLOBAL] Initializing with existing reasoning text length: ${globalReasoningText.length}");
       // 使用add方法而不是直接emit
       add(ChatAIMessageEvent.initializeReasoning(globalReasoningText, isComplete));
     }
@@ -50,15 +50,15 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
 
   void _registerEventHandlers() {
     on<_UpdateText>((event, emit) {
-      Log.debug("🎯 [REALTIME] UpdateText received, marking reasoning as complete. Text length: ${event.text.length}");
-      Log.debug("🎯 [REALTIME] Current reasoning text length: ${state.reasoningText?.length ?? 0}");
+      // Log.debug("🎯 [REALTIME] UpdateText received, marking reasoning as complete. Text length: ${event.text.length}");
+      // Log.debug("🎯 [REALTIME] Current reasoning text length: ${state.reasoningText?.length ?? 0}");
       
       // 标记推理完成
       _reasoningManager.setReasoningComplete(chatId, true);
       
       // 获取全局推理文本
       final globalReasoningText = _reasoningManager.getReasoningText(chatId);
-      Log.debug("🌐 [GLOBAL] Retrieved reasoning text length: ${globalReasoningText?.length ?? 0}");
+      // Log.debug("🌐 [GLOBAL] Retrieved reasoning text length: ${globalReasoningText?.length ?? 0}");
       
       emit(
         state.copyWith(
@@ -153,10 +153,10 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
         updatedReasoningText = _reasoningManager.getReasoningText(chatId);
         isReasoningActive = true; // 接收到推理增量说明推理正在进行
         
-        Log.debug("🔄 [REALTIME] AI Reasoning Delta: '${event.metadata.reasoningDelta}'");
-        Log.debug("📊 [REALTIME] Updated global reasoning text length: ${updatedReasoningText?.length ?? 0}");
-        Log.debug("🌐 [GLOBAL] Stored reasoning text: '$updatedReasoningText'");
-        Log.debug("🚀 [REALTIME] Reasoning is active, isReasoningComplete: false");
+        // Log.debug("🔄 [REALTIME] AI Reasoning Delta: '${event.metadata.reasoningDelta}'");
+        // Log.debug("📊 [REALTIME] Updated global reasoning text length: ${updatedReasoningText?.length ?? 0}");
+        // Log.debug("🌐 [GLOBAL] Stored reasoning text: '$updatedReasoningText'");
+        // Log.debug("🚀 [REALTIME] Reasoning is active, isReasoningComplete: false");
       }
       
       // 🔧 处理工具调用 Metadata
@@ -192,7 +192,7 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
     });
 
     on<_InitializeReasoning>((event, emit) {
-      Log.debug("🌐 [GLOBAL] Initializing reasoning - text length: ${event.reasoningText.length}, isComplete: ${event.isComplete}");
+      // Log.debug("🌐 [GLOBAL] Initializing reasoning - text length: ${event.reasoningText.length}, isComplete: ${event.isComplete}");
       emit(
         state.copyWith(
           reasoningText: event.reasoningText,

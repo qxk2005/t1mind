@@ -258,8 +258,11 @@ impl Chat {
       let mut answer_sink = IsolateSink::new(Isolate::new(answer_stream_port));
       let mut accumulated_text = String::new();  // 🔧 累积文本用于检测工具调用
       
+      // 🔧 多轮对话支持：记录工具调用和结果
+      let mut tool_calls_and_results: Vec<(crate::agent::ToolCallRequest, crate::agent::ToolCallResponse)> = Vec::new();
+      
       match cloud_service
-        .stream_answer_with_system_prompt(&workspace_id, &chat_id, question_id, format, ai_model, system_prompt)
+        .stream_answer_with_system_prompt(&workspace_id, &chat_id, question_id, format.clone(), ai_model.clone(), system_prompt.clone())
         .await
       {
         Ok(mut stream) => {
@@ -277,19 +280,19 @@ impl Chat {
                       accumulated_text.push_str(&value);
                       
                       // 🐛 DEBUG: 每次接收到数据时打印累积文本的长度
-                      if accumulated_text.len() % 100 == 0 || accumulated_text.len() < 50 {
-                        info!("🔧 [DEBUG] Accumulated text length: {} chars", accumulated_text.len());
-                        if accumulated_text.len() < 200 {
-                          info!("🔧 [DEBUG] Current text: {}", accumulated_text);
-                        } else if accumulated_text.len() <= 300 {
-                          // 安全截取前 200 字符
-                          let mut preview_len = std::cmp::min(200, accumulated_text.len());
-                          while preview_len > 0 && !accumulated_text.is_char_boundary(preview_len) {
-                            preview_len -= 1;
-                          }
-                          info!("🔧 [DEBUG] Current text preview: {}", &accumulated_text[..preview_len]);
-                        }
-                      }
+                      // if accumulated_text.len() % 100 == 0 || accumulated_text.len() < 50 {
+                      //   info!("🔧 [DEBUG] Accumulated text length: {} chars", accumulated_text.len());
+                      //   if accumulated_text.len() < 200 {
+                      //     info!("🔧 [DEBUG] Current text: {}", accumulated_text);
+                      //   } else if accumulated_text.len() <= 300 {
+                      //     // 安全截取前 200 字符
+                      //     let mut preview_len = std::cmp::min(200, accumulated_text.len());
+                      //     while preview_len > 0 && !accumulated_text.is_char_boundary(preview_len) {
+                      //       preview_len -= 1;
+                      //     }
+                      //     info!("🔧 [DEBUG] Current text preview: {}", &accumulated_text[..preview_len]);
+                      //   }
+                      // }
                       
                       // 检测是否包含**完整的**工具调用（必须有开始和结束标签）
                       let has_start_tag = accumulated_text.contains("<tool_call>");
@@ -300,10 +303,10 @@ impl Chat {
                                                    accumulated_text.contains("```\n");
                       
                       // 🐛 DEBUG: 如果检测到标签,打印状态
-                      if has_start_tag || has_end_tag || has_markdown_tool_call {
-                        info!("🔧 [DEBUG] Tool call tags detected - XML start: {}, XML end: {}, Markdown: {}", 
-                              has_start_tag, has_end_tag, has_markdown_tool_call);
-                      }
+                      // if has_start_tag || has_end_tag || has_markdown_tool_call {
+                      //   info!("🔧 [DEBUG] Tool call tags detected - XML start: {}, XML end: {}, Markdown: {}", 
+                      //         has_start_tag, has_end_tag, has_markdown_tool_call);
+                      // }
                       
                       // 如果检测到 markdown 格式,转换为 XML 格式
                       if has_markdown_tool_call && !has_start_tag {
@@ -367,6 +370,10 @@ impl Chat {
                               info!("🔧 [TOOL] Tool execution completed: {} - success: {}, has_result: {}",
                                     response.id, response.success, response.result.is_some());
                               
+                              // 🔧 保存工具调用和结果，用于后续多轮对话
+                              tool_calls_and_results.push((request.clone(), response.clone()));
+                              info!("🔧 [TOOL] Saved tool result for multi-turn. Total saved: {}", tool_calls_and_results.len());
+                              
                               // 发送工具执行结果元数据
                               let result_status = if response.success { "success" } else { "failed" };
                               let result_metadata = serde_json::json!({
@@ -383,9 +390,8 @@ impl Chat {
                                 .send(StreamMessage::Metadata(serde_json::to_string(&result_metadata).unwrap()).to_string())
                                 .await;
                               
-                              // ✅ 将工具执行结果发送给用户
-                              // ⚠️ 注意：这个结果只发送到UI，AI模型在单轮对话中看不到
-                              // TODO: 实现多轮对话，将工具结果反馈给AI生成后续响应
+                              // ✅ 将工具执行结果发送给用户显示
+                              // ⚠️ 注意：这个结果用于 UI 显示，实际的多轮对话逻辑在流结束后处理
                               if response.success {
                                 if let Some(result_text) = response.result {
                                   let formatted_result = format!(
@@ -394,21 +400,28 @@ impl Chat {
                                     result_text
                                   );
                                   
+                                  // 安全地生成预览，避免在 UTF-8 字符边界中间切割
+                                  let preview = if result_text.len() > 100 {
+                                    let mut preview_len = 100.min(result_text.len());
+                                    while preview_len > 0 && !result_text.is_char_boundary(preview_len) {
+                                      preview_len -= 1;
+                                    }
+                                    format!("{}...", &result_text[..preview_len])
+                                  } else {
+                                    result_text.clone()
+                                  };
+                                  
                                   info!("🔧 [TOOL] Sending tool result to UI ({}ms): {}", 
                                         response.duration_ms, 
-                                        if result_text.len() > 100 { 
-                                          format!("{}...", &result_text[..100]) 
-                                        } else { 
-                                          result_text.clone() 
-                                        });
+                                        preview);
                                   
                                   // 发送工具结果到 UI
                                   answer_stream_buffer.lock().await.push_str(&formatted_result);
-                                  let _ = answer_sink
+                                                let _ = answer_sink
                                     .send(StreamMessage::OnData(formatted_result).to_string())
-                                    .await;
+                                                  .await;
                                   
-                                  info!("🔧 [TOOL] ⚠️ Tool result sent to UI - AI model won't see this in current conversation turn");
+                                  info!("🔧 [TOOL] Tool result sent to UI - will be used for follow-up AI response");
                                 }
                               } else {
                                 // 工具执行失败，通知用户
@@ -522,38 +535,190 @@ impl Chat {
             }
           }
           
-          // 🐛 DEBUG: 流结束时打印完整的累积文本
-          if has_agent && !accumulated_text.is_empty() {
-            info!("🔧 [DEBUG] Stream ended with accumulated text length: {} chars", accumulated_text.len());
+          // 🔧 多轮对话：如果有工具调用结果，继续生成 AI 回答
+          info!("🔧 [MULTI-TURN] Stream ended - checking for follow-up. has_agent: {}, tool_calls_count: {}", 
+                has_agent, tool_calls_and_results.len());
+          
+          if has_agent && !tool_calls_and_results.is_empty() {
+            info!("🔧 [MULTI-TURN] Detected {} tool call(s), initiating follow-up AI response", tool_calls_and_results.len());
             
-            // 安全地截取前 500 字符(考虑 UTF-8 字符边界)
-            let preview = if accumulated_text.len() <= 500 {
-              accumulated_text.as_str()
+            // 构建包含工具结果的上下文消息
+            let mut follow_up_context = String::new();
+            follow_up_context.push_str("\n\n以下是工具调用的结果，请基于这些结果回答用户的原始问题：\n\n");
+            
+            // 从智能体配置中获取工具结果最大长度限制，避免上下文过长
+            let max_result_length = agent_config.as_ref()
+              .map(|config| {
+                // 确保值在合理范围内：最小 1000，默认 4000
+                let configured = config.capabilities.max_tool_result_length;
+                if configured <= 0 {
+                  4000 // 默认值
+                } else if configured < 1000 {
+                  1000 // 最小值
             } else {
-              // 找到最近的 UTF-8 字符边界
-              let mut preview_len = 500;
-              while preview_len > 0 && !accumulated_text.is_char_boundary(preview_len) {
-                preview_len -= 1;
-              }
-              &accumulated_text[..preview_len]
+                  configured as usize
+                }
+              })
+              .unwrap_or(4000); // 如果没有配置，使用默认值 4000
+            
+            info!("🔧 [MULTI-TURN] Using max_tool_result_length: {} chars", max_result_length);
+            
+            for (req, resp) in &tool_calls_and_results {
+              // 使用 map 和 unwrap_or 避免临时值生命周期问题
+              let result_text = resp.result.as_ref().map(|s| s.as_str()).unwrap_or("无结果");
+              
+              // 智能截断长结果
+              let truncated_result = if result_text.len() > max_result_length {
+                // 安全截断，考虑 UTF-8 字符边界
+                let mut truncate_len = max_result_length.min(result_text.len());
+                while truncate_len > 0 && !result_text.is_char_boundary(truncate_len) {
+                  truncate_len -= 1;
+                }
+                let truncated = &result_text[..truncate_len];
+                info!("🔧 [MULTI-TURN] Truncating tool result from {} to {} chars", result_text.len(), truncate_len);
+                format!("{}...\n[结果已截断，原始长度: {} 字符]", truncated, result_text.len())
+              } else {
+                result_text.to_string()
+              };
+              
+              follow_up_context.push_str(&format!(
+                "工具调用: {}\n参数: {}\n结果: {}\n执行状态: {}\n\n",
+                req.tool_name,
+                serde_json::to_string_pretty(&req.arguments).unwrap_or_else(|_| "无法序列化".to_string()),
+                truncated_result,
+                if resp.success { "成功" } else { "失败" }
+              ));
+            }
+            
+            follow_up_context.push_str("请用中文简体总结和解释这些工具执行结果，直接回答用户的问题，不要再次调用工具。\n");
+            follow_up_context.push_str("注意：如果结果被截断，请基于可用信息给出最佳回答。");
+            
+            // 🐛 DEBUG: 打印 follow_up_context 的预览（在构建 system_prompt 之前）
+            let context_preview_len = std::cmp::min(500, follow_up_context.len());
+            let mut safe_preview_len = context_preview_len;
+            while safe_preview_len > 0 && !follow_up_context.is_char_boundary(safe_preview_len) {
+              safe_preview_len -= 1;
+            }
+            info!("🔧 [MULTI-TURN] Follow-up context preview: {}...", &follow_up_context[..safe_preview_len]);
+            
+            // 构建新的系统提示（包含原提示 + 工具结果上下文）
+            let follow_up_system_prompt = if let Some(original_prompt) = system_prompt {
+              format!("{}\n\n{}", original_prompt, follow_up_context)
+            } else {
+              follow_up_context
             };
-            info!("🔧 [DEBUG] Final text preview (first {} chars): {}", preview.len(), preview);
             
-            // 检查是否包含任何工具调用标签
-            let has_start = accumulated_text.contains("<tool_call>");
-            let has_end = accumulated_text.contains("</tool_call>");
-            info!("🔧 [DEBUG] Final check - has <tool_call>: {}, has </tool_call>: {}", has_start, has_end);
+            let prompt_len = follow_up_system_prompt.len(); // 保存长度供后续使用
+            info!("🔧 [MULTI-TURN] Calling AI with follow-up context ({} chars)", prompt_len);
             
-            // 如果文本很长,也打印最后 200 字符
-            if accumulated_text.len() > 500 {
-              let end_preview_start = accumulated_text.len().saturating_sub(200);
-              let mut end_start = end_preview_start;
-              while end_start < accumulated_text.len() && !accumulated_text.is_char_boundary(end_start) {
-                end_start += 1;
-              }
-              info!("🔧 [DEBUG] Final text ending (last {} chars): {}", 
-                    accumulated_text.len() - end_start, 
-                    &accumulated_text[end_start..]);
+            // 发送一个分隔符，让用户知道 AI 正在生成最终回答
+            let separator = "\n\n---\n\n";
+            answer_stream_buffer.lock().await.push_str(separator);
+            let _ = answer_sink
+              .send(StreamMessage::OnData(separator.to_string()).to_string())
+              .await;
+            
+            // 使用原始问题 + 工具结果上下文再次调用 AI
+            // 注意：stream_answer_with_system_prompt 会自动获取 question_id 对应的消息内容
+            info!("🔧 [MULTI-TURN] Calling AI with question_id: {}", question_id);
+            info!("🔧 [MULTI-TURN] System prompt length: {} chars", prompt_len);
+            
+            // 检查上下文长度，如果太长给出警告
+            if prompt_len > 16000 {
+              warn!("🔧 [MULTI-TURN] ⚠️ System prompt is very long ({} chars), may exceed model limit", prompt_len);
+            }
+            
+            match cloud_service
+              .stream_answer_with_system_prompt(
+                &workspace_id, 
+                &chat_id, 
+                question_id, 
+                format, 
+                ai_model,
+                Some(follow_up_system_prompt)
+              )
+              .await
+            {
+                  Ok(mut follow_up_stream) => {
+                    info!("🔧 [MULTI-TURN] Follow-up stream started");
+                    let mut message_count = 0;
+                    let mut answer_chunks = 0;
+                    let mut has_received_data = false;
+                    
+                    while let Some(message) = follow_up_stream.next().await {
+                      message_count += 1;
+                      info!("🔧 [MULTI-TURN] Received message #{}: {:?}", message_count, 
+                            if let Ok(ref msg) = message { format!("{:?}", msg) } else { "Error".to_string() });
+                      
+                      if stop_stream.load(std::sync::atomic::Ordering::Relaxed) {
+                        info!("🔧 [MULTI-TURN] Stream stopped by user after {} messages", message_count);
+                        break;
+                      }
+                      
+                      match message {
+                        Ok(message) => {
+                          match message {
+                            QuestionStreamValue::Answer { value } => {
+                              answer_chunks += 1;
+                              has_received_data = true;
+                              info!("🔧 [MULTI-TURN] Received answer chunk #{}: {} chars", answer_chunks, value.len());
+                              // 直接发送，不再检测工具调用（避免无限循环）
+                              answer_stream_buffer.lock().await.push_str(&value);
+                              let _ = answer_sink
+                                .send(StreamMessage::OnData(value).to_string())
+                                .await;
+                            },
+                            QuestionStreamValue::Metadata { value } => {
+                              if let Ok(s) = serde_json::to_string(&value) {
+                                answer_stream_buffer.lock().await.set_metadata(value);
+                                let _ = answer_sink
+                                  .send(StreamMessage::Metadata(s).to_string())
+                                  .await;
+                              }
+                            },
+                            _ => {
+                              // 忽略其他消息类型
+                            }
+                          }
+                        },
+                        Err(err) => {
+                          error!("🔧 [MULTI-TURN] Stream error after {} messages: {}", message_count, err);
+                          break;
+                        }
+                      }
+                    }
+                    
+                    info!("🔧 [MULTI-TURN] Follow-up response completed: {} messages, {} answer chunks, has_data: {}", 
+                          message_count, answer_chunks, has_received_data);
+                    
+                    if !has_received_data {
+                      warn!("🔧 [MULTI-TURN] ⚠️ No data received from follow-up stream! Possible causes:");
+                      warn!("🔧 [MULTI-TURN]   1. AI model returned empty response");
+                      warn!("🔧 [MULTI-TURN]   2. System prompt too long ({} chars)", prompt_len);
+                      warn!("🔧 [MULTI-TURN]   3. Original question not found for question_id: {}", question_id);
+                      warn!("🔧 [MULTI-TURN] 💡 Fallback: Sending tool result summary to user");
+                      
+                      // 降级方案：直接发送工具结果的简单总结
+                      let fallback_message = format!(
+                        "\n\n📊 工具执行完成\n\n{} 工具已成功执行并返回结果（如上所示）。\n\n由于 AI 服务暂时无法生成详细总结，请您直接查看上方的工具执行结果。\n\n💡 提示：\n- 如果结果过长，请在智能体配置中增加「工具结果最大长度」\n- 或尝试使用支持更长上下文的 AI 模型\n- 当前 System Prompt 长度：{} 字符\n",
+                        tool_calls_and_results.len(),
+                        prompt_len
+                      );
+                      
+                      answer_stream_buffer.lock().await.push_str(&fallback_message);
+                      let _ = answer_sink
+                        .send(StreamMessage::OnData(fallback_message).to_string())
+                        .await;
+                    }
+                  },
+                  Err(err) => {
+                    error!("🔧 [MULTI-TURN] Failed to start follow-up stream: {}", err);
+                    let error_msg = format!("\n\n生成最终回答时出错: {}\n", err);
+                    answer_stream_buffer.lock().await.push_str(&error_msg);
+                    let _ = answer_sink
+                      .send(StreamMessage::OnData(error_msg).to_string())
+                      .await;
+                  }
             }
           }
         },

@@ -250,12 +250,19 @@ class AgentSettingsBloc extends Bloc<AgentSettingsEvent, AgentSettingsState> {
       if (capabilities.memoryLimit < 10 || capabilities.memoryLimit > 10000) {
         validationErrors.add('会话记忆长度限制必须在10-10000之间');
       }
+      
+      // 工具结果最大长度验证
+      // 0 或负数会使用默认值 4000，但建议明确设置
+      // 最小值 1000，推荐值 2000-16000
+      if (capabilities.maxToolResultLength > 0 && 
+          (capabilities.maxToolResultLength < 1000 || capabilities.maxToolResultLength > 32000)) {
+        validationErrors.add('工具结果最大长度必须在1000-32000字符之间（默认4000）');
+      }
     }
     
-    // 工具配置验证
-    if (config.availableTools.isEmpty) {
-      validationErrors.add('至少需要选择一个可用工具');
-    }
+    // 注意：工具配置验证已移除
+    // 工具现在是从 MCP 服务器动态发现的，创建智能体时可以为空
+    // 系统会在首次使用时自动从已配置的 MCP 服务器加载可用工具
     
     final validationResult = validationErrors.isEmpty;
     final errorMessage = validationErrors.isNotEmpty ? validationErrors.join('; ') : null;
@@ -362,9 +369,8 @@ class AgentSettingsBloc extends Bloc<AgentSettingsEvent, AgentSettingsState> {
       return '智能体名称不能超过50个字符';
     }
     
-    if (request.availableTools.isEmpty) {
-      return '至少需要选择一个可用工具';
-    }
+    // 注意：工具列表验证已移除
+    // 工具现在是从 MCP 服务器动态发现的，创建时可以为空
     
     return null;
   }
@@ -405,7 +411,13 @@ class AgentSettingsBloc extends Bloc<AgentSettingsEvent, AgentSettingsState> {
     final features = <String>[];
     
     if (capabilities.enablePlanning) features.add('规划');
-    if (capabilities.enableToolCalling) features.add('工具调用');
+    if (capabilities.enableToolCalling) {
+      features.add('工具调用');
+      // 显示工具结果最大长度配置
+      if (capabilities.maxToolResultLength > 0) {
+        features.add('结果长度: ${capabilities.maxToolResultLength}');
+      }
+    }
     if (capabilities.enableReflection) features.add('反思');
     if (capabilities.enableMemory) features.add('记忆');
     
@@ -421,6 +433,39 @@ class AgentSettingsBloc extends Bloc<AgentSettingsEvent, AgentSettingsState> {
   /// 检查智能体是否可以删除
   bool canDeleteAgent(AgentConfigPB agent) {
     return agent.status != AgentStatusPB.AgentDeleted;
+  }
+
+  /// 获取工具结果最大长度的推荐说明
+  String getMaxToolResultLengthRecommendation(int? length) {
+    if (length == null || length <= 0) {
+      return '使用默认值 (4000字符)';
+    } else if (length < 1000) {
+      return '过小，将自动调整为最小值 (1000字符)';
+    } else if (length <= 2000) {
+      return '适用于小型模型 (GPT-3.5等)';
+    } else if (length <= 4000) {
+      return '标准配置 (推荐)';
+    } else if (length <= 8000) {
+      return '适用于标准模型 (GPT-4等)';
+    } else if (length <= 16000) {
+      return '适用于大上下文模型 (Claude等)';
+    } else if (length <= 32000) {
+      return '超大上下文配置';
+    } else {
+      return '超出推荐范围，可能超出模型限制';
+    }
+  }
+
+  /// 获取工具结果最大长度的实际使用值
+  /// 考虑默认值和最小值的自动修正
+  int getEffectiveMaxToolResultLength(int? configuredLength) {
+    if (configuredLength == null || configuredLength <= 0) {
+      return 4000; // 默认值
+    } else if (configuredLength < 1000) {
+      return 1000; // 最小值
+    } else {
+      return configuredLength;
+    }
   }
 }
 

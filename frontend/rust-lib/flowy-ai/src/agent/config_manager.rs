@@ -231,11 +231,24 @@ impl AgentConfigManager {
             .unwrap_or_default();
 
         let mut agents = Vec::new();
+        let mut orphaned_ids = Vec::new();
+        
         for agent_id in agent_ids {
             if let Some(agent) = self.get_agent_config(&agent_id) {
                 agents.push(agent);
             } else {
-                warn!("Agent config not found for ID: {}", agent_id);
+                warn!("Agent config not found for ID: {}, will clean up", agent_id);
+                orphaned_ids.push(agent_id);
+            }
+        }
+        
+        // 自动清理孤立的 agent ID
+        if !orphaned_ids.is_empty() {
+            warn!("Cleaning up {} orphaned agent IDs", orphaned_ids.len());
+            for orphaned_id in orphaned_ids {
+                if let Err(e) = self.update_agent_list(&orphaned_id, false) {
+                    error!("Failed to clean up orphaned agent ID {}: {}", orphaned_id, e);
+                }
             }
         }
         
@@ -464,9 +477,9 @@ impl AgentConfigManager {
             errors.push("会话记忆长度限制必须在10-10000之间".to_string());
         }
         
-        if config.available_tools.is_empty() && config.capabilities.enable_tool_calling {
-            errors.push("启用工具调用时至少需要选择一个可用工具".to_string());
-        }
+        // 注意：工具列表验证已移除
+        // 工具现在是从 MCP 服务器动态发现的，在创建智能体时可以为空
+        // 系统会在首次使用时自动从已配置的 MCP 服务器加载可用工具
         
         Ok(errors)
     }
@@ -638,6 +651,7 @@ mod tests {
                 max_planning_steps: 10,
                 max_tool_calls: 20,
                 memory_limit: 100,
+                max_tool_result_length: 4000,
             },
             available_tools: vec!["search".to_string(), "calculator".to_string()],
             metadata: HashMap::new(),

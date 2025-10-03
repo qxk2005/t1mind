@@ -97,7 +97,42 @@ impl ToolCallProtocol {
         fixed = fixed.replace("\"arguments {", "\"arguments\": {");
         fixed = fixed.replace("\"arguments{", "\"arguments\": {");
         
-        // 修复 2: 缺少逗号和括号
+        // 修复 2: 检查并修复不完整的 JSON（缺少闭合括号）
+        // 这是流式传输常见的问题：AI 返回了完整标签但 JSON 内容不完整
+        let trimmed = fixed.trim();
+        
+        // 统计括号数量
+        let open_braces = trimmed.matches('{').count();
+        let close_braces = trimmed.matches('}').count();
+        let open_brackets = trimmed.matches('[').count();
+        let close_brackets = trimmed.matches(']').count();
+        
+        // 如果缺少闭合括号，尝试补全
+        if open_braces > close_braces || open_brackets > close_brackets {
+            warn!("🔧 [JSON FIX] Detected incomplete JSON - open_braces: {}, close_braces: {}, open_brackets: {}, close_brackets: {}", 
+                  open_braces, close_braces, open_brackets, close_brackets);
+            
+            // 补全缺少的括号
+            let mut fixed_with_braces = fixed.clone();
+            
+            // 先补全方括号
+            for _ in 0..(open_brackets - close_brackets) {
+                fixed_with_braces.push_str("\n]");
+            }
+            
+            // 再补全大括号
+            for _ in 0..(open_braces - close_braces) {
+                fixed_with_braces.push_str("\n}");
+            }
+            
+            info!("🔧 [JSON FIX] Added {} closing brackets and {} closing braces", 
+                  open_brackets - close_brackets, open_braces - close_braces);
+            
+            // 使用修复后的文本继续后续处理
+            fixed = fixed_with_braces;
+        }
+        
+        // 修复 3: 缺少逗号和括号
         // 特别处理常见模式：arguments 结束后缺少 }, 然后是 "source"
         let lines: Vec<&str> = fixed.lines().collect();
         let mut result_lines = Vec::new();
@@ -237,8 +272,17 @@ impl ToolCallHandler {
                     }
                     Err(e) => {
                         warn!("❌ [TOOL PARSE] Failed to parse tool call JSON: {}", e);
-                        warn!("❌ [TOOL PARSE] Invalid JSON (first 200 chars): {}", 
-                              if json_text.len() > 200 { &json_text[..200] } else { json_text });
+                        // 安全地切割字符串，避免在 UTF-8 字符边界中间切割
+                        let preview = if json_text.len() > 200 {
+                            let mut preview_len = 200.min(json_text.len());
+                            while preview_len > 0 && !json_text.is_char_boundary(preview_len) {
+                                preview_len -= 1;
+                            }
+                            &json_text[..preview_len]
+                        } else {
+                            json_text
+                        };
+                        warn!("❌ [TOOL PARSE] Invalid JSON (first {} chars): {}", preview.len(), preview);
                         // 跳过这个失败的工具调用，继续查找下一个
                         start = abs_end;
                     }
@@ -330,18 +374,63 @@ impl ToolCallHandler {
             Ok(content) => {
                 info!("🔧 [TOOL EXEC] ✅ Tool call SUCCEEDED");
                 info!("🔧 [TOOL EXEC]   Duration: {}ms", duration_ms);
-                info!("🔧 [TOOL EXEC]   Result size: {} chars", content.len());
-                if content.len() <= 300 {
-                    info!("🔧 [TOOL EXEC]   Full result: {}", content);
+                info!("🔧 [TOOL EXEC]   Original result size: {} chars", content.len());
+                
+                // 🔧 应用工具结果最大长度限制（从智能体配置中获取）
+                let max_result_length = agent_config
+                    .map(|config| {
+                        // 确保值在合理范围内：最小 1000，默认 4000
+                        let configured = config.capabilities.max_tool_result_length;
+                        if configured <= 0 {
+                            4000 // 默认值
+                        } else if configured < 1000 {
+                            1000 // 最小值
+                        } else {
+                            configured as usize
+                        }
+                    })
+                    .unwrap_or(4000); // 如果没有配置，使用默认值 4000
+                
+                // 智能截断长结果
+                let final_content = if content.len() > max_result_length {
+                    // 安全截断，考虑 UTF-8 字符边界
+                    let mut truncate_len = max_result_length.min(content.len());
+                    while truncate_len > 0 && !content.is_char_boundary(truncate_len) {
+                        truncate_len -= 1;
+                    }
+                    let truncated = &content[..truncate_len];
+                    
+                    warn!("🔧 [TOOL EXEC] ⚠️ Tool result truncated from {} to {} chars (max: {})", 
+                          content.len(), truncate_len, max_result_length);
+                    
+                    format!(
+                        "{}\n\n--- 结果已截断 ---\n原始长度: {} 字符\n显示长度: {} 字符\n配置限制: {} 字符\n\n💡 提示：如需查看完整结果，请在智能体配置中增加「工具结果最大长度」",
+                        truncated,
+                        content.len(),
+                        truncate_len,
+                        max_result_length
+                    )
                 } else {
-                    info!("🔧 [TOOL EXEC]   Result preview: {}...", &content[..300]);
+                    info!("🔧 [TOOL EXEC]   Result within limit (max: {} chars)", max_result_length);
+                    content
+                };
+                
+                // 日志预览（使用截断后的内容）
+                if final_content.len() <= 300 {
+                    info!("🔧 [TOOL EXEC]   Final result: {}", final_content);
+                } else {
+                    let mut preview_len = 300.min(final_content.len());
+                    while preview_len > 0 && !final_content.is_char_boundary(preview_len) {
+                        preview_len -= 1;
+                    }
+                    info!("🔧 [TOOL EXEC]   Result preview: {}...", &final_content[..preview_len]);
                 }
                 info!("═══════════════════════════════════════════════════════════");
                 
                 ToolCallResponse {
                     id: request.id.clone(),
                     success: true,
-                    result: Some(content),
+                    result: Some(final_content),
                     error: None,
                     duration_ms,
                 }
@@ -418,7 +507,12 @@ impl ToolCallHandler {
         if result.len() <= 200 {
             info!("🔧 [MCP TOOL] Full result: {}", result);
         } else {
-            info!("🔧 [MCP TOOL] Result preview (first 200 chars): {}", &result[..200]);
+            // 安全地切割字符串，避免在 UTF-8 字符边界中间切割
+            let mut preview_len = 200.min(result.len());
+            while preview_len > 0 && !result.is_char_boundary(preview_len) {
+                preview_len -= 1;
+            }
+            info!("🔧 [MCP TOOL] Result preview (first {} chars): {}", preview_len, &result[..preview_len]);
         }
         
         Ok(result)

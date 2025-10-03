@@ -71,11 +71,11 @@ class ChatAIMessageWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Log.debug("🏗️ [WIDGET] ChatAIMessageWidget building - message id: ${message.id}");
+    // Log.debug("🏗️ [WIDGET] ChatAIMessageWidget building - message id: ${message.id}");
     return BlocProvider(
       key: ValueKey('chat_ai_message_${message.id}'), // 添加key防止重新创建
       create: (context) {
-        Log.debug("🏗️ [BLOC] Creating new ChatAIMessageBloc - message id: ${message.id}");
+        // Log.debug("🏗️ [BLOC] Creating new ChatAIMessageBloc - message id: ${message.id}");
         return ChatAIMessageBloc(
           message: stream ?? (message as TextMessage).text,
           refSourceJsonString: refSourceJsonString,
@@ -95,9 +95,9 @@ class ChatAIMessageWidget extends StatelessWidget {
               previous.text != current.text ||
               previous.sources != current.sources;
           
-          if (shouldRebuild) {
-            Log.debug("🏗️ [UI] BlocConsumer triggering rebuild - reasoningText: ${current.reasoningText?.length ?? 0}, isReasoningComplete: ${current.isReasoningComplete}");
-          }
+          // if (shouldRebuild) {
+          //   Log.debug("🏗️ [UI] BlocConsumer triggering rebuild - reasoningText: ${current.reasoningText?.length ?? 0}, isReasoningComplete: ${current.isReasoningComplete}");
+          // }
           
           return shouldRebuild;
         },
@@ -290,7 +290,7 @@ class _NonEmptyMessage extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<ChatAIMessageBloc, ChatAIMessageState>(
       builder: (context, state) {
-        Log.debug("🏗️ [UI] Building _NonEmptyMessage widget - reasoningText length: ${state.reasoningText?.length ?? 0}, isReasoningComplete: ${state.isReasoningComplete}, text length: ${state.text.length}");
+        // Log.debug("🏗️ [UI] Building _NonEmptyMessage widget - reasoningText length: ${state.reasoningText?.length ?? 0}, isReasoningComplete: ${state.isReasoningComplete}, text length: ${state.text.length}");
         final showActions = stream == null && state.text.isNotEmpty && !isStreaming;
         return ChatAIMessageBubble(
           message: message,
@@ -401,31 +401,31 @@ class _AIReasoningDisplayState extends State<_AIReasoningDisplay>
   void didUpdateWidget(_AIReasoningDisplay oldWidget) {
     super.didUpdateWidget(oldWidget);
     
-    Log.debug("🔄 [UI] Widget updated - isReasoningComplete: ${widget.isReasoningComplete}, textLength: ${widget.reasoningText.length}");
+    // Log.debug("🔄 [UI] Widget updated - isReasoningComplete: ${widget.isReasoningComplete}, textLength: ${widget.reasoningText.length}");
     
     // 推理状态改变时的处理
     if (widget.isReasoningComplete != oldWidget.isReasoningComplete) {
-      Log.debug("🔄 [UI] Reasoning state changed: ${oldWidget.isReasoningComplete} -> ${widget.isReasoningComplete}");
+      // Log.debug("🔄 [UI] Reasoning state changed: ${oldWidget.isReasoningComplete} -> ${widget.isReasoningComplete}");
       if (widget.isReasoningComplete) {
         // 推理完成，停止动画并自动折叠
         _animationController.stop();
         setState(() {
           _isExpanded = false;
         });
-        Log.debug("🎯 [REALTIME] Reasoning completed, auto-collapsing");
+        // Log.debug("🎯 [REALTIME] Reasoning completed, auto-collapsing");
       } else {
         // 开始推理，展开并开始动画
         _animationController.repeat(reverse: true);
         setState(() {
           _isExpanded = true;
         });
-        Log.debug("🚀 [REALTIME] Reasoning started, auto-expanding");
+        // Log.debug("🚀 [REALTIME] Reasoning started, auto-expanding");
       }
     }
     
     // 推理文本更新时的处理（只在展开状态下滚动）
     if (widget.reasoningText != oldWidget.reasoningText) {
-      Log.debug("🎨 [REALTIME] UI text changed from length ${oldWidget.reasoningText.length} to ${widget.reasoningText.length}, isExpanded: $_isExpanded");
+      // Log.debug("🎨 [REALTIME] UI text changed from length ${oldWidget.reasoningText.length} to ${widget.reasoningText.length}, isExpanded: $_isExpanded");
       if (_isExpanded) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (_scrollController.hasClients) {

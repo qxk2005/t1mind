@@ -113,7 +113,7 @@ MetadataCollection parseMetadata(String? s) {
         final delta = map["reasoning_delta"]?.toString();
         if (delta != null && delta.isNotEmpty) {
           reasoningDelta = delta;
-          Log.debug("📝 [REALTIME] Received reasoning delta: '$delta'");
+          // Log.debug("📝 [REALTIME] Received reasoning delta: '$delta'");
         }
       } else {
         Log.info("Unsupported metadata format: $map");

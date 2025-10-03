@@ -1064,6 +1064,12 @@ pub struct AgentCapabilitiesPB {
   /// 会话记忆长度限制
   #[pb(index = 7)]
   pub memory_limit: i32,
+
+  /// 工具结果最大长度（字符数）
+  /// 用于多轮对话时控制上下文长度，避免超出模型限制
+  /// 默认 4000 字符，最小 1000 字符
+  #[pb(index = 8)]
+  pub max_tool_result_length: i32,
 }
 
 /// 智能体状态枚举
@@ -1777,6 +1783,7 @@ impl AgentCapabilitiesPB {
       max_planning_steps: 10,
       max_tool_calls: 20,
       memory_limit: 100,
+      max_tool_result_length: 4000,
     }
   }
 }
