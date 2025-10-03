@@ -203,6 +203,11 @@ impl AgentConfigManager {
         self.save_agent_config(&agent_config)?;
         
         info!("Agent updated successfully: {} ({})", agent_config.name, agent_config.id);
+        info!("🔧 [Agent Config] Updated capabilities:");
+        info!("🔧 [Agent Config]   enable_reflection: {}", agent_config.capabilities.enable_reflection);
+        info!("🔧 [Agent Config]   max_reflection_iterations: {}", agent_config.capabilities.max_reflection_iterations);
+        info!("🔧 [Agent Config]   enable_tool_calling: {}", agent_config.capabilities.enable_tool_calling);
+        info!("🔧 [Agent Config]   max_tool_calls: {}", agent_config.capabilities.max_tool_calls);
         Ok(agent_config)
     }
 

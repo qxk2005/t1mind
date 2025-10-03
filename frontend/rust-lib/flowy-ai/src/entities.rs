@@ -1070,6 +1070,12 @@ pub struct AgentCapabilitiesPB {
   /// 默认 4000 字符，最小 1000 字符
   #[pb(index = 8)]
   pub max_tool_result_length: i32,
+  
+  /// 最大反思迭代次数
+  /// 当启用反思机制时，智能体可以多次调用工具直到问题解决
+  /// 默认 3 次，最大 10 次，设为 0 则禁用反思
+  #[pb(index = 9)]
+  pub max_reflection_iterations: i32,
 }
 
 /// 智能体状态枚举
@@ -1784,6 +1790,7 @@ impl AgentCapabilitiesPB {
       max_tool_calls: 20,
       memory_limit: 100,
       max_tool_result_length: 4000,
+      max_reflection_iterations: 3,
     }
   }
 }

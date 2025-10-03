@@ -20,6 +20,7 @@ class _AgentDialogState extends State<AgentDialog> {
   late final TextEditingController _personalityController;
   late final TextEditingController _avatarController;
   late final TextEditingController _maxToolResultLengthController;
+  late final TextEditingController _maxReflectionIterationsController;
   
   bool _enablePlanning = true;
   bool _enableToolCalling = true;
@@ -37,6 +38,7 @@ class _AgentDialogState extends State<AgentDialog> {
     
     // 初始化工具结果最大长度，默认 4000
     int defaultLength = 4000;
+    int defaultReflectionIterations = 3;
     if (widget.existingAgent?.hasCapabilities() == true) {
       final cap = widget.existingAgent!.capabilities;
       _enablePlanning = cap.enablePlanning;
@@ -46,8 +48,12 @@ class _AgentDialogState extends State<AgentDialog> {
       if (cap.maxToolResultLength > 0) {
         defaultLength = cap.maxToolResultLength;
       }
+      if (cap.maxReflectionIterations > 0) {
+        defaultReflectionIterations = cap.maxReflectionIterations;
+      }
     }
     _maxToolResultLengthController = TextEditingController(text: defaultLength.toString());
+    _maxReflectionIterationsController = TextEditingController(text: defaultReflectionIterations.toString());
   }
 
   @override
@@ -57,6 +63,7 @@ class _AgentDialogState extends State<AgentDialog> {
     _personalityController.dispose();
     _avatarController.dispose();
     _maxToolResultLengthController.dispose();
+    _maxReflectionIterationsController.dispose();
     super.dispose();
   }
 
@@ -178,6 +185,33 @@ class _AgentDialogState extends State<AgentDialog> {
                         Switch(value: _enableReflection, onChanged: (v) => setState(() => _enableReflection = v)),
                       ],
                     ),
+                    // 反思迭代次数配置（仅在启用反思时显示）
+                    if (_enableReflection) ...[
+                      const VSpace(12),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          FlowyText.regular(
+                            "反思迭代次数",
+                            fontSize: 13,
+                            color: Theme.of(context).textTheme.bodySmall?.color,
+                          ),
+                          const VSpace(4),
+                          TextField(
+                            controller: _maxReflectionIterationsController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              hintText: '默认: 3',
+                              helperText: '推荐范围: 1-10，每次迭代都会调用一次 AI',
+                              helperMaxLines: 2,
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    const VSpace(8),
                     Row(
                       children: [
                         Expanded(child: FlowyText.regular("会话记忆", fontSize: 14)),
@@ -230,6 +264,17 @@ class _AgentDialogState extends State<AgentDialog> {
       return;
     }
 
+    // 解析反思迭代次数
+    final maxReflectionIterations = int.tryParse(_maxReflectionIterationsController.text) ?? 3;
+    
+    // 验证反思迭代次数
+    if (_enableReflection && (maxReflectionIterations < 1 || maxReflectionIterations > 10)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('反思迭代次数必须在 1-10 次之间')),
+      );
+      return;
+    }
+
     final capabilities = AgentCapabilitiesPB()
       ..enablePlanning = _enablePlanning
       ..enableToolCalling = _enableToolCalling
@@ -238,7 +283,8 @@ class _AgentDialogState extends State<AgentDialog> {
       ..maxPlanningSteps = 10
       ..maxToolCalls = 50
       ..memoryLimit = 100
-      ..maxToolResultLength = maxToolResultLength;
+      ..maxToolResultLength = maxToolResultLength
+      ..maxReflectionIterations = _enableReflection ? maxReflectionIterations : 0;
 
     if (widget.existingAgent != null) {
       final request = UpdateAgentRequestPB()
