@@ -267,6 +267,7 @@ impl Chat {
     tokio::spawn(async move {
       let mut answer_sink = IsolateSink::new(Isolate::new(answer_stream_port));
       let mut accumulated_text = String::new();  // 🔧 累积文本用于检测工具调用
+      let mut sent_text_length: usize = 0;  // 🔧 跟踪已发送的文本长度，避免重复发送
       
       // 🔧 多轮对话支持：记录工具调用和结果
       let mut tool_calls_and_results: Vec<(crate::agent::ToolCallRequest, crate::agent::ToolCallResponse)> = Vec::new();
@@ -364,15 +365,24 @@ impl Chat {
                           warn!("🔧 [TOOL] {}", &accumulated_text[..preview_len]);
                         }
                         
+                        // 🔧 记录最后一个工具调用的结束位置，用于后续清除已处理的文本
+                        let mut last_tool_end_pos = 0;
+                        
                         for (request, start, end) in calls {
-                          // 发送工具调用前的文本
-                          let before_text = &accumulated_text[..start];
-                          if !before_text.is_empty() {
-                            answer_stream_buffer.lock().await.push_str(before_text);
+                          // 🔧 只发送还没有发送过的文本（避免重复发送）
+                          // 如果工具调用之前还有未发送的文本，则发送它
+                          if sent_text_length < start {
+                            let unsent_text = &accumulated_text[sent_text_length..start];
+                            info!("🔧 [TOOL] Sending unsent text before tool call (length: {})", unsent_text.len());
+                            answer_stream_buffer.lock().await.push_str(unsent_text);
                             let _ = answer_sink
-                              .send(StreamMessage::OnData(before_text.to_string()).to_string())
+                              .send(StreamMessage::OnData(unsent_text.to_string()).to_string())
                               .await;
+                            sent_text_length = start;  // 更新已发送长度
                           }
+                          
+                          // 记录工具调用结束位置
+                          last_tool_end_pos = end;
                           
                           // 发送工具调用元数据（通知 UI 工具正在执行）
                           let tool_metadata = serde_json::json!({
@@ -518,26 +528,36 @@ impl Chat {
                               .await;
                           }
                           
-                          // 清除已处理的文本
-                          accumulated_text = accumulated_text[end..].to_string();
                         }
                         
-                        // 发送剩余文本
-                        if !accumulated_text.is_empty() {
-                          answer_stream_buffer.lock().await.push_str(&accumulated_text);
-                          let _ = answer_sink
-                            .send(StreamMessage::OnData(accumulated_text.clone()).to_string())
-                            .await;
-                          accumulated_text.clear();
+                        // 🔧 处理完所有工具调用后，清除已处理的文本
+                        if last_tool_end_pos > 0 {
+                          accumulated_text = accumulated_text[last_tool_end_pos..].to_string();
+                          sent_text_length = 0;  // 重置已发送长度（因为 accumulated_text 已被截断）
+                          
+                          // 发送剩余文本（所有工具调用之后的文本）
+                          if !accumulated_text.is_empty() {
+                            info!("🔧 [TOOL] Sending remaining text after all tool calls (length: {})", accumulated_text.len());
+                            answer_stream_buffer.lock().await.push_str(&accumulated_text);
+                            let _ = answer_sink
+                              .send(StreamMessage::OnData(accumulated_text.clone()).to_string())
+                              .await;
+                            sent_text_length = accumulated_text.len();  // 更新已发送长度
+                            accumulated_text.clear();
+                          }
                         }
                       } else {
-                        // 没有检测到工具调用，正常发送
-                        answer_stream_buffer.lock().await.push_str(&value);
-                        if let Err(err) = answer_sink
-                          .send(StreamMessage::OnData(value).to_string())
-                          .await
-                        {
-                          error!("Failed to stream answer via IsolateSink: {}", err);
+                        // 🔧 没有检测到完整工具调用，发送新增的文本（避免重复发送）
+                        let unsent_text = &accumulated_text[sent_text_length..];
+                        if !unsent_text.is_empty() {
+                          answer_stream_buffer.lock().await.push_str(unsent_text);
+                          if let Err(err) = answer_sink
+                            .send(StreamMessage::OnData(unsent_text.to_string()).to_string())
+                            .await
+                          {
+                            error!("Failed to stream answer via IsolateSink: {}", err);
+                          }
+                          sent_text_length = accumulated_text.len();  // 更新已发送长度
                         }
                       }
                     } else {
