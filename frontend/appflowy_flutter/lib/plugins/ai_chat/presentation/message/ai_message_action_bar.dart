@@ -12,11 +12,9 @@ import 'package:appflowy/shared/markdown_to_document.dart';
 import 'package:appflowy/shared/patterns/common_patterns.dart';
 import 'package:appflowy/startup/startup.dart';
 import 'package:appflowy/util/theme_extension.dart';
-import 'package:appflowy/workspace/application/sidebar/space/space_bloc.dart';
 import 'package:appflowy/workspace/application/tabs/tabs_bloc.dart';
 import 'package:appflowy/workspace/application/view/prelude.dart';
 import 'package:appflowy/workspace/application/view/view_ext.dart';
-import 'package:appflowy/workspace/presentation/home/menu/view/view_item.dart';
 import 'package:appflowy/workspace/presentation/widgets/dialogs.dart';
 import 'package:appflowy_backend/protobuf/flowy-ai/protobuf.dart';
 import 'package:appflowy_backend/protobuf/flowy-folder/protobuf.dart';
@@ -522,51 +520,23 @@ class _SaveToPageButtonState extends State<SaveToPageButton> {
 
   @override
   Widget build(BuildContext context) {
-    return ViewSelector(
-      viewSelectorCubit: BlocProvider(
-        create: (context) => ViewSelectorCubit(
-          getIgnoreViewType: (item) {
-            final view = item.view;
-
-            if (view.isSpace) {
-              return IgnoreViewType.none;
-            }
-            if (view.layout != ViewLayoutPB.Document) {
-              return IgnoreViewType.hide;
-            }
-
-            return IgnoreViewType.none;
-          },
-        ),
-      ),
-      child: BlocSelector<SpaceBloc, SpaceState, ViewPB?>(
-        selector: (state) => state.currentSpace,
-        builder: (context, spaceView) {
-          return AppFlowyPopover(
-            controller: popoverController,
-            triggerActions: PopoverTriggerFlags.none,
-            margin: EdgeInsets.zero,
-            mutex: widget.popoverMutex,
-            offset: const Offset(8, 0),
-            direction: PopoverDirection.rightWithBottomAligned,
-            constraints: const BoxConstraints.tightFor(width: 300, height: 400),
-            onClose: () {
-              if (spaceView != null) {
-                context
-                    .read<ViewSelectorCubit>()
-                    .refreshSources([spaceView], spaceView);
-              }
-              widget.onOverrideVisibility?.call(false);
-            },
-            child: buildButton(context, spaceView),
-            popupBuilder: (_) => buildPopover(context),
-          );
-        },
-      ),
+    return AppFlowyPopover(
+      controller: popoverController,
+      triggerActions: PopoverTriggerFlags.none,
+      margin: EdgeInsets.zero,
+      mutex: widget.popoverMutex,
+      offset: const Offset(8, 0),
+      direction: PopoverDirection.rightWithBottomAligned,
+      constraints: const BoxConstraints.tightFor(width: 300, height: 400),
+      onClose: () {
+        widget.onOverrideVisibility?.call(false);
+      },
+      child: buildButton(context),
+      popupBuilder: (_) => buildPopover(context),
     );
   }
 
-  Widget buildButton(BuildContext context, ViewPB? spaceView) {
+  Widget buildButton(BuildContext context) {
     return FlowyTooltip(
       message: LocaleKeys.chat_addToPageButton.tr(),
       child: FlowyIconButton(
@@ -580,48 +550,31 @@ class _SaveToPageButtonState extends State<SaveToPageButton> {
           color: Theme.of(context).hintColor,
           size: const Size.square(16),
         ),
-        onPressed: () async {
-          final documentId = getOpenedDocumentId();
-          if (documentId != null) {
-            await onAddToExistingPage(context, documentId);
-            await forceReload(documentId);
-            await Future.delayed(const Duration(milliseconds: 500));
-            await updateSelection(documentId);
-          } else {
-            widget.onOverrideVisibility?.call(true);
-            if (spaceView != null) {
-              unawaited(
-                context
-                    .read<ViewSelectorCubit>()
-                    .refreshSources([spaceView], spaceView),
-              );
-            }
-            popoverController.show();
-          }
+        onPressed: () {
+          // Always show document selector for user to choose
+          widget.onOverrideVisibility?.call(true);
+          popoverController.show();
         },
       ),
     );
   }
 
   Widget buildPopover(BuildContext context) {
-    return BlocProvider.value(
-      value: context.read<ViewSelectorCubit>(),
-      child: SaveToPagePopoverContent(
-        onAddToNewPage: (parentViewId) {
-          addMessageToNewPage(context, parentViewId);
-          popoverController.close();
-        },
-        onAddToExistingPage: (documentId) async {
-          popoverController.close();
-          final view = await onAddToExistingPage(context, documentId);
+    return SaveToPagePopoverContent(
+      onAddToNewPage: (parentViewId) {
+        addMessageToNewPage(context, parentViewId);
+        popoverController.close();
+      },
+      onAddToExistingPage: (documentId) async {
+        popoverController.close();
+        final view = await onAddToExistingPage(context, documentId);
 
-          if (context.mounted) {
-            openPageFromMessage(context, view);
-          }
-          await Future.delayed(const Duration(milliseconds: 500));
-          await updateSelection(documentId);
-        },
-      ),
+        if (context.mounted) {
+          openPageFromMessage(context, view);
+        }
+        await Future.delayed(const Duration(milliseconds: 500));
+        await updateSelection(documentId);
+      },
     );
   }
 
@@ -694,7 +647,7 @@ class _SaveToPageButtonState extends State<SaveToPageButton> {
   }
 }
 
-class SaveToPagePopoverContent extends StatelessWidget {
+class SaveToPagePopoverContent extends StatefulWidget {
   const SaveToPagePopoverContent({
     super.key,
     required this.onAddToNewPage,
@@ -705,79 +658,159 @@ class SaveToPagePopoverContent extends StatelessWidget {
   final void Function(String) onAddToExistingPage;
 
   @override
-  Widget build(BuildContext context) {
-    return BlocBuilder<ViewSelectorCubit, ViewSelectorState>(
-      builder: (context, state) {
-        final theme = AppFlowyTheme.of(context);
+  State<SaveToPagePopoverContent> createState() =>
+      _SaveToPagePopoverContentState();
+}
 
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              height: 24,
-              margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-              child: Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: Text(
-                  LocaleKeys.chat_addToPageTitle.tr(),
-                  style: theme.textStyle.caption
-                      .standard(color: theme.textColorScheme.secondary),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(left: 12, right: 12, bottom: 8),
-              child: AFTextField(
-                controller:
-                    context.read<ViewSelectorCubit>().filterTextController,
-                hintText: LocaleKeys.search_label.tr(),
-                size: AFTextFieldSize.m,
-              ),
-            ),
-            AFDivider(
-              startIndent: theme.spacing.l,
-              endIndent: theme.spacing.l,
-            ),
-            Expanded(
-              child: ListView(
-                shrinkWrap: true,
-                padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
-                children: _buildVisibleSources(context, state).toList(),
-              ),
-            ),
-          ],
-        );
+class _SaveToPagePopoverContentState extends State<SaveToPagePopoverContent> {
+  final filterController = TextEditingController();
+  List<ViewPB> allDocuments = [];
+  List<ViewPB> visibleDocuments = [];
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    filterController.addListener(_onFilterChanged);
+    _loadDocuments();
+  }
+
+  @override
+  void dispose() {
+    filterController.dispose();
+    super.dispose();
+  }
+
+  void _onFilterChanged() {
+    final filter = filterController.text.toLowerCase();
+    setState(() {
+      if (filter.isEmpty) {
+        visibleDocuments = List.from(allDocuments);
+      } else {
+        visibleDocuments = allDocuments.where((doc) {
+          final name = doc.name.isEmpty
+              ? LocaleKeys.document_title_placeholder.tr()
+              : doc.name;
+          return name.toLowerCase().contains(filter);
+        }).toList();
+      }
+    });
+  }
+
+  Future<void> _loadDocuments() async {
+    print('🔍 [SaveToPagePopover] Loading all documents...');
+    final result = await ViewBackendService.getAllViews().fold(
+      (views) {
+        // Filter to only show document views (not spaces, not other layouts)
+        final docs = views.items
+            .where(
+              (v) =>
+                  !v.isSpace &&
+                  v.layout.isDocumentView &&
+                  v.parentViewId != v.id,
+            )
+            .toList();
+        print('🔍 [SaveToPagePopover] Found ${docs.length} documents');
+        for (final doc in docs.take(5)) {
+          print('🔍 [SaveToPagePopover]   - ${doc.name} (${doc.layout})');
+        }
+        return docs;
       },
+      (error) {
+        print('❌ [SaveToPagePopover] Error loading documents: $error');
+        return <ViewPB>[];
+      },
+    );
+
+    if (mounted) {
+      setState(() {
+        allDocuments = result;
+        visibleDocuments = List.from(result);
+        isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = AppFlowyTheme.of(context);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          height: 24,
+          margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(
+              LocaleKeys.chat_addToPageTitle.tr(),
+              style: theme.textStyle.caption
+                  .standard(color: theme.textColorScheme.secondary),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 12, right: 12, bottom: 8),
+          child: AFTextField(
+            controller: filterController,
+            hintText: LocaleKeys.search_label.tr(),
+            size: AFTextFieldSize.m,
+          ),
+        ),
+        AFDivider(
+          startIndent: theme.spacing.l,
+          endIndent: theme.spacing.l,
+        ),
+        Expanded(
+          child: isLoading
+              ? const Center(
+                  child: CircularProgressIndicator(),
+                )
+              : visibleDocuments.isEmpty
+                  ? Center(
+                      child: FlowyText.regular(
+                        filterController.text.isEmpty
+                            ? '没有找到任何文档'
+                            : '没有匹配的文档',
+                        fontSize: 14,
+                      ),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
+                      itemCount: visibleDocuments.length,
+                      itemBuilder: (context, index) {
+                        final doc = visibleDocuments[index];
+                        return _buildDocumentItem(context, doc);
+                      },
+                    ),
+        ),
+      ],
     );
   }
 
-  Iterable<Widget> _buildVisibleSources(
-    BuildContext context,
-    ViewSelectorState state,
-  ) {
-    return state.visibleSources.map(
-      (e) => ViewSelectorTreeItem(
-        key: ValueKey(
-          'save_to_page_tree_item_${e.view.id}',
-        ),
-        viewSelectorItem: e,
-        level: 0,
-        isDescendentOfSpace: e.view.isSpace,
-        isSelectedSection: false,
-        showCheckbox: false,
-        showSaveButton: true,
-        onSelected: (source) {
-          if (source.view.isSpace) {
-            onAddToNewPage(source.view.id);
-          } else {
-            onAddToExistingPage(source.view.id);
-          }
-        },
-        onAdd: (source) {
-          onAddToNewPage(source.view.id);
-        },
-        height: 30.0,
+  Widget _buildDocumentItem(BuildContext context, ViewPB document) {
+    return FlowyButton(
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      text: Row(
+        children: [
+          FlowySvg(
+            FlowySvgs.icon_document_s,
+            size: const Size.square(16),
+          ),
+          const HSpace(8),
+          Expanded(
+            child: FlowyText.regular(
+              document.name.isEmpty
+                  ? LocaleKeys.document_title_placeholder.tr()
+                  : document.name,
+              fontSize: 14,
+            ),
+          ),
+        ],
       ),
+      onTap: () => widget.onAddToExistingPage(document.id),
     );
   }
 }
