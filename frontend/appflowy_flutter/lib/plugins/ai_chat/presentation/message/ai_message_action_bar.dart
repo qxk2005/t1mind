@@ -34,6 +34,7 @@ import '../layout_define.dart';
 import 'message_util.dart';
 import '../execution_log_viewer.dart';
 import '../../application/execution_log_bloc.dart';
+import '../../application/chat_entity.dart';
 
 class AIMessageActionBar extends StatefulWidget {
   const AIMessageActionBar({
@@ -803,22 +804,99 @@ class ExecutionLogButton extends StatefulWidget {
 class _ExecutionLogButtonState extends State<ExecutionLogButton> {
   final PopoverController _popoverController = PopoverController();
   ExecutionLogBloc? _executionLogBloc;
+  bool _isLoadingLogs = false; // 防止重复加载
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    
+    // ✅ 在这里创建 Bloc（只创建一次）
+    if (_executionLogBloc == null) {
+      final chatId = context.read<ChatAIMessageBloc>().chatId;
+      final questionIdRaw = widget.message.metadata?[messageQuestionIdKey];
+      final questionId = questionIdRaw?.toString() ?? widget.message.id;
+      
+      print('🔍 [ExecutionLogButton] Creating ExecutionLogBloc in didChangeDependencies');
+      print('🔍 [ExecutionLogButton] chatId: $chatId');
+      print('🔍 [ExecutionLogButton] questionId: $questionId');
+      
+      _executionLogBloc = ExecutionLogBloc(
+        sessionId: chatId,
+        messageId: questionId,
+      );
+      print('🔍 [ExecutionLogButton] Created bloc hashCode: ${_executionLogBloc.hashCode}');
+    }
+  }
 
   @override
   void dispose() {
-    _executionLogBloc?.close();
+    print('🔍 [ExecutionLogButton] 🔴 DISPOSING - state hashCode: ${hashCode}');
+    print('🔍 [ExecutionLogButton] 🔴 Bloc hashCode: ${_executionLogBloc?.hashCode}');
+    print('🔍 [ExecutionLogButton] 🔴 Bloc isClosed: ${_executionLogBloc?.isClosed}');
+    _popoverController.close();
+    
+    // ⚠️ 延迟关闭 Bloc，给异步操作足够时间完成
+    // 这样可以避免在等待后端响应时 Bloc 被提前关闭
+    Future.delayed(const Duration(milliseconds: 500), () {
+      print('🔍 [ExecutionLogButton] 🔴 Delayed closing bloc');
+      _executionLogBloc?.close();
+    });
+    
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    // ✅ 确保 Bloc 已创建
+    if (_executionLogBloc == null) {
+      print('🔍 [ExecutionLogButton] build: Bloc not ready yet');
+      return const SizedBox.shrink();
+    }
+    
+    print('🔍 [ExecutionLogButton] build: Bloc ready (hashCode: ${_executionLogBloc.hashCode}, isClosed: ${_executionLogBloc!.isClosed})');
+    
     return AppFlowyPopover(
       controller: _popoverController,
       mutex: widget.popoverMutex,
       direction: PopoverDirection.bottomWithLeftAligned,
       offset: const Offset(-300, 10),
-      onOpen: () => widget.onOverrideVisibility?.call(true),
-      onClose: () => widget.onOverrideVisibility?.call(false),
+      onOpen: () {
+        print('🔍 [ExecutionLogButton] 🟢 Popover opened');
+        print('🔍 [ExecutionLogButton] 🟢 _isLoadingLogs: $_isLoadingLogs');
+        print('🔍 [ExecutionLogButton] 🟢 Bloc status: ${_executionLogBloc == null ? "NULL" : (_executionLogBloc!.isClosed ? "CLOSED" : "OPEN")}');
+        print('🔍 [ExecutionLogButton] 🟢 Bloc hashCode: ${_executionLogBloc?.hashCode}');
+        
+        widget.onOverrideVisibility?.call(true);
+        
+        // ⚠️ 防止重复加载
+        if (_isLoadingLogs) {
+          print('🔍 [ExecutionLogButton] ⚠️ Already loading logs, skipping...');
+          return;
+        }
+        
+        // ✅ 加载日志（Bloc 已在 didChangeDependencies 中创建）
+        if (_executionLogBloc != null && !_executionLogBloc!.isClosed) {
+          print('🔍 [ExecutionLogButton] 🟢 Adding loadLogs event to bloc');
+          _isLoadingLogs = true;
+          _executionLogBloc!.add(const ExecutionLogEvent.loadLogs());
+          print('🔍 [ExecutionLogButton] 🟢 loadLogs event added');
+          
+          // 500ms 后重置标志，允许再次加载
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (mounted) {
+              _isLoadingLogs = false;
+              print('🔍 [ExecutionLogButton] 🟢 Reset _isLoadingLogs flag');
+            }
+          });
+        } else {
+          print('🔍 [ExecutionLogButton] ⚠️ Cannot load logs: Bloc is ${_executionLogBloc == null ? "null" : "closed"}!');
+        }
+      },
+      onClose: () {
+        print('🔍 [ExecutionLogButton] Popover closed');
+        widget.onOverrideVisibility?.call(false);
+        // ✅ 不在这里关闭 Bloc，让它继续存活直到 Widget dispose
+      },
       popupBuilder: (context) => _buildExecutionLogPopover(),
       child: FlowyTooltip(
         message: '查看执行过程',
@@ -841,93 +919,76 @@ class _ExecutionLogButtonState extends State<ExecutionLogButton> {
   }
 
   Widget _buildExecutionLogPopover() {
-    // 从消息中获取会话ID，这里使用消息ID作为会话ID的示例
-    // 在实际实现中，应该从聊天上下文中获取真实的会话ID
-    final sessionId = _extractSessionId();
+    // ⚠️ 如果 Bloc 还未创建或已关闭，显示错误信息
+    if (_executionLogBloc == null || _executionLogBloc!.isClosed) {
+      print('🔍 [ExecutionLogButton] _buildExecutionLogPopover: bloc is ${_executionLogBloc == null ? "null" : "closed"}');
+      return Center(
+        child: Text('日志查看器未初始化或已关闭'),
+      );
+    }
+    
+    print('🔍 [ExecutionLogButton] _buildExecutionLogPopover: bloc is ready (hashCode: ${_executionLogBloc.hashCode})');
+    
+    // 🔌 从 ChatAIMessageBloc 中获取真实的 chatId
+    final chatId = context.read<ChatAIMessageBloc>().chatId;
     
     // 获取屏幕尺寸来动态调整弹出窗口大小
     final screenSize = MediaQuery.of(context).size;
-    final maxWidth = (screenSize.width * 0.8).clamp(600.0, 900.0);
-    final maxHeight = (screenSize.height * 0.7).clamp(400.0, 600.0);
+    final maxWidth = (screenSize.width * 0.85).clamp(700.0, 1000.0);
+    final maxHeight = (screenSize.height * 0.75).clamp(500.0, 700.0);
     
-    return Container(
-      width: maxWidth,
-      height: maxHeight,
-      padding: const EdgeInsets.all(8),
-      child: Column(
-        children: [
-          // 标题栏
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              children: [
-                FlowySvg(
-                  FlowySvgs.ai_summary_generate_s,
-                  size: const Size.square(16),
-                ),
-                const HSpace(8),
-                FlowyText.medium(
-                  '执行过程',
-                  fontSize: 14,
-                ),
-                const Spacer(),
-                GestureDetector(
-                  onTap: () => _popoverController.close(),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: FlowySvg(
-                      FlowySvgs.close_s,
-                      size: const Size.square(12),
+    // ⚠️ 关键修复：Popover 的 context 是独立的，需要在这里重新提供 Bloc
+    return BlocProvider.value(
+      value: _executionLogBloc!,
+      child: Container(
+        width: maxWidth,
+        height: maxHeight,
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          children: [
+            // 标题栏
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  FlowySvg(
+                    FlowySvgs.ai_summary_generate_s,
+                    size: const Size.square(16),
+                  ),
+                  const HSpace(8),
+                  FlowyText.medium(
+                    '执行过程',
+                    fontSize: 14,
+                  ),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: () => _popoverController.close(),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4),
+                      child: FlowySvg(
+                        FlowySvgs.close_s,
+                        size: const Size.square(12),
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          
-          // 执行日志查看器
-          Expanded(
-            child: BlocProvider(
-              create: (context) {
-                _executionLogBloc = ExecutionLogBloc(
-                  sessionId: sessionId,
-                  messageId: widget.message.id,
-                );
-                // 立即加载日志
-                _executionLogBloc!.add(const ExecutionLogEvent.loadLogs());
-                return _executionLogBloc!;
-              },
-              child: ExecutionLogViewer(
-                sessionId: sessionId,
-                messageId: widget.message.id,
-                height: double.infinity,
-                showHeader: false,
+                ],
               ),
+            ),
+            const Divider(height: 1),
+            
+            // 执行日志查看器
+            Expanded(
+              child: ExecutionLogViewer(
+                sessionId: chatId,
+              messageId: widget.message.metadata?[messageQuestionIdKey]?.toString() 
+                  ?? widget.message.id,
+              height: double.infinity,
+              showHeader: false,
             ),
           ),
         ],
       ),
+    ),
     );
-  }
-
-  /// 从消息中提取会话ID
-  /// 在实际实现中，这应该从聊天上下文或BLoC中获取
-  String _extractSessionId() {
-    // 尝试从消息元数据中获取会话ID
-    final metadata = widget.message.metadata;
-    if (metadata != null && metadata.containsKey('sessionId')) {
-      return metadata['sessionId'] as String;
-    }
-    
-    // 如果没有会话ID，使用消息ID的前缀作为会话ID
-    // 这是一个简化的实现，实际应用中应该有更好的会话管理
-    final messageId = widget.message.id;
-    if (messageId.contains('_')) {
-      return messageId.split('_').first;
-    }
-    
-    // 默认使用固定的会话ID用于演示
-    return 'demo_session_${messageId.hashCode.abs()}';
   }
 }

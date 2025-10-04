@@ -50,14 +50,22 @@ class ChatMessageHandler {
     }
     final metadata = message.metadata == 'null' ? '[]' : message.metadata;
 
+    // ✅ 构建 metadata，包含 question_id（来自 reply_message_id）
+    final messageMetadata = <String, dynamic>{
+      messageRefSourceJsonStringKey: metadata,
+    };
+    
+    // ✅ 如果有 reply_message_id，将其作为 question_id 添加到 metadata（保持 Int64 类型）
+    if (message.hasReplyMessageId()) {
+      messageMetadata[messageQuestionIdKey] = message.replyMessageId;
+    }
+
     return TextMessage(
       author: User(id: message.authorId),
       id: messageId,
       text: message.content,
       createdAt: message.createdAt.toDateTime(),
-      metadata: {
-        messageRefSourceJsonStringKey: metadata,
-      },
+      metadata: messageMetadata,
     );
   }
 

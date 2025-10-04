@@ -58,6 +58,15 @@ class _ExecutionLogViewerState extends State<ExecutionLogViewer> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 🔧 在这里缓存 bloc 引用，避免在 Timer 回调中访问 context
+    if (_bloc == null) {
+      _bloc = context.read<ExecutionLogBloc>();
+    }
+  }
+
+  @override
   void dispose() {
     _searchDebounce?.cancel();
     _searchController.dispose();
@@ -67,17 +76,24 @@ class _ExecutionLogViewerState extends State<ExecutionLogViewer> {
   }
 
   ExecutionLogBloc get bloc {
-    return _bloc ?? context.read<ExecutionLogBloc>();
+    // 直接返回缓存的 bloc，不再访问 context
+    return _bloc!;
   }
 
   void _onSearchChanged() {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 300), () {
-      bloc.add(ExecutionLogEvent.searchLogs(_searchController.text));
+      // 检查 Widget 是否还存在，避免在 dispose 后访问 context
+      if (mounted) {
+        bloc.add(ExecutionLogEvent.searchLogs(_searchController.text));
+      }
     });
   }
 
   void _onScrollChanged() {
+    // 检查 Widget 是否还存在
+    if (!mounted) return;
+    
     if (_scrollController.position.pixels >= 
         _scrollController.position.maxScrollExtent - 100) {
       bloc.add(const ExecutionLogEvent.loadMoreLogs());
@@ -191,32 +207,37 @@ class _ExecutionLogViewerState extends State<ExecutionLogViewer> {
   Widget _buildFilters() {
     return BlocBuilder<ExecutionLogBloc, ExecutionLogState>(
       builder: (context, state) {
-        return Row(
-          children: [
-            // 阶段过滤
-            _buildPhaseFilter(state),
-            const HSpace(12),
-            // 状态过滤
-            _buildStatusFilter(state),
-            const Spacer(),
-            // 自动滚动开关
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                FlowyText.regular(
-                  '自动滚动',
-                  fontSize: 12,
-                ),
-                const HSpace(4),
-                Switch(
-                  value: state.autoScroll,
-                  onChanged: (value) {
-                    bloc.add(ExecutionLogEvent.toggleAutoScroll(value));
-                  },
-                ),
-              ],
-            ),
-          ],
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            alignment: WrapAlignment.start,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              // 阶段过滤
+              _buildPhaseFilter(state),
+              // 状态过滤
+              _buildStatusFilter(state),
+              // 自动滚动开关
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FlowyText.regular(
+                    '自动滚动',
+                    fontSize: 12,
+                  ),
+                  const HSpace(4),
+                  Switch(
+                    value: state.autoScroll,
+                    onChanged: (value) {
+                      bloc.add(ExecutionLogEvent.toggleAutoScroll(value));
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
         );
       },
     );
@@ -312,13 +333,13 @@ class _ExecutionLogViewerState extends State<ExecutionLogViewer> {
         print('🔍 [ExecutionLogViewer] Building ListView with ${state.logs.length} logs');
         return ListView.builder(
           controller: _scrollController,
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(16),
           itemCount: state.logs.length + (state.hasMore ? 1 : 0),
           itemBuilder: (context, index) {
             if (index >= state.logs.length) {
               // 加载更多指示器
               return const Padding(
-                padding: EdgeInsets.all(16),
+                padding: EdgeInsets.symmetric(vertical: 24),
                 child: Center(
                   child: CircularProgressIndicator(),
                 ),
@@ -411,22 +432,30 @@ class ExecutionLogItem extends StatelessWidget {
   Widget build(BuildContext context) {
     print('🔍 [ExecutionLogItem] Building item for log: ${log.id} - ${log.step}');
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: _getStatusColor(log.status).withOpacity(0.3),
-          width: 1,
+          width: 1.5,
         ),
+        // ✅ 添加轻微阴影，增强层次感
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildHeader(context),
           if (log.input.isNotEmpty) ...[
-            const VSpace(8),
+            const VSpace(12),
             _buildSection(
               context,
               '输入',
@@ -434,7 +463,7 @@ class ExecutionLogItem extends StatelessWidget {
             ),
           ],
           if (log.output.isNotEmpty) ...[
-            const VSpace(8),
+            const VSpace(12),
             _buildSection(
               context,
               '输出',
@@ -442,7 +471,7 @@ class ExecutionLogItem extends StatelessWidget {
             ),
           ],
           if (log.hasErrorMessage() && log.errorMessage.isNotEmpty) ...[
-            const VSpace(8),
+            const VSpace(12),
             _buildErrorSection(context, log.errorMessage),
           ],
         ],
@@ -452,11 +481,13 @@ class ExecutionLogItem extends StatelessWidget {
 
   Widget _buildHeader(BuildContext context) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // 状态指示器
         Container(
           width: 8,
           height: 8,
+          margin: const EdgeInsets.only(top: 4),
           decoration: BoxDecoration(
             color: _getStatusColor(log.status),
             shape: BoxShape.circle,
@@ -468,6 +499,7 @@ class ExecutionLogItem extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ✅ 修复: 使用 Flexible 防止 overflow
               Row(
                 children: [
                   FlowyText.medium(
@@ -476,19 +508,27 @@ class ExecutionLogItem extends StatelessWidget {
                     color: _getStatusColor(log.status),
                   ),
                   const HSpace(8),
-                  FlowyText.regular(
-                    log.step,
-                    fontSize: 12,
+                  Expanded(
+                    child: FlowyText.regular(
+                      log.step,
+                      fontSize: 12,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ],
               ),
-              const VSpace(2),
+              const VSpace(4),
+              // ✅ 修复: 时间戳行也使用 Flexible
               Row(
                 children: [
-                  FlowyText.regular(
-                    _formatTimestamp(log.startedAt.toInt()),
-                    fontSize: 10,
-                    color: Theme.of(context).hintColor,
+                  Flexible(
+                    child: FlowyText.regular(
+                      _formatTimestamp(log.startedAt.toInt()),
+                      fontSize: 10,
+                      color: Theme.of(context).hintColor,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                   if (log.durationMs > 0) ...[
                     const HSpace(8),
@@ -503,6 +543,7 @@ class ExecutionLogItem extends StatelessWidget {
             ],
           ),
         ),
+        const HSpace(8),
         // 状态标签
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -530,16 +571,26 @@ class ExecutionLogItem extends StatelessWidget {
           color: Theme.of(context).hintColor,
         ),
         const VSpace(4),
+        // ✅ 修复: 使用 ConstrainedBox 限制最大高度，支持换行和滚动
         Container(
           width: double.infinity,
+          constraints: const BoxConstraints(
+            maxHeight: 200, // 限制最大高度
+          ),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(6),
           ),
           child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: _highlightSearchQuery(content),
+            child: SelectableText(
+              content,
+              style: TextStyle(
+                fontSize: 11,
+                fontFamily: 'monospace',
+                color: Theme.of(context).textTheme.bodyMedium?.color,
+              ),
+            ),
           ),
         ),
       ],
@@ -556,22 +607,30 @@ class ExecutionLogItem extends StatelessWidget {
           color: Colors.red,
         ),
         const VSpace(4),
+        // ✅ 修复: 限制最大高度并支持滚动
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(8),
+          constraints: const BoxConstraints(
+            maxHeight: 150, // 限制最大高度
+          ),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: Colors.red.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(6),
             border: Border.all(
               color: Colors.red.withOpacity(0.3),
               width: 1,
             ),
           ),
-          child: FlowyText.regular(
-            error,
-            fontSize: 11,
-            color: Colors.red,
-            maxLines: null,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              error,
+              style: const TextStyle(
+                fontSize: 11,
+                fontFamily: 'monospace',
+                color: Colors.red,
+              ),
+            ),
           ),
         ),
       ],
@@ -628,69 +687,5 @@ class ExecutionLogItem extends StatelessWidget {
   String _formatTimestamp(int timestamp) {
     final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
     return DateFormat('HH:mm:ss').format(dateTime);
-  }
-
-  Widget _highlightSearchQuery(String text) {
-    if (searchQuery == null || searchQuery!.isEmpty) {
-      return FlowyText.regular(
-        text,
-        fontSize: 11,
-        maxLines: null,
-      );
-    }
-
-    final query = searchQuery!.toLowerCase();
-    final lowerText = text.toLowerCase();
-    
-    if (!lowerText.contains(query)) {
-      return FlowyText.regular(
-        text,
-        fontSize: 11,
-        maxLines: null,
-      );
-    }
-
-    final spans = <TextSpan>[];
-    int start = 0;
-    
-    while (start < text.length) {
-      final index = lowerText.indexOf(query, start);
-      if (index == -1) {
-        // 添加剩余文本
-        if (start < text.length) {
-          spans.add(TextSpan(
-            text: text.substring(start),
-            style: const TextStyle(fontSize: 11),
-          ));
-        }
-        break;
-      }
-      
-      // 添加匹配前的文本
-      if (index > start) {
-        spans.add(TextSpan(
-          text: text.substring(start, index),
-          style: const TextStyle(fontSize: 11),
-        ));
-      }
-      
-      // 添加高亮的匹配文本
-      spans.add(TextSpan(
-        text: text.substring(index, index + query.length),
-        style: const TextStyle(
-          fontSize: 11,
-          backgroundColor: Colors.yellow,
-          color: Colors.black,
-          fontWeight: FontWeight.bold,
-        ),
-      ));
-      
-      start = index + query.length;
-    }
-
-    return RichText(
-      text: TextSpan(children: spans),
-      maxLines: null,
-    );
   }
 }

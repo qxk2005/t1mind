@@ -423,9 +423,16 @@ impl AIManager {
       None
     };
 
+    // 📝 传递执行日志存储（如果有智能体配置）
+    let exec_logs = if agent_config.is_some() {
+      Some(self.execution_logs.clone())
+    } else {
+      None
+    };
+
     let chat = self.get_or_create_chat_instance(&params.chat_id).await?;
     let ai_model = self.get_active_model(&params.chat_id.to_string()).await;
-    let question = chat.stream_chat_message(&params, ai_model, agent_config, tool_call_handler, enhanced_prompt).await?;
+    let question = chat.stream_chat_message(&params, ai_model, agent_config, tool_call_handler, enhanced_prompt, exec_logs).await?;
     let _ = self
       .external_service
       .notify_did_send_message(&params.chat_id, &params.message)
@@ -1031,16 +1038,39 @@ impl AIManager {
 
   /// 获取执行日志列表
   pub async fn get_execution_logs(&self, request: &GetExecutionLogsRequestPB) -> FlowyResult<AgentExecutionLogListPB> {
-    let session_key = if let Some(message_id) = &request.message_id {
-      format!("{}_{}", request.session_id, message_id)
+    // 📝 调试：输出当前存储的所有 key
+    let stored_keys: Vec<String> = self.execution_logs.iter()
+      .map(|entry| entry.key().clone())
+      .collect();
+    info!("📋 [QUERY] Stored execution log keys: {:?}", stored_keys);
+    info!("📋 [QUERY] Query session_id: {}, message_id: {:?}", 
+          request.session_id, request.message_id);
+    
+    let logs = if let Some(message_id) = &request.message_id {
+      // 查询特定消息的日志
+      let session_key = format!("{}_{}", request.session_id, message_id);
+      info!("📋 [QUERY] Looking for exact key: {}", session_key);
+      self.execution_logs
+        .get(&session_key)
+        .map(|entry| entry.value().clone())
+        .unwrap_or_default()
     } else {
-      request.session_id.clone()
+      // 查询会话中所有消息的日志
+      let session_prefix = format!("{}_", request.session_id);
+      info!("📋 [QUERY] Looking for keys with prefix: {}", session_prefix);
+      let mut all_logs = Vec::new();
+      
+      for entry in self.execution_logs.iter() {
+        if entry.key().starts_with(&session_prefix) {
+          info!("📋 [QUERY] Found matching key: {}", entry.key());
+          all_logs.extend(entry.value().clone());
+        }
+      }
+      
+      // 按开始时间排序
+      all_logs.sort_by_key(|log| log.started_at);
+      all_logs
     };
-
-    let logs = self.execution_logs
-      .get(&session_key)
-      .map(|entry| entry.value().clone())
-      .unwrap_or_default();
 
     // 应用过滤器
     let mut filtered_logs = logs;

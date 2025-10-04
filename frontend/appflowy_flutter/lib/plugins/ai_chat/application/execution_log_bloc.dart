@@ -1,11 +1,9 @@
 import 'dart:async';
 
+import 'package:appflowy_backend/dispatch/dispatch.dart';
 import 'package:appflowy_backend/protobuf/flowy-ai/entities.pb.dart';
-import 'package:appflowy_backend/protobuf/flowy-error/errors.pb.dart';
-import 'package:appflowy_result/appflowy_result.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
-import 'package:fixnum/fixnum.dart';
 
 part 'execution_log_bloc.freezed.dart';
 
@@ -26,6 +24,8 @@ class ExecutionLogBloc extends Bloc<ExecutionLogEvent, ExecutionLogState> {
 
   @override
   Future<void> close() {
+    print('🔍 [ExecutionLogBloc] ❌ CLOSING BLOC for session: $_sessionId, message: $_messageId');
+    print('🔍 [ExecutionLogBloc] ❌ Stack trace: ${StackTrace.current}');
     _refreshTimer?.cancel();
     return super.close();
   }
@@ -34,23 +34,41 @@ class ExecutionLogBloc extends Bloc<ExecutionLogEvent, ExecutionLogState> {
     ExecutionLogEvent event,
     Emitter<ExecutionLogState> emit,
   ) async {
-    event.when(
-      loadLogs: () async => await _loadLogs(emit),
-      loadMoreLogs: () async => await _loadMoreLogs(emit),
-      refreshLogs: () async => await _refreshLogs(emit),
-      searchLogs: (query) async => await _searchLogs(emit, query),
-      filterByPhase: (phase) async => await _filterByPhase(emit, phase),
-      filterByStatus: (status) async => await _filterByStatus(emit, status),
-      toggleAutoScroll: (enabled) => _toggleAutoScroll(emit, enabled),
-      addLog: (log) => _addLog(emit, log),
-    );
+    // ⚠️ 关键修复：使用类型检查并 await 异步操作
+    // 这样可以确保异步操作完成后才标记 emitter 为 done
+    if (event is _LoadLogs) {
+      await _loadLogs(emit);
+    } else if (event is _LoadMoreLogs) {
+      await _loadMoreLogs(emit);
+    } else if (event is _RefreshLogs) {
+      await _refreshLogs(emit);
+    } else if (event is _SearchLogs) {
+      await _searchLogs(emit, event.query);
+    } else if (event is _FilterByPhase) {
+      await _filterByPhase(emit, event.phase);
+    } else if (event is _FilterByStatus) {
+      await _filterByStatus(emit, event.status);
+    } else if (event is _ToggleAutoScroll) {
+      _toggleAutoScroll(emit, event.enabled);
+    } else if (event is _AddLog) {
+      _addLog(emit, event.log);
+    }
   }
 
   Future<void> _loadLogs(Emitter<ExecutionLogState> emit) async {
-    if (emit.isDone) return;
+    print('🔍 [ExecutionLogBloc] 🔵 _loadLogs called');
+    print('🔍 [ExecutionLogBloc] 🔵 emit.isDone: ${emit.isDone}');
+    print('🔍 [ExecutionLogBloc] 🔵 isClosed: $isClosed');
+    print('🔍 [ExecutionLogBloc] 🔵 session: $_sessionId, message: $_messageId');
+    
+    if (emit.isDone) {
+      print('🔍 [ExecutionLogBloc] ⚠️ emit.isDone is true at start, returning');
+      return;
+    }
     
     print('🔍 [ExecutionLogBloc] Starting to load logs...');
     emit(state.copyWith(isLoading: true));
+    print('🔍 [ExecutionLogBloc] Emitted isLoading: true');
 
     final request = GetExecutionLogsRequestPB()
       ..sessionId = _sessionId
@@ -66,20 +84,18 @@ class ExecutionLogBloc extends Bloc<ExecutionLogEvent, ExecutionLogState> {
     }
 
     print('🔍 [ExecutionLogBloc] Calling AIEventGetExecutionLogs...');
+    print('🔍 [ExecutionLogBloc] 🔵 Before API call - emit.isDone: ${emit.isDone}, isClosed: $isClosed');
     
-    // 直接生成模拟数据进行测试
-    final mockLogs = _generateMockLogs();
-    final response = AgentExecutionLogListPB()
-      ..logs.addAll(mockLogs)
-      ..total = Int64(mockLogs.length)
-      ..hasMore = false;
+    // 🔌 使用真实的后端API
+    final result = await AIEventGetExecutionLogs(request).send();
     
-    final result = FlowyResult<AgentExecutionLogListPB, FlowyError>.success(response);
-    print('🔍 [ExecutionLogBloc] Generated ${mockLogs.length} mock logs directly');
+    print('🔍 [ExecutionLogBloc] 🔵 Received response from backend');
+    print('🔍 [ExecutionLogBloc] 🔵 After API call - emit.isDone: ${emit.isDone}, isClosed: $isClosed');
     
     // 检查emit是否仍然可用
     if (emit.isDone) {
-      print('🔍 [ExecutionLogBloc] Emit is done, returning early');
+      print('🔍 [ExecutionLogBloc] ❌ Emit is done, returning early');
+      print('🔍 [ExecutionLogBloc] ❌ This means the Bloc was closed during the async operation!');
       return;
     }
     
@@ -139,6 +155,7 @@ class ExecutionLogBloc extends Bloc<ExecutionLogEvent, ExecutionLogState> {
       request.phase = state.phaseFilter!;
     }
 
+    // 🔌 使用真实的后端API
     final result = await AIEventGetExecutionLogs(request).send();
     
     // 检查emit是否仍然可用
@@ -259,52 +276,6 @@ class ExecutionLogBloc extends Bloc<ExecutionLogEvent, ExecutionLogState> {
   void _stopAutoRefresh() {
     _refreshTimer?.cancel();
   }
-
-  /// 生成模拟日志数据
-  List<AgentExecutionLogPB> _generateMockLogs() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    
-    return [
-      AgentExecutionLogPB()
-        ..id = 'log_1'
-        ..sessionId = _sessionId
-        ..messageId = _messageId ?? 'demo_msg_1'
-        ..phase = ExecutionPhasePB.ExecPlanning
-        ..step = '分析用户问题'
-        ..input = '用户问题：请帮我创建一个新文档'
-        ..output = '识别到用户需要创建文档，准备调用文档创建工具'
-        ..status = ExecutionStatusPB.ExecSuccess
-        ..startedAt = Int64(now - 5000)
-        ..completedAt = Int64(now - 3000)
-        ..durationMs = Int64(2000),
-      
-      AgentExecutionLogPB()
-        ..id = 'log_2'
-        ..sessionId = _sessionId
-        ..messageId = _messageId ?? 'demo_msg_1'
-        ..phase = ExecutionPhasePB.ExecToolCall
-        ..step = '调用文档创建工具'
-        ..input = '{"title": "新文档", "content": ""}'
-        ..output = '{"document_id": "doc_123", "status": "created"}'
-        ..status = ExecutionStatusPB.ExecSuccess
-        ..startedAt = Int64(now - 3000)
-        ..completedAt = Int64(now - 1000)
-        ..durationMs = Int64(2000),
-      
-      AgentExecutionLogPB()
-        ..id = 'log_3'
-        ..sessionId = _sessionId
-        ..messageId = _messageId ?? 'demo_msg_1'
-        ..phase = ExecutionPhasePB.ExecCompletion
-        ..step = '完成任务'
-        ..input = '文档创建成功'
-        ..output = '已为您创建新文档，文档ID: doc_123'
-        ..status = ExecutionStatusPB.ExecSuccess
-        ..startedAt = Int64(now - 1000)
-        ..completedAt = Int64(now)
-        ..durationMs = Int64(1000),
-    ];
-  }
 }
 
 /// 执行日志事件
@@ -351,92 +322,3 @@ class ExecutionLogState with _$ExecutionLogState {
   );
 }
 
-/// AI事件调度器扩展
-class AIEventGetExecutionLogs {
-  AIEventGetExecutionLogs(this.request);
-  
-  final GetExecutionLogsRequestPB request;
-  
-  Future<FlowyResult<AgentExecutionLogListPB, FlowyError>> send() {
-    return _sendRequest();
-  }
-  
-  Future<FlowyResult<AgentExecutionLogListPB, FlowyError>> _sendRequest() async {
-    // 暂时直接返回模拟数据，因为后端API还未完全集成
-    // 在真实环境中，这里会调用后端API
-    print('🔍 [ExecutionLog] Loading logs for sessionId: ${request.sessionId}, messageId: ${request.hasMessageId() ? request.messageId : "none"}');
-    await Future.delayed(const Duration(milliseconds: 100)); // 模拟网络延迟
-    
-    try {
-      final response = _generateMockResponse();
-      print('🔍 [ExecutionLog] Generated ${response.fold((logs) => logs.logs.length, (error) => 0)} mock logs');
-      print('🔍 [ExecutionLog] Returning response to BLoC');
-      return response;
-    } catch (e) {
-      print('🔍 [ExecutionLog] Error generating mock response: $e');
-      return FlowyResult<AgentExecutionLogListPB, FlowyError>.failure(
-        FlowyError()..msg = 'Failed to generate mock data: $e'
-      );
-    }
-  }
-  
-  FlowyResult<AgentExecutionLogListPB, FlowyError> _generateMockResponse() {
-    final mockLogs = _generateMockLogs();
-    print('🔍 [ExecutionLog] Creating response with ${mockLogs.length} logs');
-    
-    final response = AgentExecutionLogListPB()
-      ..logs.addAll(mockLogs)
-      ..total = Int64(mockLogs.length)
-      ..hasMore = false;
-    
-    print('🔍 [ExecutionLog] Response created - logs count: ${response.logs.length}, total: ${response.total}');
-    final result = FlowyResult<AgentExecutionLogListPB, FlowyError>.success(response);
-    print('🔍 [ExecutionLog] FlowyResult created successfully');
-    return result;
-  }
-  
-  List<AgentExecutionLogPB> _generateMockLogs() {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    
-    return [
-      AgentExecutionLogPB()
-        ..id = 'log_1'
-        ..sessionId = request.sessionId
-        ..messageId = request.hasMessageId() ? request.messageId : 'demo_msg_1'
-        ..phase = ExecutionPhasePB.ExecPlanning
-        ..step = '分析用户问题'
-        ..input = '用户问题：请帮我创建一个新文档'
-        ..output = '识别到用户需要创建文档，准备调用文档创建工具'
-        ..status = ExecutionStatusPB.ExecSuccess
-        ..startedAt = Int64(now - 5000)
-        ..completedAt = Int64(now - 3000)
-        ..durationMs = Int64(2000),
-      
-      AgentExecutionLogPB()
-        ..id = 'log_2'
-        ..sessionId = request.sessionId
-        ..messageId = request.hasMessageId() ? request.messageId : 'demo_msg_1'
-        ..phase = ExecutionPhasePB.ExecToolCall
-        ..step = '调用文档创建工具'
-        ..input = '{"title": "新文档", "content": ""}'
-        ..output = '{"document_id": "doc_123", "status": "created"}'
-        ..status = ExecutionStatusPB.ExecSuccess
-        ..startedAt = Int64(now - 3000)
-        ..completedAt = Int64(now - 1000)
-        ..durationMs = Int64(2000),
-      
-      AgentExecutionLogPB()
-        ..id = 'log_3'
-        ..sessionId = request.sessionId
-        ..messageId = request.hasMessageId() ? request.messageId : 'demo_msg_1'
-        ..phase = ExecutionPhasePB.ExecCompletion
-        ..step = '完成任务'
-        ..input = '文档创建成功'
-        ..output = '已为您创建新文档，文档ID: doc_123'
-        ..status = ExecutionStatusPB.ExecSuccess
-        ..startedAt = Int64(now - 1000)
-        ..completedAt = Int64(now)
-        ..durationMs = Int64(1000),
-    ];
-  }
-}

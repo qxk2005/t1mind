@@ -1,6 +1,6 @@
 use crate::entities::{
   AgentConfigPB, ChatMessageErrorPB, ChatMessageListPB, ChatMessagePB, PredefinedFormatPB,
-  RepeatedRelatedQuestionPB, StreamMessageParams,
+  RepeatedRelatedQuestionPB, StreamMessageParams, AgentExecutionLogPB,
 };
 use crate::middleware::chat_service_mw::ChatServiceMiddleware;
 use crate::notification::{ChatNotification, chat_notification_builder};
@@ -25,6 +25,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64};
 use tokio::sync::{Mutex, RwLock};
 use tracing::{error, instrument, trace, warn};
 use uuid::Uuid;
+use dashmap::DashMap;
 
 enum PrevMessageState {
   HasMore,
@@ -78,6 +79,7 @@ impl Chat {
     agent_config: Option<AgentConfigPB>,
     tool_call_handler: Option<Arc<crate::agent::ToolCallHandler>>,  // 🔧 工具调用处理器
     custom_system_prompt: Option<String>,  // 🆕 自定义系统提示(已包含工具详情)
+    execution_logs: Option<Arc<DashMap<String, Vec<AgentExecutionLogPB>>>>,  // 📝 执行日志存储
   ) -> Result<ChatMessagePB, FlowyError> {
     let agent_name = agent_config.as_ref().map(|c| c.name.as_str()).unwrap_or("None");
     trace!(
@@ -186,6 +188,7 @@ impl Chat {
       system_prompt,
       agent_config,  // 🔧 传递智能体配置
       tool_call_handler,  // 🔧 传递工具调用处理器
+      execution_logs,  // 📝 传递执行日志存储
     );
 
     let question_pb = ChatMessagePB::from(question);
@@ -227,6 +230,7 @@ impl Chat {
       None, // 重新生成时不使用系统提示词
       None, // 🔧 重新生成时不使用智能体配置
       None, // 🔧 重新生成时不使用工具调用处理器
+      None, // 📝 重新生成时不使用执行日志
     );
 
     Ok(())
@@ -245,6 +249,7 @@ impl Chat {
     system_prompt: Option<String>,
     agent_config: Option<AgentConfigPB>,
     tool_call_handler: Option<Arc<crate::agent::ToolCallHandler>>,  // 🔧 新增工具调用处理器
+    execution_logs: Option<Arc<DashMap<String, Vec<AgentExecutionLogPB>>>>,  // 📝 执行日志存储
   ) {
     let stop_stream = self.stop_stream.clone();
     let chat_id = self.chat_id;
@@ -254,12 +259,34 @@ impl Chat {
     let has_agent = agent_config.is_some();
     let has_tool_handler = tool_call_handler.is_some();
     
+    // 📝 调试：检查执行日志是否被传递
+    let has_execution_logs = execution_logs.is_some();
+    info!("🔧 [RESPONSE] Starting stream_response: chat_id={}, question_id={}, has_agent={}, has_execution_logs={}", 
+          chat_id, question_id, has_agent, has_execution_logs);
+    
     tokio::spawn(async move {
       let mut answer_sink = IsolateSink::new(Isolate::new(answer_stream_port));
       let mut accumulated_text = String::new();  // 🔧 累积文本用于检测工具调用
       
       // 🔧 多轮对话支持：记录工具调用和结果
       let mut tool_calls_and_results: Vec<(crate::agent::ToolCallRequest, crate::agent::ToolCallResponse)> = Vec::new();
+      
+      // 📝 日志记录辅助函数
+      let add_log = |logs: &Option<Arc<DashMap<String, Vec<AgentExecutionLogPB>>>>, log: AgentExecutionLogPB| {
+        if let Some(logs_map) = logs {
+          let session_key = format!("{}_{}", log.session_id, log.message_id);
+          info!("📝 [LOG] Recording log: session_key={}, phase={:?}, step={}", 
+                session_key, log.phase, log.step);
+          logs_map.entry(session_key.clone())
+            .or_insert_with(Vec::new)
+            .push(log);
+          let count = logs_map.get(&session_key).map(|v| v.len()).unwrap_or(0);
+          info!("📝 [LOG] Total logs for session: {}", count);
+        } else {
+          warn!("📝 [LOG] Cannot record log - execution_logs is None! phase={:?}, step={}", 
+                log.phase, log.step);
+        }
+      };
       
       match cloud_service
         .stream_answer_with_system_prompt(&workspace_id, &chat_id, question_id, format.clone(), ai_model.clone(), system_prompt.clone())
@@ -362,6 +389,19 @@ impl Chat {
                           
                           info!("🔧 [TOOL] Executing tool: {} (id: {})", request.tool_name, request.id);
                           
+                          // 📝 记录工具调用开始日志
+                          {
+                            let mut log = AgentExecutionLogPB::new(
+                              chat_id.to_string(),
+                              question_id.to_string(),
+                              crate::entities::ExecutionPhasePB::ExecToolCall,
+                              format!("执行工具: {}", request.tool_name),
+                            );
+                            log.input = serde_json::to_string(&request.arguments).unwrap_or_default();
+                            log.status = crate::entities::ExecutionStatusPB::ExecRunning;
+                            add_log(&execution_logs, log);
+                          }
+                          
                           // ✅ 实际执行工具
                           if has_tool_handler {
                             if let Some(ref handler) = tool_call_handler {
@@ -393,6 +433,18 @@ impl Chat {
                               // ✅ 将工具执行结果发送给用户显示
                               // ⚠️ 注意：这个结果用于 UI 显示，实际的多轮对话逻辑在流结束后处理
                               if response.success {
+                                // 📝 记录工具调用成功日志
+                                if let Some(ref result_text) = response.result {
+                                  let mut log = AgentExecutionLogPB::new(
+                                    chat_id.to_string(),
+                                    question_id.to_string(),
+                                    crate::entities::ExecutionPhasePB::ExecToolCall,
+                                    format!("工具执行成功: {}", request.tool_name),
+                                  );
+                                  log.mark_completed(result_text.clone());
+                                  add_log(&execution_logs, log);
+                                }
+                                
                                 if let Some(result_text) = response.result {
                                   let formatted_result = format!(
                                     "\n<tool_result>\n工具执行成功：{}\n结果：{}\n</tool_result>\n",
@@ -424,11 +476,22 @@ impl Chat {
                                   info!("🔧 [TOOL] Tool result sent to UI - will be used for follow-up AI response");
                                 }
                               } else {
+                                // 📝 记录工具调用失败日志
+                                let error_text = response.error.clone().unwrap_or_else(|| "Unknown error".to_string());
+                                let mut log = AgentExecutionLogPB::new(
+                                  chat_id.to_string(),
+                                  question_id.to_string(),
+                                  crate::entities::ExecutionPhasePB::ExecToolCall,
+                                  format!("工具执行失败: {}", request.tool_name),
+                                );
+                                log.mark_failed(error_text.clone());
+                                add_log(&execution_logs, log);
+                                
                                 // 工具执行失败，通知用户
                                 let error_msg = format!(
                                   "\n<tool_error>\n工具执行失败：{}\n错误：{}\n</tool_error>\n",
                                   request.tool_name,
-                                  response.error.unwrap_or_else(|| "Unknown error".to_string())
+                                  error_text
                                 );
                                 
                                 error!("🔧 [TOOL] Tool failed: {} - sending error to UI", response.id);
@@ -598,6 +661,19 @@ impl Chat {
               info!("🔧 [REFLECTION] ═══ Iteration {}/{} ═══", current_iteration, max_iterations);
               info!("🔧 [REFLECTION] Current tool results count: {}", all_tool_results.len());
               
+              // 📝 记录反思迭代开始日志
+              {
+                let mut log = AgentExecutionLogPB::new(
+                  chat_id.to_string(),
+                  question_id.to_string(),
+                  crate::entities::ExecutionPhasePB::ExecReflection,
+                  format!("反思迭代 {}/{}", current_iteration, max_iterations),
+                );
+                log.input = format!("工具结果数量: {}", all_tool_results.len());
+                log.status = crate::entities::ExecutionStatusPB::ExecRunning;
+                add_log(&execution_logs, log);
+              }
+              
               // 构建包含所有工具结果的上下文消息
               let mut follow_up_context = String::new();
               if current_iteration == 1 {
@@ -641,8 +717,16 @@ impl Chat {
               if enable_reflection && current_iteration < max_iterations {
                 follow_up_context.push_str(&format!("请评估这些工具结果是否足以回答用户的问题（当前第 {}/{} 轮）：\n", current_iteration, max_iterations));
                 follow_up_context.push_str("- 如果结果充分，请用中文简体总结并直接回答用户的问题\n");
-                follow_up_context.push_str("- 如果结果不足或需要更多信息，可以继续调用其他可用工具\n");
-                follow_up_context.push_str("- 避免调用已经尝试过的工具或重复的查询\n");
+                follow_up_context.push_str("- 如果结果不足或需要更多信息，你**必须**使用工具调用格式继续调用其他可用工具\n");
+                follow_up_context.push_str("- 避免调用已经尝试过的工具或重复的查询\n\n");
+                follow_up_context.push_str("**重要提醒**：如果你需要更多信息，不要只是描述你要做什么，而是**直接输出工具调用**：\n");
+                follow_up_context.push_str("<tool_call>\n");
+                follow_up_context.push_str("{\n");
+                follow_up_context.push_str("  \"id\": \"unique_call_id\",\n");
+                follow_up_context.push_str("  \"tool_name\": \"工具名称\",\n");
+                follow_up_context.push_str("  \"arguments\": { ... }\n");
+                follow_up_context.push_str("}\n");
+                follow_up_context.push_str("</tool_call>\n");
               } else {
                 follow_up_context.push_str("请用中文简体总结和解释这些工具执行结果，直接回答用户的问题，不要再次调用工具。\n");
               }
@@ -767,6 +851,18 @@ impl Chat {
                       info!("🔧 [REFLECTION] Iteration {} completed: {} messages, {} answer chunks, has_data: {}, new_tools: {}", 
                             current_iteration, message_count, answer_chunks, has_received_data, new_tool_calls_detected);
                       
+                      // 🐛 DEBUG: 打印AI响应内容预览（用于调试）
+                      if !new_tool_calls_detected && !reflection_accumulated_text.is_empty() {
+                        let preview_len = std::cmp::min(500, reflection_accumulated_text.len());
+                        let mut safe_preview_len = preview_len;
+                        while safe_preview_len > 0 && !reflection_accumulated_text.is_char_boundary(safe_preview_len) {
+                          safe_preview_len -= 1;
+                        }
+                        info!("🔧 [REFLECTION] AI response preview (no tool calls detected): {}...", 
+                              &reflection_accumulated_text[..safe_preview_len]);
+                        info!("🔧 [REFLECTION] Total response length: {} chars", reflection_accumulated_text.len());
+                      }
+                      
                       // 🔧 处理新检测到的工具调用
                       if new_tool_calls_detected && has_tool_handler && current_iteration < max_iterations {
                         info!("🔧 [REFLECTION] Processing new tool calls detected in iteration {}", current_iteration);
@@ -781,12 +877,46 @@ impl Chat {
                           for call in new_calls {
                             info!("🔧 [REFLECTION] Executing new tool: {} (iteration {})", call.tool_name, current_iteration);
                             
+                            // 📝 记录反思中新工具调用开始日志
+                            {
+                              let mut log = AgentExecutionLogPB::new(
+                                chat_id.to_string(),
+                                question_id.to_string(),
+                                crate::entities::ExecutionPhasePB::ExecReflection,
+                                format!("反思中执行工具: {} (迭代 {})", call.tool_name, current_iteration),
+                              );
+                              log.input = serde_json::to_string(&call.arguments).unwrap_or_default();
+                              log.status = crate::entities::ExecutionStatusPB::ExecRunning;
+                              add_log(&execution_logs, log);
+                            }
+                            
                             if let Some(ref handler) = tool_call_handler {
                               let response = handler.execute_tool_call(&call, agent_config.as_ref()).await;
+                              
+                              // 📝 记录反思中工具调用完成日志
                               if response.success {
                                 info!("🔧 [REFLECTION] Tool {} executed successfully in iteration {}", call.tool_name, current_iteration);
+                                if let Some(ref result_text) = response.result {
+                                  let mut log = AgentExecutionLogPB::new(
+                                    chat_id.to_string(),
+                                    question_id.to_string(),
+                                    crate::entities::ExecutionPhasePB::ExecReflection,
+                                    format!("反思中工具执行成功: {} (迭代 {})", call.tool_name, current_iteration),
+                                  );
+                                  log.mark_completed(result_text.clone());
+                                  add_log(&execution_logs, log);
+                                }
                               } else {
                                 warn!("🔧 [REFLECTION] Tool {} execution returned success=false in iteration {}", call.tool_name, current_iteration);
+                                let error_text = response.error.clone().unwrap_or_else(|| "Unknown error".to_string());
+                                let mut log = AgentExecutionLogPB::new(
+                                  chat_id.to_string(),
+                                  question_id.to_string(),
+                                  crate::entities::ExecutionPhasePB::ExecReflection,
+                                  format!("反思中工具执行失败: {} (迭代 {})", call.tool_name, current_iteration),
+                                );
+                                log.mark_failed(error_text);
+                                add_log(&execution_logs, log);
                               }
                               all_tool_results.push((call, response));
                             }

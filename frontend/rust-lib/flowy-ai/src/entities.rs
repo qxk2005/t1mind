@@ -330,7 +330,7 @@ impl From<ChatMessage> for ChatMessagePB {
       created_at: chat_message.created_at.timestamp(),
       author_type: chat_message.author.author_type as i64,
       author_id: chat_message.author.author_id.to_string(),
-      reply_message_id: None,
+      reply_message_id: chat_message.reply_message_id,  // ✅ 使用实际的 reply_message_id
       metadata: Some(serde_json::to_string(&chat_message.metadata).unwrap_or_default()),
     }
   }
