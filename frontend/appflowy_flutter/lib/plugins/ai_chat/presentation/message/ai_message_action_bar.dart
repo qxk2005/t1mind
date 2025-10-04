@@ -855,11 +855,27 @@ class _ExecutionLogButtonState extends State<ExecutionLogButton> {
     
     print('🔍 [ExecutionLogButton] build: Bloc ready (hashCode: ${_executionLogBloc.hashCode}, isClosed: ${_executionLogBloc!.isClosed})');
     
+    // ✅ 在外层获取真正的屏幕尺寸
+    final screenSize = MediaQuery.of(context).size;
+    print('🔍 [ExecutionLogButton] Screen size: ${screenSize.width} x ${screenSize.height}');
+    
+    // ✅ 计算 Popover 的约束尺寸
+    final popoverWidth = (screenSize.width * 0.50).clamp(700.0, 1000.0);
+    final popoverHeight = (screenSize.height * 0.75).clamp(500.0, 700.0);
+    print('🔍 [ExecutionLogButton] Popover constraints: ${popoverWidth} x ${popoverHeight}');
+    
     return AppFlowyPopover(
       controller: _popoverController,
       mutex: widget.popoverMutex,
       direction: PopoverDirection.bottomWithLeftAligned,
       offset: const Offset(-300, 10),
+      // ⚠️ 关键修复：显式设置 constraints，覆盖默认的 240px 宽度限制！
+      constraints: BoxConstraints(
+        minWidth: popoverWidth,
+        maxWidth: popoverWidth,
+        minHeight: popoverHeight,
+        maxHeight: popoverHeight,
+      ),
       onOpen: () {
         print('🔍 [ExecutionLogButton] 🟢 Popover opened');
         print('🔍 [ExecutionLogButton] 🟢 _isLoadingLogs: $_isLoadingLogs');
@@ -897,7 +913,7 @@ class _ExecutionLogButtonState extends State<ExecutionLogButton> {
         widget.onOverrideVisibility?.call(false);
         // ✅ 不在这里关闭 Bloc，让它继续存活直到 Widget dispose
       },
-      popupBuilder: (context) => _buildExecutionLogPopover(),
+      popupBuilder: (context) => _buildExecutionLogPopover(screenSize),
       child: FlowyTooltip(
         message: '查看执行过程',
         child: GestureDetector(
@@ -918,7 +934,7 @@ class _ExecutionLogButtonState extends State<ExecutionLogButton> {
     );
   }
 
-  Widget _buildExecutionLogPopover() {
+  Widget _buildExecutionLogPopover(Size screenSize) {
     // ⚠️ 如果 Bloc 还未创建或已关闭，显示错误信息
     if (_executionLogBloc == null || _executionLogBloc!.isClosed) {
       print('🔍 [ExecutionLogButton] _buildExecutionLogPopover: bloc is ${_executionLogBloc == null ? "null" : "closed"}');
@@ -932,17 +948,10 @@ class _ExecutionLogButtonState extends State<ExecutionLogButton> {
     // 🔌 从 ChatAIMessageBloc 中获取真实的 chatId
     final chatId = context.read<ChatAIMessageBloc>().chatId;
     
-    // 获取屏幕尺寸来动态调整弹出窗口大小
-    final screenSize = MediaQuery.of(context).size;
-    final maxWidth = (screenSize.width * 0.85).clamp(700.0, 1000.0);
-    final maxHeight = (screenSize.height * 0.75).clamp(500.0, 700.0);
-    
     // ⚠️ 关键修复：Popover 的 context 是独立的，需要在这里重新提供 Bloc
     return BlocProvider.value(
       value: _executionLogBloc!,
       child: Container(
-        width: maxWidth,
-        height: maxHeight,
         padding: const EdgeInsets.all(8),
         child: Column(
           children: [
