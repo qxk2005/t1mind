@@ -271,8 +271,27 @@ impl Chat {
     
     // 📝 调试：检查执行日志是否被传递
     let has_execution_logs = execution_logs.is_some();
-    info!("🔧 [RESPONSE] Starting stream_response: chat_id={}, question_id={}, has_agent={}, has_execution_logs={}", 
-          chat_id, question_id, has_agent, has_execution_logs);
+    let has_tool_definitions = tool_definitions.is_some();
+    let tool_count = tool_definitions.as_ref().map(|t| t.len()).unwrap_or(0);
+    info!("🔧 [RESPONSE] Starting stream_response: chat_id={}, question_id={}, has_agent={}, has_tool_handler={}, has_tool_definitions={}, tool_count={}, has_execution_logs={}", 
+          chat_id, question_id, has_agent, has_tool_handler, has_tool_definitions, tool_count, has_execution_logs);
+    
+    // 📝 详细调试信息
+    if let Some(ref config) = agent_config {
+      info!("🔧 [AGENT] Using agent: {} ({}), tool_calling_enabled: {}, available_tools: {:?}", 
+            config.name, config.id, config.capabilities.enable_tool_calling, config.available_tools);
+    } else {
+      warn!("🔧 [AGENT] No agent config provided!");
+    }
+    
+    if let Some(ref tools) = tool_definitions {
+      info!("🔧 [TOOLS] Tool definitions loaded: {} tools", tools.len());
+      for tool in tools {
+        info!("🔧 [TOOL] - {}: {} ({:?})", tool.name, tool.description, tool.tool_type);
+      }
+    } else {
+      warn!("🔧 [TOOLS] No tool definitions provided!");
+    }
     
     tokio::spawn(async move {
       let mut answer_sink = IsolateSink::new(Isolate::new(answer_stream_port));
@@ -386,6 +405,48 @@ impl Chat {
                             collected_tool_calls.lock().await.push(tc);
                             info!("🔄 [MULTI-TURN] Collected tool_call: {} (total: {})", 
                                   tool_name, collected_tool_calls.lock().await.len());
+                            
+                            // 📝 记录工具调用开始日志
+                            {
+                              let mut log = AgentExecutionLogPB::new(
+                                chat_id.to_string(),
+                                question_id.to_string(),
+                                crate::entities::ExecutionPhasePB::ExecToolCall,
+                                format!("工具调用开始: {}", tool_name),
+                              );
+                              log.input = arguments.to_string();
+                              log.status = crate::entities::ExecutionStatusPB::ExecRunning;
+                              add_log(&execution_logs, log);
+                            }
+                          }
+                        } else if status == "success" || status == "failed" {
+                          // 📝 记录工具调用完成日志
+                          if let (Some(_id), Some(tool_name)) = (
+                            tool_call_obj.get("id").and_then(|v| v.as_str()),
+                            tool_call_obj.get("tool_name").and_then(|v| v.as_str()),
+                          ) {
+                            let mut log = AgentExecutionLogPB::new(
+                              chat_id.to_string(),
+                              question_id.to_string(),
+                              crate::entities::ExecutionPhasePB::ExecToolCall,
+                              format!("工具调用完成: {}", tool_name),
+                            );
+                            
+                            if status == "success" {
+                              if let Some(result) = tool_call_obj.get("result").and_then(|v| v.as_str()) {
+                                log.mark_completed(result.to_string());
+                              } else {
+                                log.mark_completed("工具执行成功".to_string());
+                              }
+                            } else {
+                              if let Some(error) = tool_call_obj.get("error").and_then(|v| v.as_str()) {
+                                log.mark_failed(error.to_string());
+                              } else {
+                                log.mark_failed("工具执行失败".to_string());
+                              }
+                            }
+                            
+                            add_log(&execution_logs, log);
                           }
                         }
                       }
@@ -741,6 +802,48 @@ impl Chat {
                             collected_tool_calls.lock().await.push(tc);
                             info!("🔄 [MULTI-TURN] Collected tool_call: {} (total: {})", 
                                   tool_name, collected_tool_calls.lock().await.len());
+                            
+                            // 📝 记录工具调用开始日志
+                            {
+                              let mut log = AgentExecutionLogPB::new(
+                                chat_id.to_string(),
+                                question_id.to_string(),
+                                crate::entities::ExecutionPhasePB::ExecToolCall,
+                                format!("工具调用开始: {}", tool_name),
+                              );
+                              log.input = arguments.to_string();
+                              log.status = crate::entities::ExecutionStatusPB::ExecRunning;
+                              add_log(&execution_logs, log);
+                            }
+                          }
+                        } else if status == "success" || status == "failed" {
+                          // 📝 记录工具调用完成日志
+                          if let (Some(_id), Some(tool_name)) = (
+                            tool_call_obj.get("id").and_then(|v| v.as_str()),
+                            tool_call_obj.get("tool_name").and_then(|v| v.as_str()),
+                          ) {
+                            let mut log = AgentExecutionLogPB::new(
+                              chat_id.to_string(),
+                              question_id.to_string(),
+                              crate::entities::ExecutionPhasePB::ExecToolCall,
+                              format!("工具调用完成: {}", tool_name),
+                            );
+                            
+                            if status == "success" {
+                              if let Some(result) = tool_call_obj.get("result").and_then(|v| v.as_str()) {
+                                log.mark_completed(result.to_string());
+                              } else {
+                                log.mark_completed("工具执行成功".to_string());
+                              }
+                            } else {
+                              if let Some(error) = tool_call_obj.get("error").and_then(|v| v.as_str()) {
+                                log.mark_failed(error.to_string());
+                              } else {
+                                log.mark_failed("工具执行失败".to_string());
+                              }
+                            }
+                            
+                            add_log(&execution_logs, log);
                           }
                         }
                       }

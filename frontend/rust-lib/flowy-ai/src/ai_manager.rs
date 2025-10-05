@@ -429,14 +429,23 @@ impl AIManager {
 
     // 🆕 获取工具定义列表（用于 OpenAI Function Call API）
     let tool_definitions = if let Some(ref config) = agent_config {
+      info!("[Chat] 🔧 Agent config found: {} ({}), enable_tool_calling: {}, available_tools: {:?}", 
+            config.name, config.id, config.capabilities.enable_tool_calling, config.available_tools);
+      
       if config.capabilities.enable_tool_calling && !config.available_tools.is_empty() {
         let tools = self.get_tool_definitions_by_names(&config.available_tools).await;
         info!("[Chat] 🔧 Got {} tool definitions for OpenAI Function Call", tools.len());
+        for tool in &tools {
+          info!("[Chat] 🔧 Tool: {} - {}", tool.name, tool.description);
+        }
         Some(tools)
       } else {
+        warn!("[Chat] 🔧 Tool calling disabled or no available tools: enable_tool_calling={}, available_tools_count={}", 
+              config.capabilities.enable_tool_calling, config.available_tools.len());
         None
       }
     } else {
+      warn!("[Chat] 🔧 No agent config provided, skipping tool definitions");
       None
     };
 
