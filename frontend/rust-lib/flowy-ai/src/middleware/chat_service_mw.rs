@@ -1014,7 +1014,12 @@ impl ChatServiceMiddleware {
     let cfg = self.read_openai_compat_chat_config(workspace_id)
       .ok_or_else(|| FlowyError::internal().with_context("No OpenAI config"))?;
     
-    let model_name = ai_model.name.clone();
+    // 规范化模型名称：当选择 "Auto" 或留空时，使用配置中的默认模型
+    let model_name = if ai_model.name.is_empty() || ai_model.name == DEFAULT_AI_MODEL_NAME {
+      cfg.model.clone()
+    } else {
+      ai_model.name.clone()
+    };
     let content = self.get_message_content(question_id)?;
     let tools_clone = tools.clone();
     let tool_handler = tool_handler.unwrap();
@@ -1036,6 +1041,8 @@ impl ChatServiceMiddleware {
     let s = try_stream! {
       let mut current_messages = messages.clone();
       let mut iteration = 0;
+      // 累积本轮文本内容，用于不支持 Function Call 的回退解析（<tool_call> 标签）
+      let answer_buffer = std::sync::Arc::new(tokio::sync::Mutex::new(String::new()));
       
       loop {
         iteration += 1;
@@ -1154,6 +1161,11 @@ impl ChatServiceMiddleware {
                 if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
                   if !content.is_empty() {
                     *content_flag_clone.lock().await = true;
+                    // 累积文本用于回退路径的 <tool_call> 解析
+                    {
+                      let mut buf = answer_buffer.lock().await;
+                      buf.push_str(content);
+                    }
                     yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
                       value: content.to_string()
                     };
@@ -1186,6 +1198,18 @@ impl ChatServiceMiddleware {
               }]
             }));
             
+            // 发送元数据，便于前端展示工具状态
+            yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+              value: json!({
+                "tool_call": {
+                  "id": tc.id,
+                  "tool_name": tc.function.name,
+                  "arguments": tc.function.arguments,
+                  "status": "pending"
+                }
+              })
+            };
+
             // 🎨 优化：显示工具执行提示
             yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
               value: format!("\n\n🔧 **正在调用工具: {}**\n", tc.function.name)
@@ -1230,11 +1254,80 @@ impl ChatServiceMiddleware {
             continue;
           }
         }
-        
-        // 没有 tool_calls，结束
-        if has_content || tool_call_opt.is_none() {
-          info!("🔄 [AUTO-MULTI-TURN] Completed after {} iterations", iteration);
-          break;
+
+        // 没有 Function Call 的情况下，尝试回退：解析文本中的 <tool_call> 标签
+        if tool_call_opt.is_none() {
+          let accumulated_text = answer_buffer.lock().await.clone();
+          let extracted_calls = crate::agent::ToolCallHandler::extract_tool_calls(&accumulated_text);
+          if !extracted_calls.is_empty() {
+            // 构建 assistant 消息（包含解析得到的 tool_calls），并执行工具，再继续多轮
+            let new_tool_calls_json: Vec<serde_json::Value> = extracted_calls.iter().map(|(req, _s, _e)| {
+              json!({
+                "id": req.id,
+                "type": "function",
+                "function": {
+                  "name": req.tool_name,
+                  "arguments": serde_json::to_string(&req.arguments).unwrap_or_else(|_| "{}".to_string())
+                }
+              })
+            }).collect();
+
+            current_messages.push(json!({
+              "role": "assistant",
+              "content": null,
+              "tool_calls": new_tool_calls_json
+            }));
+
+            // 执行每个工具
+            for (req, _s, _e) in extracted_calls {
+              // 元数据通知
+              yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+                value: json!({
+                  "tool_call": {
+                    "id": req.id,
+                    "tool_name": req.tool_name,
+                    "arguments": serde_json::to_string(&req.arguments).unwrap_or_else(|_| "{}".to_string()),
+                    "status": "pending"
+                  }
+                })
+              };
+
+              yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
+                value: format!("\n\n🔧 **正在调用工具: {}**\n", req.tool_name)
+              };
+
+              let start_time = std::time::Instant::now();
+              let response = tool_handler.execute_tool_call(&req, agent_config.as_ref().map(|c| c.as_ref())).await;
+              let duration = start_time.elapsed().as_millis();
+
+              let result_content = if response.success {
+                response.result.unwrap_or_else(|| "Success".to_string())
+              } else {
+                format!("Error: {}", response.error.unwrap_or_else(|| "Unknown".to_string()))
+              };
+
+              let status_icon = if response.success { "✅" } else { "❌" };
+              yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
+                value: format!("{} **{}** 完成 ({}ms)\n", status_icon, req.tool_name, duration)
+              };
+
+              current_messages.push(json!({
+                "role": "tool",
+                "tool_call_id": req.id,
+                "name": req.tool_name,
+                "content": result_content
+              }));
+            }
+
+            // 继续下一轮
+            continue;
+          }
+
+          // 无工具调用回退可用：若本轮产生了内容，则视为完成
+          if has_content {
+            info!("🔄 [AUTO-MULTI-TURN] Completed after {} iterations", iteration);
+            break;
+          }
         }
       }
     };
