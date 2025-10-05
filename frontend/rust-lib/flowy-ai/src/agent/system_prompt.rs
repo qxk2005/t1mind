@@ -42,7 +42,9 @@ pub fn build_agent_system_prompt(config: &AgentConfigPB) -> String {
     }
     
     if cap.enable_tool_calling && !config.available_tools.is_empty() {
-      prompt.push_str("- Tool Calling: You can use external tools to accomplish tasks\n");
+      // 🆕 使用 OpenAI Function Call API，无需手工说明调用格式
+      // 工具定义通过 API 的 tools 参数传递，模型会自动按照标准格式返回 function calls
+      prompt.push_str("- Tool Calling: You have access to external tools to help accomplish tasks\n");
       prompt.push_str(&format!(
         "  Available tools: {}\n",
         config.available_tools.join(", ")
@@ -51,33 +53,12 @@ pub fn build_agent_system_prompt(config: &AgentConfigPB) -> String {
         "  Max {} tool calls per conversation\n",
         cap.max_tool_calls
       ));
-      
-      // 添加详细的工具调用协议
-      prompt.push_str("\n  **Tool Calling Protocol:**\n");
-      prompt.push_str("  When you need to use a tool, DIRECTLY output the following format (WITHOUT markdown code blocks):\n\n");
-      prompt.push_str("  <tool_call>\n");
-      prompt.push_str("  {\n");
-      prompt.push_str("    \"id\": \"unique_call_id\",\n");
-      prompt.push_str("    \"tool_name\": \"tool_name_here\",\n");
-      prompt.push_str("    \"arguments\": {\n");
-      prompt.push_str("      \"param1\": \"value1\",\n");
-      prompt.push_str("      \"param2\": \"value2\"\n");
-      prompt.push_str("    }\n");
-      prompt.push_str("  }\n");
-      prompt.push_str("  </tool_call>\n\n");
-      prompt.push_str("  **CRITICAL:** Do NOT wrap the tool call in markdown code blocks (``` or ```tool_call). Output the <tool_call> tags directly!\n\n");
-      prompt.push_str("  **Note:** Do not specify 'source' field - the system will automatically detect whether the tool is native or external.\n\n");
-      
-      prompt.push_str("  **Important Rules:**\n");
-      prompt.push_str("    • Generate a unique ID for each tool call (e.g., \"call_001\", \"call_002\")\n");
-      prompt.push_str("    • Use valid JSON format inside the <tool_call> tags\n");
-      prompt.push_str("    • Output <tool_call> tags directly in your response, NOT inside markdown code blocks\n");
-      prompt.push_str("    • Specify correct tool names from the available tools list\n");
-      prompt.push_str("    • Provide all required arguments with correct types\n");
-      prompt.push_str("    • Wait for tool results before continuing your response\n");
+      prompt.push_str("\n  **Guidelines for using tools:**\n");
+      prompt.push_str("    • Use tools when they can help accomplish the user's request\n");
       prompt.push_str("    • Explain to the user what tool you're using and why\n");
       prompt.push_str("    • Interpret and summarize tool results for the user\n");
-      prompt.push_str("    • Handle errors gracefully with helpful messages\n\n");
+      prompt.push_str("    • Handle errors gracefully with helpful messages\n");
+      prompt.push_str("    • Consider using multiple tools if needed to complete the task\n\n");
     }
     
     if cap.enable_reflection {

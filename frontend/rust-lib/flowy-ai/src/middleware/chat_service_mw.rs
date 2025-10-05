@@ -15,12 +15,14 @@ use flowy_storage_pub::storage::StorageService;
 use serde_json::Value;
 use std::path::Path;
 use std::sync::{Arc, Weak};
-use tracing::{error, info, trace, warn};
+use tracing::{error, info, trace, warn, debug};
 use uuid::Uuid;
 use flowy_sqlite::kv::KVStorePreferences;
 use futures_util::StreamExt;
 use async_stream::try_stream;
 use serde_json::json;
+use crate::entities::ToolDefinitionPB;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
 struct OpenAICompatConfig {
@@ -29,6 +31,34 @@ struct OpenAICompatConfig {
   model: String,
   temperature: Option<f64>,
   max_tokens: Option<u32>,
+}
+
+/// OpenAI Tool Call 响应结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAIToolCall {
+  pub id: String,
+  #[serde(rename = "type")]
+  pub tool_type: String,
+  pub function: OpenAIFunctionCall,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAIFunctionCall {
+  pub name: String,
+  pub arguments: String, // JSON string
+}
+
+/// OpenAI Message 结构（用于多轮对话）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OpenAIMessage {
+  pub role: String,
+  pub content: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tool_calls: Option<Vec<OpenAIToolCall>>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tool_call_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub name: Option<String>, // tool name for tool role
 }
 
 pub struct ChatServiceMiddleware {
@@ -93,6 +123,36 @@ impl ChatServiceMiddleware {
     messages
   }
 
+  /// 将工具定义转换为 OpenAI tools 格式
+  fn convert_tools_to_openai_format(tools: &[ToolDefinitionPB]) -> Vec<serde_json::Value> {
+    tools.iter().map(|tool| {
+      // 解析参数 schema
+      let parameters_schema = if !tool.parameters_schema.is_empty() {
+        serde_json::from_str::<serde_json::Value>(&tool.parameters_schema)
+          .unwrap_or_else(|_| json!({
+            "type": "object",
+            "properties": {},
+            "required": []
+          }))
+      } else {
+        json!({
+          "type": "object",
+          "properties": {},
+          "required": []
+        })
+      };
+
+      json!({
+        "type": "function",
+        "function": {
+          "name": tool.name,
+          "description": tool.description,
+          "parameters": parameters_schema
+        }
+      })
+    }).collect()
+  }
+
   /// 带系统提示词的流式应答
   pub async fn stream_answer_with_system_prompt(
     &self,
@@ -102,14 +162,16 @@ impl ChatServiceMiddleware {
     format: ResponseFormat,
     ai_model: AIModel,
     system_prompt: Option<String>,
+    tools: Option<Vec<ToolDefinitionPB>>,  // 🆕 添加工具参数
   ) -> Result<StreamAnswer, FlowyError> {
     // 获取原始消息内容
     let content = self.get_message_content(question_id)?;
     
     info!(
-      "stream_answer_with_system_prompt use model: {:?}, has_system_prompt: {}",
+      "stream_answer_with_system_prompt use model: {:?}, has_system_prompt: {}, has_tools: {}",
       ai_model,
-      system_prompt.is_some()
+      system_prompt.is_some(),
+      tools.is_some()
     );
     
     // 根据模型类型调用不同的服务
@@ -136,7 +198,7 @@ impl ChatServiceMiddleware {
             let server_model = AIModel::server(name, String::new());
             if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
               let (_init_reasoning, stream) = self
-                .openai_chat_stream_with_system(&cfg, Some(&server_model.name), content, system_prompt)
+                .openai_chat_stream_with_system(&cfg, Some(&server_model.name), content, system_prompt, tools.as_deref())
                 .await?;
               return Ok(stream);
             }
@@ -153,7 +215,7 @@ impl ChatServiceMiddleware {
       // 如果配置了 OpenAI 兼容服务器，则优先直接调用（使用标准 system/user 消息格式）
       if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
         let (_init_reasoning, stream) = self
-          .openai_chat_stream_with_system(&cfg, Some(&ai_model.name), content, system_prompt)
+          .openai_chat_stream_with_system(&cfg, Some(&ai_model.name), content, system_prompt, tools.as_deref())
           .await?;
         return Ok(stream);
       }
@@ -301,13 +363,14 @@ impl ChatServiceMiddleware {
     (None, None)
   }
 
-  /// 带系统提示词的 OpenAI 兼容流式调用（新版本）
+  /// 带系统提示词和工具的 OpenAI 兼容流式调用（支持 Function Call）
   async fn openai_chat_stream_with_system(
     &self,
     cfg: &OpenAICompatConfig,
     model: Option<&str>,
     content: String,
     system_prompt: Option<String>,
+    tools: Option<&[ToolDefinitionPB]>,  // 🆕 添加工具参数
   ) -> Result<(Option<String>, StreamAnswer), FlowyError> {
     let url = Self::join_openai_url(&cfg.base_url, "/v1/chat/completions");
     
@@ -327,6 +390,17 @@ impl ChatServiceMiddleware {
     // 构建包含系统提示词的消息数组（使用标准 OpenAI 格式）
     let messages = self.build_messages_with_system_prompt(content, system_prompt);
     let mut payload = Self::openai_chat_payload(model_name, messages);
+    
+    // 🆕 添加工具定义（使用 OpenAI Function Call API）
+    if let Some(tool_list) = tools {
+      if !tool_list.is_empty() {
+        let openai_tools = Self::convert_tools_to_openai_format(tool_list);
+        payload.as_object_mut().unwrap().insert("tools".into(), json!(openai_tools));
+        // 让模型自动决定是否调用工具
+        payload.as_object_mut().unwrap().insert("tool_choice".into(), json!("auto"));
+        info!("[OpenAI] Added {} tools to request", tool_list.len());
+      }
+    }
     
     // 添加可选参数
     if let Some(temp) = cfg.temperature {
@@ -360,7 +434,9 @@ impl ChatServiceMiddleware {
     
     let s = try_stream! {
       let mut inside_think = false;
+      let mut tool_call_buffer: Option<OpenAIToolCall> = None;  // 🆕 用于累积流式 tool_call
       let mut stream = resp.bytes_stream();
+      
       while let Some(chunk) = stream.next().await {
         let bytes = chunk.map_err(|e| FlowyError::server_error().with_context(e.to_string()))?;
         let s = String::from_utf8_lossy(&bytes);
@@ -371,6 +447,61 @@ impl ChatServiceMiddleware {
           if data == "[DONE]" { break; }
           if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
             if let Some(delta) = v.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("delta")) {
+              // 🆕 处理 tool_calls（OpenAI Function Call API）
+              if let Some(tool_calls) = delta.get("tool_calls") {
+                if let Some(tool_call_array) = tool_calls.as_array() {
+                  for tool_call_delta in tool_call_array {
+                    let index = tool_call_delta.get("index").and_then(|i| i.as_u64()).unwrap_or(0);
+                    
+                    // 初始化或更新 tool_call
+                    if index == 0 {
+                      if tool_call_buffer.is_none() {
+                        tool_call_buffer = Some(OpenAIToolCall {
+                          id: tool_call_delta.get("id").and_then(|s| s.as_str()).unwrap_or("").to_string(),
+                          tool_type: tool_call_delta.get("type").and_then(|s| s.as_str()).unwrap_or("function").to_string(),
+                          function: OpenAIFunctionCall {
+                            name: String::new(),
+                            arguments: String::new(),
+                          },
+                        });
+                      }
+                      
+                      if let Some(ref mut tc) = tool_call_buffer {
+                        if let Some(id) = tool_call_delta.get("id").and_then(|s| s.as_str()) {
+                          tc.id = id.to_string();
+                        }
+                        if let Some(func) = tool_call_delta.get("function") {
+                          if let Some(name) = func.get("name").and_then(|s| s.as_str()) {
+                            tc.function.name.push_str(name);
+                          }
+                          if let Some(args) = func.get("arguments").and_then(|s| s.as_str()) {
+                            tc.function.arguments.push_str(args);
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                
+                // 如果累积的 tool_call 已完整，发送元数据
+                if let Some(ref tc) = tool_call_buffer {
+                  if !tc.function.name.is_empty() && !tc.id.is_empty() {
+                    debug!("[OpenAI] Tool call detected: {} (id: {})", tc.function.name, tc.id);
+                    yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+                      value: json!({
+                        "tool_call": {
+                          "id": tc.id,
+                          "tool_name": tc.function.name,
+                          "arguments": tc.function.arguments,
+                          "status": "pending"
+                        }
+                      })
+                    };
+                  }
+                }
+                continue;
+              }
+              
               // 1) 数组结构：显式 type（o1/DeepSeek-R1）
               if let Some(arr) = delta.get("content").and_then(|a| a.as_array()) {
                 for item in arr {
@@ -462,8 +593,8 @@ impl ChatServiceMiddleware {
 
   /// 原有的 openai_chat_stream 方法（向后兼容，不带系统提示词）
   async fn openai_chat_stream(&self, cfg: &OpenAICompatConfig, model_override: Option<&str>, content: String) -> FlowyResult<(Option<String>, StreamAnswer)> {
-    // 调用新方法，不传系统提示词
-    self.openai_chat_stream_with_system(cfg, model_override, content, None).await
+    // 调用新方法，不传系统提示词和工具
+    self.openai_chat_stream_with_system(cfg, model_override, content, None, None).await
   }
 
   /// 废弃的实现（保留用于参考）
@@ -557,6 +688,558 @@ impl ChatServiceMiddleware {
       }
     };
     Ok((None, Box::pin(s)))
+  }
+
+  /// 🔄 多轮对话：执行工具并继续对话
+  /// 
+  /// 当 AI 返回 tool_calls 时，此方法会：
+  /// 1. 执行所有工具调用
+  /// 2. 构建包含工具结果的新消息历史
+  /// 3. 再次调用 OpenAI API
+  /// 4. 返回新的流式响应
+  pub async fn continue_conversation_with_tool_results(
+    &self,
+    cfg: &OpenAICompatConfig,
+    model: &str,
+    initial_messages: Vec<serde_json::Value>,
+    tool_calls: Vec<OpenAIToolCall>,
+    tool_handler: &crate::agent::ToolCallHandler,
+    agent_config: Option<&crate::entities::AgentConfigPB>,
+    tools: &[ToolDefinitionPB],
+    max_iterations: usize,
+  ) -> Result<StreamAnswer, FlowyError> {
+    let mut messages = initial_messages;
+    let mut current_iteration = 0;
+    
+    // 添加 assistant 消息（包含 tool_calls）
+    let tool_calls_json: Vec<serde_json::Value> = tool_calls.iter().map(|tc| {
+      json!({
+        "id": tc.id,
+        "type": tc.tool_type,
+        "function": {
+          "name": tc.function.name,
+          "arguments": tc.function.arguments
+        }
+      })
+    }).collect();
+    
+    messages.push(json!({
+      "role": "assistant",
+      "content": null,
+      "tool_calls": tool_calls_json
+    }));
+    
+    info!("[Multi-Turn] Starting tool execution: {} tools", tool_calls.len());
+    
+    // 执行所有工具并添加结果到消息历史
+    for tool_call in &tool_calls {
+      info!("[Multi-Turn] Executing tool: {} (id: {})", 
+            tool_call.function.name, tool_call.id);
+      
+      // 解析参数
+      let arguments: serde_json::Value = serde_json::from_str(&tool_call.function.arguments)
+        .unwrap_or_else(|_| json!({}));
+      
+      // 构建工具调用请求
+      let request = crate::agent::ToolCallRequest {
+        id: tool_call.id.clone(),
+        tool_name: tool_call.function.name.clone(),
+        arguments,
+        source: None, // 自动检测
+      };
+      
+      // 执行工具
+      let response = tool_handler.execute_tool_call(&request, agent_config).await;
+      
+      let result_content = if response.success {
+        response.result.unwrap_or_else(|| "Tool executed successfully".to_string())
+      } else {
+        format!("Tool execution failed: {}", 
+                response.error.unwrap_or_else(|| "Unknown error".to_string()))
+      };
+      
+      info!("[Multi-Turn] Tool result ({}ms): {} chars", 
+            response.duration_ms, result_content.len());
+      
+      // 添加工具结果消息
+      messages.push(json!({
+        "role": "tool",
+        "tool_call_id": tool_call.id,
+        "name": tool_call.function.name,
+        "content": result_content
+      }));
+    }
+    
+    // 开始多轮循环
+    loop {
+      current_iteration += 1;
+      if current_iteration > max_iterations {
+        warn!("[Multi-Turn] Max iterations ({}) reached", max_iterations);
+        break;
+      }
+      
+      info!("[Multi-Turn] Iteration {}/{}: Calling AI with {} messages", 
+            current_iteration, max_iterations, messages.len());
+      
+      // 构建请求 payload
+      let url = Self::join_openai_url(&cfg.base_url, "/v1/chat/completions");
+      let mut payload = json!({
+        "model": model,
+        "messages": messages,
+        "stream": true
+      });
+      
+      // 添加工具定义
+      if !tools.is_empty() {
+        let openai_tools = Self::convert_tools_to_openai_format(tools);
+        payload.as_object_mut().unwrap().insert("tools".into(), json!(openai_tools));
+        payload.as_object_mut().unwrap().insert("tool_choice".into(), json!("auto"));
+      }
+      
+      // 添加可选参数
+      if let Some(temp) = cfg.temperature {
+        payload.as_object_mut().unwrap().insert("temperature".into(), json!(temp));
+      }
+      if let Some(max_tok) = cfg.max_tokens {
+        payload.as_object_mut().unwrap().insert("max_tokens".into(), json!(max_tok));
+      }
+      
+      // 发送请求
+      let client = reqwest::Client::new();
+      let resp = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", cfg.api_key))
+        .header("Accept", "text/event-stream")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| FlowyError::server_error().with_context(e.to_string()))?;
+      
+      if !resp.status().is_success() {
+        error!("[Multi-Turn] Non-200 response: {}", resp.status());
+        return Err(FlowyError::server_error()
+          .with_context(format!("Multi-turn request error: {}", resp.status())));
+      }
+      
+      // 解析响应并检查是否有新的 tool_calls
+      // 使用 Arc<Mutex<>> 来在流内外共享状态
+      let accumulated_tool_call = Arc::new(tokio::sync::Mutex::new(Option::<OpenAIToolCall>::None));
+      let has_content_flag = Arc::new(tokio::sync::Mutex::new(false));
+      
+      let tc_clone = accumulated_tool_call.clone();
+      let content_flag_clone = has_content_flag.clone();
+      
+      // 创建流式响应
+      let s = try_stream! {
+        let mut stream = resp.bytes_stream();
+        
+        while let Some(chunk) = stream.next().await {
+          let bytes = chunk.map_err(|e| FlowyError::server_error().with_context(e.to_string()))?;
+          let s = String::from_utf8_lossy(&bytes);
+          
+          for line in s.lines() {
+            let l = line.trim_start();
+            if !l.starts_with("data:") { continue; }
+            let data = l.trim_start_matches("data:").trim();
+            if data == "[DONE]" { break; }
+            
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
+              if let Some(delta) = v.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("delta")) {
+                // 检查 tool_calls
+                if let Some(tool_calls_arr) = delta.get("tool_calls").and_then(|tc| tc.as_array()) {
+                  for tc_delta in tool_calls_arr {
+                    let index = tc_delta.get("index").and_then(|i| i.as_u64()).unwrap_or(0);
+                    
+                    if index == 0 {
+                      let mut tc_guard = tc_clone.lock().await;
+                      if tc_guard.is_none() {
+                        *tc_guard = Some(OpenAIToolCall {
+                          id: tc_delta.get("id").and_then(|s| s.as_str()).unwrap_or("").to_string(),
+                          tool_type: "function".to_string(),
+                          function: OpenAIFunctionCall {
+                            name: String::new(),
+                            arguments: String::new(),
+                          },
+                        });
+                      }
+                      
+                      if let Some(ref mut tc) = *tc_guard {
+                        if let Some(id) = tc_delta.get("id").and_then(|s| s.as_str()) {
+                          tc.id = id.to_string();
+                        }
+                        if let Some(func) = tc_delta.get("function") {
+                          if let Some(name) = func.get("name").and_then(|s| s.as_str()) {
+                            tc.function.name.push_str(name);
+                          }
+                          if let Some(args) = func.get("arguments").and_then(|s| s.as_str()) {
+                            tc.function.arguments.push_str(args);
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                
+                // 检查普通内容
+                if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                  if !content.is_empty() {
+                    *content_flag_clone.lock().await = true;
+                    yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
+                      value: content.to_string()
+                    };
+                  }
+                }
+              }
+            }
+          }
+        }
+      };
+      
+      // 如果累积了新的 tool_call，保存它
+      let mut new_tool_calls = Vec::new();
+      if let Some(tc) = accumulated_tool_call.lock().await.take() {
+        if !tc.function.name.is_empty() {
+          new_tool_calls.push(tc);
+        }
+      }
+      
+      let has_content = *has_content_flag.lock().await;
+      
+      // 如果有内容输出且没有新的 tool_calls，说明已完成
+      if has_content && new_tool_calls.is_empty() {
+        info!("[Multi-Turn] Conversation completed with final answer");
+        return Ok(Box::pin(s));
+      }
+      
+      // 如果有新的 tool_calls，添加到消息历史并继续循环
+      if !new_tool_calls.is_empty() {
+        info!("[Multi-Turn] Detected {} new tool calls, continuing...", new_tool_calls.len());
+        
+        // 添加 assistant 消息
+        let new_tool_calls_json: Vec<serde_json::Value> = new_tool_calls.iter().map(|tc| {
+          json!({
+            "id": tc.id,
+            "type": "function",
+            "function": {
+              "name": tc.function.name,
+              "arguments": tc.function.arguments
+            }
+          })
+        }).collect();
+        
+        messages.push(json!({
+          "role": "assistant",
+          "content": null,
+          "tool_calls": new_tool_calls_json
+        }));
+        
+        // 执行工具
+        for tool_call in &new_tool_calls {
+          let arguments: serde_json::Value = serde_json::from_str(&tool_call.function.arguments)
+            .unwrap_or_else(|_| json!({}));
+          
+          let request = crate::agent::ToolCallRequest {
+            id: tool_call.id.clone(),
+            tool_name: tool_call.function.name.clone(),
+            arguments,
+            source: None,
+          };
+          
+          let response = tool_handler.execute_tool_call(&request, agent_config).await;
+          
+          let result_content = if response.success {
+            response.result.unwrap_or_else(|| "Success".to_string())
+          } else {
+            format!("Error: {}", response.error.unwrap_or_else(|| "Unknown".to_string()))
+          };
+          
+          messages.push(json!({
+            "role": "tool",
+            "tool_call_id": tool_call.id,
+            "name": tool_call.function.name,
+            "content": result_content
+          }));
+        }
+        
+        // 继续下一轮循环
+        continue;
+      }
+      
+      // 如果既没有内容也没有 tool_calls，返回流
+      return Ok(Box::pin(s));
+    }
+    
+    // 达到最大迭代次数
+    Err(FlowyError::internal().with_context("Max multi-turn iterations reached"))
+  }
+
+  /// 🔄 自动多轮对话（完全集成版）
+  /// 
+  /// 此方法包含了以下优化：
+  /// - ✅ 优先级 1: Middleware 层自动触发
+  /// - ✅ 优先级 2: 流合并优化
+  /// - ✅ 优先级 3: 用户体验优化（进度显示）
+  /// 
+  /// 功能：
+  /// 1. 自动检测 tool_calls
+  /// 2. 执行工具
+  /// 3. 继续对话
+  /// 4. 实时显示进度
+  /// 5. 无缝合并多轮响应
+  pub async fn stream_answer_with_auto_multi_turn(
+    &self,
+    workspace_id: &Uuid,
+    chat_id: &Uuid,
+    question_id: i64,
+    format: ResponseFormat,
+    ai_model: AIModel,
+    system_prompt: Option<String>,
+    tools: Option<Vec<ToolDefinitionPB>>,
+    tool_handler: Option<Arc<crate::agent::ToolCallHandler>>,
+    agent_config: Option<Arc<crate::entities::AgentConfigPB>>,
+    max_iterations: usize,
+  ) -> Result<StreamAnswer, FlowyError> {
+    // 如果没有工具或工具处理器，使用普通模式
+    if tools.is_none() || tools.as_ref().unwrap().is_empty() || tool_handler.is_none() {
+      return self.stream_answer_with_system_prompt(
+        workspace_id, chat_id, question_id, format, ai_model, system_prompt, tools
+      ).await;
+    }
+    
+    info!("🔄 [AUTO-MULTI-TURN] Starting with {} tools", 
+          tools.as_ref().unwrap().len());
+    
+    // 获取 OpenAI 配置
+    let cfg = self.read_openai_compat_chat_config(workspace_id)
+      .ok_or_else(|| FlowyError::internal().with_context("No OpenAI config"))?;
+    
+    let model_name = ai_model.name.clone();
+    let content = self.get_message_content(question_id)?;
+    let tools_clone = tools.clone();
+    let tool_handler = tool_handler.unwrap();
+    
+    // 构建初始消息
+    let mut messages = Vec::new();
+    if let Some(ref prompt) = system_prompt {
+      messages.push(json!({
+        "role": "system",
+        "content": prompt
+      }));
+    }
+    messages.push(json!({
+      "role": "user",
+      "content": content
+    }));
+    
+    // 创建多轮对话流
+    let s = try_stream! {
+      let mut current_messages = messages.clone();
+      let mut iteration = 0;
+      
+      loop {
+        iteration += 1;
+        if iteration > max_iterations {
+          warn!("🔄 [AUTO-MULTI-TURN] Max iterations reached");
+          yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
+            value: format!("\n\n⚠️ 已达到最大对话轮次 ({})\n", max_iterations)
+          };
+          break;
+        }
+        
+        info!("🔄 [AUTO-MULTI-TURN] Iteration {}/{}", iteration, max_iterations);
+        
+        // 如果是第2轮或更高，显示继续提示
+        if iteration > 1 {
+          yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
+            value: "\n🤔 **正在综合分析结果...**\n\n".to_string()
+          };
+        }
+        
+        // 调用 OpenAI API
+        let url = Self::join_openai_url(&cfg.base_url, "/v1/chat/completions");
+        let mut payload = json!({
+          "model": model_name,
+          "messages": current_messages,
+          "stream": true
+        });
+        
+        // 添加工具定义
+        if let Some(ref tools) = tools_clone {
+          if !tools.is_empty() {
+            let openai_tools = Self::convert_tools_to_openai_format(tools);
+            payload.as_object_mut().unwrap().insert("tools".into(), json!(openai_tools));
+            payload.as_object_mut().unwrap().insert("tool_choice".into(), json!("auto"));
+          }
+        }
+        
+        if let Some(temp) = cfg.temperature {
+          payload.as_object_mut().unwrap().insert("temperature".into(), json!(temp));
+        }
+        if let Some(max_tok) = cfg.max_tokens {
+          payload.as_object_mut().unwrap().insert("max_tokens".into(), json!(max_tok));
+        }
+        
+        // 发送请求
+        let client = reqwest::Client::new();
+        let resp = client
+          .post(&url)
+          .header("Content-Type", "application/json")
+          .header("Authorization", format!("Bearer {}", cfg.api_key))
+          .header("Accept", "text/event-stream")
+          .json(&payload)
+          .send()
+          .await
+          .map_err(|e| FlowyError::server_error().with_context(e.to_string()))?;
+        
+        if !resp.status().is_success() {
+          let err = FlowyError::server_error()
+            .with_context(format!("Request error: {}", resp.status()));
+          Err(err)?;
+        }
+        
+        // 解析流式响应并收集 tool_calls
+        let accumulated_tool_call = Arc::new(tokio::sync::Mutex::new(Option::<OpenAIToolCall>::None));
+        let has_content_flag = Arc::new(tokio::sync::Mutex::new(false));
+        let tc_clone = accumulated_tool_call.clone();
+        let content_flag_clone = has_content_flag.clone();
+        
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+          let bytes = chunk.map_err(|e| FlowyError::server_error().with_context(e.to_string()))?;
+          let s = String::from_utf8_lossy(&bytes);
+          
+          for line in s.lines() {
+            let l = line.trim_start();
+            if !l.starts_with("data:") { continue; }
+            let data = l.trim_start_matches("data:").trim();
+            if data == "[DONE]" { break; }
+            
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
+              if let Some(delta) = v.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("delta")) {
+                // 检查 tool_calls
+                if let Some(tool_calls_arr) = delta.get("tool_calls").and_then(|tc| tc.as_array()) {
+                  for tc_delta in tool_calls_arr {
+                    let index = tc_delta.get("index").and_then(|i| i.as_u64()).unwrap_or(0);
+                    if index == 0 {
+                      let mut tc_guard = tc_clone.lock().await;
+                      if tc_guard.is_none() {
+                        *tc_guard = Some(OpenAIToolCall {
+                          id: tc_delta.get("id").and_then(|s| s.as_str()).unwrap_or("").to_string(),
+                          tool_type: "function".to_string(),
+                          function: OpenAIFunctionCall {
+                            name: String::new(),
+                            arguments: String::new(),
+                          },
+                        });
+                      }
+                      if let Some(ref mut tc) = *tc_guard {
+                        if let Some(id) = tc_delta.get("id").and_then(|s| s.as_str()) {
+                          tc.id = id.to_string();
+                        }
+                        if let Some(func) = tc_delta.get("function") {
+                          if let Some(name) = func.get("name").and_then(|s| s.as_str()) {
+                            tc.function.name.push_str(name);
+                          }
+                          if let Some(args) = func.get("arguments").and_then(|s| s.as_str()) {
+                            tc.function.arguments.push_str(args);
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                
+                // 转发普通内容
+                if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                  if !content.is_empty() {
+                    *content_flag_clone.lock().await = true;
+                    yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
+                      value: content.to_string()
+                    };
+                  }
+                }
+              }
+            }
+          }
+        }
+        
+        // 检查是否收集到 tool_call
+        let tool_call_opt = accumulated_tool_call.lock().await.take();
+        let has_content = *has_content_flag.lock().await;
+        
+        if let Some(ref tc) = tool_call_opt {
+          if !tc.function.name.is_empty() {
+            info!("🔄 [AUTO-MULTI-TURN] Detected tool: {}", tc.function.name);
+            
+            // 添加 assistant 消息
+            current_messages.push(json!({
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [{
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                  "name": tc.function.name,
+                  "arguments": tc.function.arguments
+                }
+              }]
+            }));
+            
+            // 🎨 优化：显示工具执行提示
+            yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
+              value: format!("\n\n🔧 **正在调用工具: {}**\n", tc.function.name)
+            };
+            
+            // 执行工具
+            let arguments: serde_json::Value = serde_json::from_str(&tc.function.arguments)
+              .unwrap_or_else(|_| json!({}));
+            
+            let request = crate::agent::ToolCallRequest {
+              id: tc.id.clone(),
+              tool_name: tc.function.name.clone(),
+              arguments,
+              source: None,
+            };
+            
+            let start_time = std::time::Instant::now();
+            let response = tool_handler.execute_tool_call(&request, agent_config.as_ref().map(|c| c.as_ref())).await;
+            let duration = start_time.elapsed().as_millis();
+            
+            let result_content = if response.success {
+              response.result.unwrap_or_else(|| "Success".to_string())
+            } else {
+              format!("Error: {}", response.error.unwrap_or_else(|| "Unknown".to_string()))
+            };
+            
+            // 🎨 优化：显示执行结果
+            let status_icon = if response.success { "✅" } else { "❌" };
+            yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
+              value: format!("{} **{}** 完成 ({}ms)\n", status_icon, tc.function.name, duration)
+            };
+            
+            // 添加工具结果到消息历史
+            current_messages.push(json!({
+              "role": "tool",
+              "tool_call_id": tc.id,
+              "name": tc.function.name,
+              "content": result_content
+            }));
+            
+            // 继续下一轮
+            continue;
+          }
+        }
+        
+        // 没有 tool_calls，结束
+        if has_content || tool_call_opt.is_none() {
+          info!("🔄 [AUTO-MULTI-TURN] Completed after {} iterations", iteration);
+          break;
+        }
+      }
+    };
+    
+    Ok(Box::pin(s))
   }
 }
 
