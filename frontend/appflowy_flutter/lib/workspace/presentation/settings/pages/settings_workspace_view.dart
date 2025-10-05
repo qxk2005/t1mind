@@ -30,8 +30,6 @@ import 'package:appflowy/workspace/presentation/settings/shared/settings_input_f
 import 'package:appflowy/workspace/presentation/settings/shared/settings_radio_select.dart';
 import 'package:appflowy/workspace/presentation/settings/shared/single_setting_action.dart';
 import 'package:appflowy/workspace/presentation/settings/widgets/theme_upload/theme_upload_view.dart';
-import 'package:appflowy/workspace/presentation/settings/workspace/workspace_mcp_settings_v2.dart';
-import 'package:appflowy/workspace/presentation/settings/workspace/workspace_agent_settings.dart';
 import 'package:appflowy/workspace/presentation/widgets/dialogs.dart';
 import 'package:appflowy/workspace/presentation/widgets/toggle/toggle.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/protobuf.dart';
@@ -151,6 +149,7 @@ class SettingsWorkspaceView extends StatelessWidget {
                     children: const [
                       TextDirectionSelect(),
                       EnableRTLItemsSwitcher(),
+                      QuestionBubbleSwitcher(),
                     ],
                   ),
                 ],
@@ -179,22 +178,6 @@ class SettingsWorkspaceView extends StatelessWidget {
               SettingsCategory(
                 title: LocaleKeys.settings_workspacePage_language_title.tr(),
                 children: const [LanguageDropdown()],
-              ),
-              const SettingsCategorySpacer(),
-
-              // MCP配置部分
-              WorkspaceMCPSettingsV2(
-                userProfile: userProfile,
-                workspaceId: state.workspace?.workspaceId ?? '',
-                currentWorkspaceMemberRole: currentWorkspaceMemberRole,
-              ),
-              const SettingsCategorySpacer(),
-
-              // 智能体配置部分
-              WorkspaceAgentSettings(
-                userProfile: userProfile,
-                workspaceId: state.workspace?.workspaceId ?? '',
-                currentWorkspaceMemberRole: currentWorkspaceMemberRole,
               ),
               const SettingsCategorySpacer(),
 
@@ -477,6 +460,35 @@ class EnableRTLItemsSwitcher extends StatelessWidget {
           onChanged: (value) => context
               .read<AppearanceSettingsCubit>()
               .setEnableRTLToolbarItems(value),
+        ),
+      ],
+    );
+  }
+}
+
+@visibleForTesting
+class QuestionBubbleSwitcher extends StatelessWidget {
+  const QuestionBubbleSwitcher({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: FlowyText.regular(
+            LocaleKeys.settings_appearance_questionBubble_label.tr(),
+            fontSize: 16,
+          ),
+        ),
+        const HSpace(16),
+        Toggle(
+          value: context
+              .watch<AppearanceSettingsCubit>()
+              .state
+              .showQuestionBubble,
+          onChanged: (value) => context
+              .read<AppearanceSettingsCubit>()
+              .setShowQuestionBubble(value),
         ),
       ],
     );

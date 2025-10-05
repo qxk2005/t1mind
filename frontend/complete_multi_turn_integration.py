@@ -86,3 +86,4 @@ print("  1. OpenAIToolCall 和 OpenAIFunctionCall 需要在 chat_service_mw.rs �
 print("  2. 需要实现从 trait object 调用具体方法的机制")
 print("  3. 建议简化方案：直接在 stream_answer_with_system_prompt 中集成多轮对话")
 
+

@@ -332,6 +332,19 @@ impl Chat {
       
       match stream_result {
         Ok(mut stream) => {
+          // 📝 记录聊天开始日志
+          {
+            let mut log = AgentExecutionLogPB::new(
+              chat_id.to_string(),
+              question_id.to_string(),
+              crate::entities::ExecutionPhasePB::ExecExecution,
+              "AI聊天开始".to_string(),
+            );
+            log.input = format!("模型: {}, 格式: {:?}", ai_model.name, format);
+            log.status = crate::entities::ExecutionStatusPB::ExecRunning;
+            add_log(&execution_logs, log);
+          }
+          
           while let Some(message) = stream.next().await {
             match message {
               Ok(message) => {
@@ -424,6 +437,18 @@ impl Chat {
             }
           }
           
+          // 📝 记录聊天完成日志
+          {
+            let final_content = answer_stream_buffer.lock().await.content.clone();
+            let mut log = AgentExecutionLogPB::new(
+              chat_id.to_string(),
+              question_id.to_string(),
+              crate::entities::ExecutionPhasePB::ExecCompletion,
+              "AI聊天完成".to_string(),
+            );
+            log.mark_completed(format!("生成了 {} 字符的回复", final_content.len()));
+            add_log(&execution_logs, log);
+          }
           
           // 🔄 多轮对话：检查是否收集到 tool_calls
           let tool_calls_vec = collected_tool_calls.lock().await.clone();

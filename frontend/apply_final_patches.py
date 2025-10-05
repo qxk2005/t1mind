@@ -126,3 +126,4 @@ print("1. Run: cd rust-lib && cargo check --package flowy-ai")
 print("2. Fix any compilation errors if they appear")
 print("3. Test the application")
 
+

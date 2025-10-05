@@ -1447,6 +1447,9 @@
         "auto": "AUTO",
         "fallback": "Same as layout direction"
       },
+      "questionBubble": {
+        "label": "Show Help Bubble"
+      },
       "themeUpload": {
         "button": "Upload",
         "uploadTheme": "Upload theme",

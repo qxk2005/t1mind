@@ -1,4 +1,5 @@
 import 'package:appflowy/generated/locale_keys.g.dart';
+import 'package:appflowy/mobile/presentation/setting/appearance/question_bubble_setting.dart';
 import 'package:appflowy/mobile/presentation/setting/appearance/rtl_setting.dart';
 import 'package:appflowy/mobile/presentation/setting/appearance/text_scale_setting.dart';
 import 'package:appflowy/mobile/presentation/setting/appearance/theme_setting.dart';
@@ -21,6 +22,7 @@ class AppearanceSettingGroup extends StatelessWidget {
         FontSetting(),
         DisplaySizeSetting(),
         RTLSetting(),
+        QuestionBubbleSetting(),
       ],
     );
   }

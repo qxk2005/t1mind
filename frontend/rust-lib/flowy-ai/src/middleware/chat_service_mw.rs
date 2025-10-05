@@ -1024,6 +1024,24 @@ impl ChatServiceMiddleware {
     let tools_clone = tools.clone();
     let tool_handler = tool_handler.unwrap();
     
+    // 根据智能体配置确定有效的最大迭代次数：
+    // 1) 工具调用上限 max_tool_calls（>0 生效）
+    // 2) 若启用反思机制，则与 max_reflection_iterations 取较小值
+    let effective_max_iterations: usize = agent_config
+      .as_ref()
+      .map(|cfg| {
+        let tool_limit = if cfg.capabilities.max_tool_calls > 0 {
+          (cfg.capabilities.max_tool_calls as usize).min(100)
+        } else { max_iterations };
+        if cfg.capabilities.enable_reflection && cfg.capabilities.max_reflection_iterations > 0 {
+          let reflection_limit = (cfg.capabilities.max_reflection_iterations as usize).min(100);
+          tool_limit.min(reflection_limit)
+        } else {
+          tool_limit
+        }
+      })
+      .unwrap_or(max_iterations);
+    
     // 构建初始消息
     let mut messages = Vec::new();
     if let Some(ref prompt) = system_prompt {
@@ -1046,15 +1064,15 @@ impl ChatServiceMiddleware {
       
       loop {
         iteration += 1;
-        if iteration > max_iterations {
+        if iteration > effective_max_iterations {
           warn!("🔄 [AUTO-MULTI-TURN] Max iterations reached");
           yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
-            value: format!("\n\n⚠️ 已达到最大对话轮次 ({})\n", max_iterations)
+            value: format!("\n\n⚠️ 已达到最大对话轮次 ({})\n", effective_max_iterations)
           };
           break;
         }
         
-        info!("🔄 [AUTO-MULTI-TURN] Iteration {}/{}", iteration, max_iterations);
+        info!("🔄 [AUTO-MULTI-TURN] Iteration {}/{}", iteration, effective_max_iterations);
         
         // 如果是第2轮或更高，显示继续提示
         if iteration > 1 {
@@ -1198,13 +1216,15 @@ impl ChatServiceMiddleware {
               }]
             }));
             
-            // 发送元数据，便于前端展示工具状态
+            // 发送元数据，便于前端展示工具状态（arguments 需为对象而非字符串）
+            let meta_args = serde_json::from_str::<serde_json::Value>(&tc.function.arguments)
+              .unwrap_or_else(|_| json!({}));
             yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
               value: json!({
                 "tool_call": {
                   "id": tc.id,
                   "tool_name": tc.function.name,
-                  "arguments": tc.function.arguments,
+                  "arguments": meta_args,
                   "status": "pending"
                 }
               })
@@ -1231,11 +1251,24 @@ impl ChatServiceMiddleware {
             let duration = start_time.elapsed().as_millis();
             
             let result_content = if response.success {
-              response.result.unwrap_or_else(|| "Success".to_string())
+              response.result.as_deref().unwrap_or("Success").to_string()
             } else {
-              format!("Error: {}", response.error.unwrap_or_else(|| "Unknown".to_string()))
+              format!("Error: {}", response.error.as_deref().unwrap_or("Unknown"))
             };
             
+            // 执行完成后，发送成功/失败元数据（供前端记录执行过程）
+            let result_status = if response.success { "success" } else { "failed" };
+            let result_meta = json!({
+              "tool_call": {
+                "id": request.id,
+                "tool_name": request.tool_name,
+                "status": result_status,
+                "result": if response.success { response.result.clone() } else { None::<String> },
+                "error": if response.success { None::<String> } else { response.error.clone() }
+              }
+            });
+            yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata { value: result_meta };
+
             // 🎨 优化：显示执行结果
             let status_icon = if response.success { "✅" } else { "❌" };
             yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
@@ -1281,12 +1314,13 @@ impl ChatServiceMiddleware {
             // 执行每个工具
             for (req, _s, _e) in extracted_calls {
               // 元数据通知
+              let meta_args = req.arguments.clone();
               yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
                 value: json!({
                   "tool_call": {
                     "id": req.id,
                     "tool_name": req.tool_name,
-                    "arguments": serde_json::to_string(&req.arguments).unwrap_or_else(|_| "{}".to_string()),
+                    "arguments": meta_args,
                     "status": "pending"
                   }
                 })
@@ -1301,10 +1335,23 @@ impl ChatServiceMiddleware {
               let duration = start_time.elapsed().as_millis();
 
               let result_content = if response.success {
-                response.result.unwrap_or_else(|| "Success".to_string())
+                response.result.as_deref().unwrap_or("Success").to_string()
               } else {
-                format!("Error: {}", response.error.unwrap_or_else(|| "Unknown".to_string()))
+                format!("Error: {}", response.error.as_deref().unwrap_or("Unknown"))
               };
+
+              // 执行完成后，发送成功/失败元数据
+              let result_status = if response.success { "success" } else { "failed" };
+              let result_meta = json!({
+                "tool_call": {
+                  "id": req.id,
+                  "tool_name": req.tool_name,
+                  "status": result_status,
+                  "result": if response.success { response.result.clone() } else { None::<String> },
+                  "error": if response.success { None::<String> } else { response.error.clone() }
+                }
+              });
+              yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata { value: result_meta };
 
               let status_icon = if response.success { "✅" } else { "❌" };
               yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {

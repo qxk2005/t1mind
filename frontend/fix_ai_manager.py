@@ -48,3 +48,4 @@ with open('rust-lib/flowy-ai/src/ai_manager.rs', 'w', encoding='utf-8') as f:
 
 print("✅ Fixed ai_manager.rs get_tool_definitions_by_names implementation")
 
+

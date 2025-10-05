@@ -78,3 +78,4 @@ with open("rust-lib/flowy-ai/src/chat.rs", "w", encoding="utf-8") as f:
 
 print("\n✅ chat.rs 已更新")
 
+

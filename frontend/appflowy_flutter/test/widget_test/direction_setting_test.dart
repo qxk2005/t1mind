@@ -45,6 +45,7 @@ void main() {
       appearanceSettings.layoutDirection,
       appearanceSettings.textDirection,
       appearanceSettings.enableRtlToolbarItems,
+      appearanceSettings.showQuestionBubble,
       appearanceSettings.locale,
       appearanceSettings.isMenuCollapsed,
       appearanceSettings.menuOffset,

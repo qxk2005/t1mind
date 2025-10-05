@@ -47,6 +47,7 @@ class AppearanceSettingsCubit extends Cubit<AppearanceSettingsState> {
             appearanceSettings.layoutDirection,
             appearanceSettings.textDirection,
             appearanceSettings.enableRtlToolbarItems,
+            appearanceSettings.showQuestionBubble,
             appearanceSettings.locale,
             appearanceSettings.isMenuCollapsed,
             appearanceSettings.menuOffset,
@@ -154,6 +155,12 @@ class AppearanceSettingsCubit extends Cubit<AppearanceSettingsState> {
     _appearanceSettings.enableRtlToolbarItems = value;
     _saveAppearanceSettings();
     emit(state.copyWith(enableRtlToolbarItems: value));
+  }
+
+  void setShowQuestionBubble(bool value) {
+    _appearanceSettings.showQuestionBubble = value;
+    _saveAppearanceSettings();
+    emit(state.copyWith(showQuestionBubble: value));
   }
 
   /// Update selected font in the user's settings and emit an updated state
@@ -387,6 +394,7 @@ class AppearanceSettingsState with _$AppearanceSettingsState {
     required LayoutDirection layoutDirection,
     required AppFlowyTextDirection textDirection,
     required bool enableRtlToolbarItems,
+    required bool showQuestionBubble,
     required Locale locale,
     required bool isMenuCollapsed,
     required double menuOffset,
@@ -405,6 +413,7 @@ class AppearanceSettingsState with _$AppearanceSettingsState {
     LayoutDirectionPB layoutDirectionPB,
     TextDirectionPB? textDirectionPB,
     bool enableRtlToolbarItems,
+    bool showQuestionBubble,
     LocaleSettingsPB localePB,
     bool isMenuCollapsed,
     double menuOffset,
@@ -421,6 +430,7 @@ class AppearanceSettingsState with _$AppearanceSettingsState {
       layoutDirection: LayoutDirection.fromLayoutDirectionPB(layoutDirectionPB),
       textDirection: AppFlowyTextDirection.fromTextDirectionPB(textDirectionPB),
       enableRtlToolbarItems: enableRtlToolbarItems,
+      showQuestionBubble: showQuestionBubble,
       themeMode: _themeModeFromPB(themeModePB),
       locale: Locale(localePB.languageCode, localePB.countryCode),
       isMenuCollapsed: isMenuCollapsed,

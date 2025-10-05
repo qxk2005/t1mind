@@ -424,12 +424,8 @@ impl AIManager {
       None
     };
 
-    // 📝 传递执行日志存储（如果有智能体配置）
-    let exec_logs = if agent_config.is_some() {
-      Some(self.execution_logs.clone())
-    } else {
-      None
-    };
+    // 📝 传递执行日志存储（始终传递，确保基本日志记录）
+    let exec_logs = Some(self.execution_logs.clone());
 
     // 🆕 获取工具定义列表（用于 OpenAI Function Call API）
     let tool_definitions = if let Some(ref config) = agent_config {

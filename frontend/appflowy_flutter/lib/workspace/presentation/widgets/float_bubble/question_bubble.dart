@@ -3,6 +3,7 @@ import 'package:appflowy/generated/flowy_svgs.g.dart';
 import 'package:appflowy/generated/locale_keys.g.dart';
 import 'package:appflowy/startup/tasks/rust_sdk.dart';
 import 'package:appflowy/util/theme_extension.dart';
+import 'package:appflowy/workspace/application/settings/appearance/appearance_cubit.dart';
 import 'package:appflowy/workspace/presentation/home/toast.dart';
 import 'package:appflowy/workspace/presentation/widgets/float_bubble/social_media_section.dart';
 import 'package:appflowy/workspace/presentation/widgets/float_bubble/version_section.dart';
@@ -13,15 +14,24 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flowy_infra_ui/widget/flowy_tooltip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 class QuestionBubble extends StatelessWidget {
   const QuestionBubble({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox.square(
-      dimension: 32.0,
-      child: BubbleActionList(),
+    return BlocBuilder<AppearanceSettingsCubit, AppearanceSettingsState>(
+      builder: (context, state) {
+        if (!state.showQuestionBubble) {
+          return const SizedBox.shrink();
+        }
+        
+        return const SizedBox.square(
+          dimension: 32.0,
+          child: BubbleActionList(),
+        );
+      },
     );
   }
 }

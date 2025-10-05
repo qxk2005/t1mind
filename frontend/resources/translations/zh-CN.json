@@ -1062,6 +1062,9 @@
         "auto": "汽车",
         "fallback": "与布局方向相同"
       },
+      "questionBubble": {
+        "label": "显示帮助气泡"
+      },
       "themeUpload": {
         "button": "上传",
         "uploadTheme": "上传主题",

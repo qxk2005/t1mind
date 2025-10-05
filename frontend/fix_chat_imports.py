@@ -77,3 +77,4 @@ with open("rust-lib/flowy-ai/src/chat.rs", "w", encoding="utf-8") as f:
 print("\n✅ chat.rs fixed successfully")
 print("\n📝 下一步：在 middleware 层实现自动多轮对话")
 
+

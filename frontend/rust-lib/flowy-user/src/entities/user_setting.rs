@@ -72,6 +72,10 @@ pub struct AppearanceSettingsPB {
   #[pb(index = 13)]
   #[serde(default)]
   pub enable_rtl_toolbar_items: bool,
+
+  #[pb(index = 14)]
+  #[serde(default)]
+  pub show_question_bubble: bool,
 }
 
 const DEFAULT_RESET_VALUE: fn() -> bool = || APPEARANCE_RESET_AS_DEFAULT;
@@ -134,6 +138,7 @@ const APPEARANCE_RESET_AS_DEFAULT: bool = true;
 const APPEARANCE_DEFAULT_IS_MENU_COLLAPSED: bool = false;
 const APPEARANCE_DEFAULT_MENU_OFFSET: f64 = 0.0;
 const APPEARANCE_DEFAULT_ENABLE_RTL_TOOLBAR_ITEMS: bool = false;
+const APPEARANCE_DEFAULT_SHOW_QUESTION_BUBBLE: bool = true;
 
 impl std::default::Default for AppearanceSettingsPB {
   fn default() -> Self {
@@ -150,6 +155,7 @@ impl std::default::Default for AppearanceSettingsPB {
       layout_direction: LayoutDirectionPB::default(),
       text_direction: TextDirectionPB::default(),
       enable_rtl_toolbar_items: APPEARANCE_DEFAULT_ENABLE_RTL_TOOLBAR_ITEMS,
+      show_question_bubble: APPEARANCE_DEFAULT_SHOW_QUESTION_BUBBLE,
       document_setting: DocumentSettingsPB::default(),
     }
   }
