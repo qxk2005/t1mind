@@ -300,6 +300,10 @@ impl AppFlowyCore {
     }
 
     #[allow(clippy::arc_with_non_send_sync)]
+    tracing::info!("🔧 [CORE] About to create event dispatcher with plugins");
+    tracing::error!("🔧 [CORE] TEST ERROR - This should appear in logs!");
+    println!("🚨 [CORE] PRINTLN TEST - This MUST appear in logs!");
+    eprintln!("🚨 [CORE] EPRINTLN TEST - This MUST appear in logs!");
     let event_dispatcher = Arc::new(AFPluginDispatcher::new(
       runtime,
       make_plugins(
@@ -312,6 +316,7 @@ impl AppFlowyCore {
         Arc::downgrade(&storage_manager),
       ),
     ));
+    tracing::info!("🔧 [CORE] Event dispatcher created successfully");
 
     Self {
       config,

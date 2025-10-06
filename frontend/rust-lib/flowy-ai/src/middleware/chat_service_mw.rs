@@ -432,6 +432,8 @@ impl ChatServiceMiddleware {
         .with_context(format!("OpenAI compat error: {}", resp.status())));
     }
     
+    info!("🔧 [AI-SERVICE] Response status: {}, headers: {:?}", resp.status(), resp.headers());
+    
     let s = try_stream! {
       let mut inside_think = false;
       let mut tool_call_buffer: Option<OpenAIToolCall> = None;  // 🆕 用于累积流式 tool_call
@@ -630,14 +632,26 @@ impl ChatServiceMiddleware {
     let s = try_stream! {
       let mut inside_think = false;
       let mut stream = resp.bytes_stream();
+      info!("🔧 [AI-SERVICE] Starting to process stream response");
+      let mut chunk_count = 0;
       while let Some(chunk) = stream.next().await {
+        chunk_count += 1;
+        info!("🔧 [AI-SERVICE] Processing chunk #{}", chunk_count);
         let bytes = chunk.map_err(|e| FlowyError::server_error().with_context(e.to_string()))?;
         let s = String::from_utf8_lossy(&bytes);
+        info!("🔧 [AI-SERVICE] Received chunk: '{}'", s);
         for line in s.lines() {
           let l = line.trim_start();
-          if !l.starts_with("data:") { continue; }
+          if !l.starts_with("data:") { 
+            info!("🔧 [AI-SERVICE] Skipping non-data line: '{}'", l);
+            continue; 
+          }
           let data = l.trim_start_matches("data:").trim();
-          if data == "[DONE]" { break; }
+          info!("🔧 [AI-SERVICE] Processing data: '{}'", data);
+          if data == "[DONE]" { 
+            info!("🔧 [AI-SERVICE] Stream completed with [DONE]");
+            break; 
+          }
           if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
             if let Some(delta) = v.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("delta")) {
               // 1) 数组结构：显式 type
@@ -649,7 +663,10 @@ impl ChatServiceMiddleware {
                       if let Some(t) = item.get("text").and_then(|s| s.as_str()) { yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata { value: json!({"reasoning_delta": t}) }; }
                     },
                     "output_text" | "text" => {
-                      if let Some(t) = item.get("text").and_then(|s| s.as_str()) { yield flowy_ai_pub::cloud::QuestionStreamValue::Answer { value: t.to_string() }; }
+                      if let Some(t) = item.get("text").and_then(|s| s.as_str()) { 
+                        info!("🔧 [AI-SERVICE] Received text from AI: '{}'", t);
+                        yield flowy_ai_pub::cloud::QuestionStreamValue::Answer { value: t.to_string() }; 
+                      }
                     },
                     _ => {},
                   }

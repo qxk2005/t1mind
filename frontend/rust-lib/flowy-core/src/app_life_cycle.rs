@@ -530,7 +530,13 @@ fn resolve_data_source(
       WorkspaceType::Local => Ok(FolderInitDataSource::LocalDisk {
         create_if_not_exist: true,
       }),
-      WorkspaceType::Server => Err(err),
+      WorkspaceType::Server => {
+        // 当无法从云端获取数据时，回退到本地磁盘并创建默认工作区
+        tracing::warn!("Failed to get workspace data from cloud: {:?}, falling back to local disk with default workspace", err);
+        Ok(FolderInitDataSource::LocalDisk {
+          create_if_not_exist: true,
+        })
+      },
     },
   }
 }

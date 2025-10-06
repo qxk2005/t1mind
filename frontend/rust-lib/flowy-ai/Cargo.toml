@@ -5,6 +5,9 @@ edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 flowy-derive.workspace = true
 flowy-notification = { workspace = true }
@@ -76,3 +79,4 @@ dart = ["flowy-codegen/dart", "flowy-notification/dart"]
 local_ai = []
 file_reader = ["lopdf", "pulldown-cmark"]
 ai-tool = []
+mcp = []

@@ -1,6 +1,7 @@
 use std::sync::{Arc, Weak};
 
 use strum_macros::Display;
+use tracing::{error, info};
 
 use crate::completion::AICompletion;
 use flowy_derive::{Flowy_Event, ProtoBuf_Enum};
@@ -8,15 +9,30 @@ use lib_dispatch::prelude::*;
 
 use crate::ai_manager::AIManager;
 use crate::event_handler::*;
+#[cfg(feature = "mcp")]
 use crate::mcp::event_handler::*;
 use crate::agent::event_handler::*;
 
 pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
-  let strong_ai_manager = ai_manager.upgrade().unwrap();
+  // 使用tracing而不是println!，因为Android上println!可能不会显示
+  tracing::info!("🚨 [AI-PLUGIN] AI plugin init called - This MUST appear in logs!");
+  tracing::error!("🚨 [AI-PLUGIN] AI plugin init called - This MUST appear in logs!");
+  info!("🔧 [PLUGIN] Initializing AI plugin with ai_manager: {:?}", ai_manager.strong_count());
+  
+  let strong_ai_manager = match ai_manager.upgrade() {
+    Some(manager) => {
+      info!("🔧 [PLUGIN] Successfully upgraded ai_manager");
+      manager
+    },
+    None => {
+      error!("🔧 [PLUGIN] Failed to upgrade ai_manager - it has been dropped!");
+      panic!("AIManager has been dropped before plugin initialization");
+    }
+  };
   let user_service = Arc::downgrade(&strong_ai_manager.user_service);
   let cloud_service = Arc::downgrade(&strong_ai_manager.cloud_service_wm);
   let ai_tools = Arc::new(AICompletion::new(cloud_service, user_service));
-  AFPlugin::new()
+  let mut plugin = AFPlugin::new()
     .name("flowy-ai")
     .state(ai_manager)
     .state(ai_tools)
@@ -59,17 +75,24 @@ pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
     .event(
       AIEvent::SetCustomPromptDatabaseConfiguration,
       set_custom_prompt_database_configuration_handler,
-    )
+    );
+    
     // MCP事件注册
-    .event(AIEvent::GetMCPServerList, get_mcp_server_list_handler)
-    .event(AIEvent::AddMCPServer, add_mcp_server_handler)
-    .event(AIEvent::UpdateMCPServer, update_mcp_server_handler)
-    .event(AIEvent::RemoveMCPServer, remove_mcp_server_handler)
-    .event(AIEvent::ConnectMCPServer, connect_mcp_server_handler)
-    .event(AIEvent::DisconnectMCPServer, disconnect_mcp_server_handler)
-    .event(AIEvent::GetMCPServerStatus, get_mcp_server_status_handler)
-    .event(AIEvent::GetMCPToolList, get_mcp_tool_list_handler)
-    .event(AIEvent::CallMCPTool, call_mcp_tool_handler)
+    #[cfg(feature = "mcp")]
+    {
+      plugin = plugin
+        .event(AIEvent::GetMCPServerList, get_mcp_server_list_handler)
+        .event(AIEvent::AddMCPServer, add_mcp_server_handler)
+        .event(AIEvent::UpdateMCPServer, update_mcp_server_handler)
+        .event(AIEvent::RemoveMCPServer, remove_mcp_server_handler)
+        .event(AIEvent::ConnectMCPServer, connect_mcp_server_handler)
+        .event(AIEvent::DisconnectMCPServer, disconnect_mcp_server_handler)
+        .event(AIEvent::GetMCPServerStatus, get_mcp_server_status_handler)
+        .event(AIEvent::GetMCPToolList, get_mcp_tool_list_handler)
+        .event(AIEvent::CallMCPTool, call_mcp_tool_handler);
+    }
+    
+    plugin
     // 智能体事件注册
     .event(AIEvent::GetAgentList, get_agent_list_handler)
     .event(AIEvent::CreateAgent, create_agent_handler)

@@ -8,6 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Weak};
+use tracing::info;
 use uuid::Uuid;
 use validator::Validate;
 
@@ -43,6 +44,10 @@ pub(crate) async fn stream_chat_message_handler(
   };
 
   let chat_id = Uuid::from_str(&chat_id)?;
+  
+  info!("🔧 [HANDLER] About to call ai_manager.stream_chat_message: chat_id={}, message='{}', agent_id={:?}", 
+        chat_id, message, agent_id);
+  
   let params = StreamMessageParams {
     chat_id,
     message,
@@ -55,8 +60,13 @@ pub(crate) async fn stream_chat_message_handler(
   };
 
   let ai_manager = upgrade_ai_manager(ai_manager)?;
-  let result = ai_manager.stream_chat_message(params).await?;
-  data_result_ok(result)
+  
+  // 添加调试信息到返回的消息中
+  let mut debug_result = ai_manager.stream_chat_message(params).await?;
+  debug_result.content = format!("🔧 [DEBUG] Handler called successfully: {}", debug_result.content);
+  
+  info!("🔧 [HANDLER] ai_manager.stream_chat_message completed successfully");
+  data_result_ok(debug_result)
 }
 
 #[tracing::instrument(level = "debug", skip_all, err)]

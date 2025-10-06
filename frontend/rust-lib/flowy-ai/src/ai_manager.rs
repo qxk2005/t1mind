@@ -10,6 +10,7 @@ use crate::entities::{
 };
 use crate::local_ai::controller::{LocalAIController, LocalAISetting};
 use crate::middleware::chat_service_mw::ChatServiceMiddleware;
+#[cfg(feature = "mcp")]
 use crate::mcp::manager::MCPClientManager;
 use crate::agent::config_manager::AgentConfigManager;
 use flowy_ai_pub::persistence::{
@@ -69,6 +70,7 @@ pub struct AIManager {
   pub local_ai: Arc<LocalAIController>,
   pub store_preferences: Arc<KVStorePreferences>,
   model_control: Mutex<ModelSelectionControl>,
+  #[cfg(feature = "mcp")]
   pub mcp_manager: Arc<MCPClientManager>,
   pub agent_manager: Arc<AgentConfigManager>,
   execution_logs: Arc<DashMap<String, Vec<AgentExecutionLogPB>>>,
@@ -102,6 +104,7 @@ impl AIManager {
     model_control.set_server_storage(ServerModelStorageImpl(cloud_service_wm.clone()));
     model_control.add_source(Box::new(ServerAiSource::new(cloud_service_wm.clone())));
 
+    #[cfg(feature = "mcp")]
     let mcp_manager = Arc::new(MCPClientManager::new(store_preferences.clone()));
     let agent_manager = Arc::new(AgentConfigManager::new(store_preferences.clone()));
 
@@ -113,6 +116,7 @@ impl AIManager {
       external_service,
       store_preferences,
       model_control: Mutex::new(model_control),
+      #[cfg(feature = "mcp")]
       mcp_manager,
       agent_manager,
       execution_logs: Arc::new(DashMap::new()),
@@ -386,10 +390,17 @@ impl AIManager {
           
           // 🆕 构建增强的系统提示（包含工具详情）
           let enhanced_prompt = if !tool_details.is_empty() && config.capabilities.enable_tool_calling {
-            use crate::agent::system_prompt::build_agent_system_prompt_with_tools;
-            let prompt = build_agent_system_prompt_with_tools(&config, &tool_details);
-            info!("[Chat] 🔧 Using enhanced system prompt with {} tool details", tool_details.len());
-            Some(prompt)
+            #[cfg(feature = "mcp")]
+            {
+              use crate::agent::system_prompt::build_agent_system_prompt_with_tools;
+              let prompt = build_agent_system_prompt_with_tools(&config, &tool_details);
+              info!("[Chat] 🔧 Using enhanced system prompt with {} tool details", tool_details.len());
+              Some(prompt)
+            }
+            #[cfg(not(feature = "mcp"))]
+            {
+              None
+            }
           } else {
             None
           };
@@ -418,8 +429,15 @@ impl AIManager {
 
     // 🔧 创建工具调用处理器（如果有智能体配置）
     let tool_call_handler = if agent_config.is_some() {
-      use crate::agent::ToolCallHandler;
-      Some(Arc::new(ToolCallHandler::from_ai_manager(self)))
+      #[cfg(feature = "mcp")]
+      {
+        use crate::agent::ToolCallHandler;
+        Some(Arc::new(ToolCallHandler::from_ai_manager(self)))
+      }
+      #[cfg(not(feature = "mcp"))]
+      {
+        None
+      }
     } else {
       None
     };
@@ -1230,17 +1248,24 @@ impl AIManager {
     for tool_name in tool_names {
       if let Some(mcp_tool) = tool_details.get(tool_name) {
         // Convert MCP tool to ToolDefinitionPB
-        let tool_def = ToolDefinitionPB {
-          name: mcp_tool.name.clone(),
-          description: mcp_tool.description.clone().unwrap_or_default(),
-          tool_type: crate::entities::ToolTypePB::MCP,
-          source: "mcp".to_string(),
-          parameters_schema: serde_json::to_string(&mcp_tool.input_schema).unwrap_or_default(),
-          permissions: Vec::new(),
-          is_available: true,
-          metadata: std::collections::HashMap::new(),
-        };
-        result.push(tool_def);
+        #[cfg(feature = "mcp")]
+        {
+          let tool_def = ToolDefinitionPB {
+            name: mcp_tool.name.clone(),
+            description: mcp_tool.description.clone().unwrap_or_default(),
+            tool_type: crate::entities::ToolTypePB::MCP,
+            source: "mcp".to_string(),
+            parameters_schema: serde_json::to_string(&mcp_tool.input_schema).unwrap_or_default(),
+            permissions: Vec::new(),
+            is_available: true,
+            metadata: std::collections::HashMap::new(),
+          };
+          result.push(tool_def);
+        }
+        #[cfg(not(feature = "mcp"))]
+        {
+          // Skip MCP tools when feature is disabled
+        }
       }
     }
     
@@ -1248,6 +1273,7 @@ impl AIManager {
   }
 
   /// 从已配置的 MCP 服务器动态发现所有可用工具
+  #[cfg(feature = "mcp")]
   async fn discover_available_tools(&self) -> (Vec<String>, HashMap<String, crate::mcp::entities::MCPTool>) {
     let mut tool_names = Vec::new();
     let mut tool_details = HashMap::new();
@@ -1310,5 +1336,10 @@ impl AIManager {
     info!("✅ [Tool Discovery] 共从 {} 个已配置服务器发现 {} 个可用工具", 
           config_count, tool_names.len());
     (tool_names, tool_details)
+  }
+  
+  #[cfg(not(feature = "mcp"))]
+  async fn discover_available_tools(&self) -> (Vec<String>, HashMap<String, ()>) {
+    (vec![], HashMap::new())
   }
 }

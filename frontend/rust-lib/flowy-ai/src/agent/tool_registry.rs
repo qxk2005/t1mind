@@ -10,7 +10,9 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 use crate::entities::{ToolDefinitionPB, ToolTypePB};
+#[cfg(feature = "mcp")]
 use crate::mcp::entities::MCPTool;
+#[cfg(feature = "mcp")]
 use crate::mcp::tool_security::{ToolSecurityManager, ToolExecutionPermission};
 use crate::agent::native_tools::NativeToolsManager;
 
@@ -22,6 +24,7 @@ pub struct ToolRegistry {
     /// 工具版本管理
     tool_versions: Arc<RwLock<HashMap<String, ToolVersion>>>,
     /// 权限管理器
+    #[cfg(feature = "mcp")]
     security_manager: Arc<ToolSecurityManager>,
     /// 持久化存储
     store_preferences: Arc<KVStorePreferences>,
@@ -201,12 +204,14 @@ const TOOL_VERSIONS_KEY: &str = "agent_tool_versions";
 impl ToolRegistry {
     /// 创建新的工具注册表
     pub fn new(
+        #[cfg(feature = "mcp")]
         security_manager: Arc<ToolSecurityManager>,
         store_preferences: Arc<KVStorePreferences>,
     ) -> Self {
         Self {
             tools: Arc::new(RwLock::new(HashMap::new())),
             tool_versions: Arc::new(RwLock::new(HashMap::new())),
+            #[cfg(feature = "mcp")]
             security_manager,
             store_preferences,
             discovery_listeners: Arc::new(RwLock::new(Vec::new())),
@@ -479,6 +484,7 @@ impl ToolRegistry {
     }
 
     /// 检查工具权限
+    #[cfg(feature = "mcp")]
     pub async fn check_tool_permission(
         &self,
         tool_name: &str,
@@ -530,6 +536,7 @@ impl ToolRegistry {
     }
 
     /// 发现MCP工具
+    #[cfg(feature = "mcp")]
     pub async fn discover_mcp_tools(&self, server_id: &str, tools: Vec<MCPTool>) -> FlowyResult<()> {
         info!("发现 {} 个MCP工具来自服务器: {}", tools.len(), server_id);
         
@@ -925,6 +932,7 @@ impl ToolRegistry {
     }
 
     /// 转换为MCP工具
+    #[cfg(feature = "mcp")]
     fn convert_to_mcp_tool(&self, definition: &ToolDefinitionPB) -> Option<MCPTool> {
         if definition.tool_type != ToolTypePB::MCP {
             return None;
@@ -945,6 +953,7 @@ impl ToolRegistry {
     }
 
     /// 从MCP工具提取权限
+    #[cfg(feature = "mcp")]
     fn extract_permissions_from_mcp_tool(&self, mcp_tool: &MCPTool) -> Vec<String> {
         let mut permissions = Vec::new();
         
@@ -961,6 +970,7 @@ impl ToolRegistry {
     }
 
     /// 从MCP工具提取元数据
+    #[cfg(feature = "mcp")]
     fn extract_metadata_from_mcp_tool(&self, mcp_tool: &MCPTool) -> HashMap<String, String> {
         let mut metadata = HashMap::new();
         
@@ -983,6 +993,7 @@ impl ToolRegistry {
     }
 
     /// 创建默认MCP工具配置
+    #[cfg(feature = "mcp")]
     fn create_default_mcp_tool_config(&self, mcp_tool: &MCPTool) -> ToolConfig {
         let mut config = ToolConfig::default();
         
@@ -1031,6 +1042,7 @@ impl Clone for ToolRegistry {
         Self {
             tools: self.tools.clone(),
             tool_versions: self.tool_versions.clone(),
+            #[cfg(feature = "mcp")]
             security_manager: self.security_manager.clone(),
             store_preferences: self.store_preferences.clone(),
             discovery_listeners: self.discovery_listeners.clone(),

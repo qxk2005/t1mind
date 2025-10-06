@@ -134,7 +134,9 @@ class _MobileViewPageState extends State<MobileViewPage> {
                   create: (_) => DocumentPageStyleBloc(view: view)
                     ..add(const DocumentPageStyleEvent.initial()),
                 ),
-              if (view.layout.isDocumentView || view.layout.isDatabaseView)
+              if (view.layout.isDocumentView || 
+                  view.layout.isDatabaseView || 
+                  view.layout == ViewLayoutPB.Chat)
                 BlocProvider(
                   create: (_) => PageAccessLevelBloc(view: view)
                     ..add(const PageAccessLevelEvent.initial()),
@@ -243,9 +245,9 @@ class _MobileViewPageState extends State<MobileViewPage> {
 
     final isImmersiveMode =
         context.read<MobileViewPageBloc>().state.isImmersiveMode;
-    final isLocked =
-        context.read<PageAccessLevelBloc?>()?.state.isLocked ?? false;
-    final accessLevel = context.read<PageAccessLevelBloc>().state.accessLevel;
+    final pageAccessLevelBloc = context.read<PageAccessLevelBloc?>();
+    final isLocked = pageAccessLevelBloc?.state.isLocked ?? false;
+    final accessLevel = pageAccessLevelBloc?.state.accessLevel ?? ShareAccessLevel.readOnly;
     final actions = <Widget>[];
 
     if (FeatureFlag.syncDocument.isOn) {

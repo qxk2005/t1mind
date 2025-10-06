@@ -218,20 +218,35 @@ impl ToolCallProtocol {
 /// 工具调用处理器
 #[derive(Clone)]
 pub struct ToolCallHandler {
+    #[cfg(feature = "mcp")]
     mcp_manager: Arc<crate::mcp::MCPClientManager>,
 }
 
 impl ToolCallHandler {
+    #[cfg(feature = "mcp")]
     pub fn new(mcp_manager: Arc<crate::mcp::MCPClientManager>) -> Self {
         Self { mcp_manager }
     }
     
+    #[cfg(not(feature = "mcp"))]
+    pub fn new() -> Self {
+        Self {}
+    }
+    
     /// 从 AIManager 创建（便捷方法）
+    #[cfg(feature = "mcp")]
     pub fn from_ai_manager(ai_manager: &AIManager) -> Self {
         Self {
             mcp_manager: ai_manager.mcp_manager.clone(),
         }
     }
+    
+    #[cfg(not(feature = "mcp"))]
+    pub fn from_ai_manager(_ai_manager: &AIManager) -> Self {
+        Self {}
+    }
+    
+    /// 执行工具调用
     
     /// 检测文本中是否包含工具调用请求
     pub fn contains_tool_call(text: &str) -> bool {
@@ -304,6 +319,7 @@ impl ToolCallHandler {
     }
     
     /// 执行单个工具调用
+    #[cfg(feature = "mcp")]
     pub async fn execute_tool_call(
         &self,
         request: &ToolCallRequest,
@@ -452,7 +468,24 @@ impl ToolCallHandler {
         }
     }
     
+    /// 执行工具调用（MCP功能禁用时）
+    #[cfg(not(feature = "mcp"))]
+    pub async fn execute_tool_call(
+        &self,
+        request: &ToolCallRequest,
+        _agent_config: Option<&AgentConfigPB>,
+    ) -> ToolCallResponse {
+        ToolCallResponse {
+            id: request.id.clone(),
+            success: false,
+            result: None,
+            error: Some("MCP support is disabled".to_string()),
+            duration_ms: 0,
+        }
+    }
+    
     /// 执行MCP工具
+    #[cfg(feature = "mcp")]
     async fn execute_mcp_tool(
         &self,
         server_id: &str,
@@ -533,6 +566,7 @@ impl ToolCallHandler {
     }
     
     /// 自动检测并执行工具
+    #[cfg(feature = "mcp")]
     async fn execute_auto_detected_tool(
         &self,
         request: &ToolCallRequest,

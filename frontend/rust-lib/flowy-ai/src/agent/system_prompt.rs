@@ -1,4 +1,5 @@
 use crate::entities::AgentConfigPB;
+#[cfg(feature = "mcp")]
 use crate::mcp::entities::MCPTool;
 use std::collections::HashMap;
 
@@ -204,6 +205,7 @@ mod tests {
 }
 
 /// 格式化单个工具的详细信息
+#[cfg(feature = "mcp")]
 fn format_tool_details(tool: &MCPTool) -> String {
   let mut details = String::new();
   
@@ -312,7 +314,13 @@ fn format_tool_details(tool: &MCPTool) -> String {
   details
 }
 
+#[cfg(not(feature = "mcp"))]
+fn format_tool_details(_tool: &()) -> String {
+  "MCP support is disabled".to_string()
+}
+
 /// 构建包含工具详细信息的增强系统提示
+#[cfg(feature = "mcp")]
 pub fn build_agent_system_prompt_with_tools(
   config: &AgentConfigPB,
   tool_details: &HashMap<String, MCPTool>,
@@ -338,5 +346,13 @@ pub fn build_agent_system_prompt_with_tools(
   }
   
   prompt
+}
+
+#[cfg(not(feature = "mcp"))]
+pub fn build_agent_system_prompt_with_tools(
+  config: &AgentConfigPB,
+  _tool_details: &HashMap<String, ()>,
+) -> String {
+  build_agent_system_prompt(config)
 }
 

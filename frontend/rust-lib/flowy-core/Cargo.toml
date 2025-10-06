@@ -80,6 +80,7 @@ dart = [
   "flowy-storage/dart",
 ]
 openssl_vendored = ["flowy-sqlite/openssl_vendored"]
+mcp = ["flowy-ai/mcp"]
 
 # Enable/Disable AppFlowy Verbose Log Configuration
 verbose_log = [

@@ -53,6 +53,11 @@ class AnswerStream {
   bool get aiImageLimitReached => _aiImageLimitReached;
   String? get error => _error;
   String get text => _text;
+  
+  /// Sets the text content of the QuestionStream
+  void setText(String text) {
+    _text = text;
+  }
 
   /// Releases the resources used by the AnswerStream.
   Future<void> dispose() async {
@@ -63,10 +68,14 @@ class AnswerStream {
 
   /// Handles incoming events from the underlying stream.
   void _handleEvent(String event) {
+    // 添加调试日志
+    Log.debug("🌊 [ANSWER-STREAM] Received event: '$event'");
+    
     if (event.startsWith(AIStreamEventPrefix.data)) {
       _hasStarted = true;
       final newText = event.substring(AIStreamEventPrefix.data.length);
       _text += newText;
+      Log.debug("🌊 [ANSWER-STREAM] Data received, text length: ${_text.length}");
       _onData?.call(_text);
     } else if (event.startsWith(AIStreamEventPrefix.error)) {
       _error = event.substring(AIStreamEventPrefix.error.length);
@@ -225,6 +234,11 @@ class QuestionStream {
   bool get hasStarted => _hasStarted;
   String? get error => _error;
   String get text => _text;
+  
+  /// Sets the text content of the QuestionStream
+  void setText(String text) {
+    _text = text;
+  }
 
   Future<void> dispose() async {
     await _controller.close();

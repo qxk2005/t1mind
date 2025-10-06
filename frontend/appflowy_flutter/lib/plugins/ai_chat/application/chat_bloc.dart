@@ -71,6 +71,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   bool hasMorePreviousMessages = true;
   bool isFetchingRelatedQuestions = false;
   bool shouldFetchRelatedQuestions = false;
+  bool _isSendingMessage = false;
 
   // Accessor for selected sources
   ValueNotifier<List<String>> get selectedSourcesNotifier =>
@@ -130,11 +131,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
             _handleRegenerateAnswer(id, format, model, emit),
 
         // Streaming completion
-        didFinishAnswerStream: () async => emit(
-          state.copyWith(
-            promptResponseState: PromptResponseState.ready,
-          ),
-        ),
+        didFinishAnswerStream: () async {
+          _isSendingMessage = false;
+          emit(
+            state.copyWith(
+              promptResponseState: PromptResponseState.ready,
+            ),
+          );
+        },
 
         // Related questions
         didReceiveRelatedQuestions: (questions) async =>
@@ -225,6 +229,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     String? promptId,
     Emitter<ChatState> emit,
   ) {
+    // 防止重复发送消息
+    if (_isSendingMessage) {
+      Log.warn("Message sending already in progress, ignoring duplicate request");
+      return;
+    }
+    
+    _isSendingMessage = true;
+    
     _messageHandler.clearErrorMessages();
     emit(state.copyWith(clearErrorMessages: !state.clearErrorMessages));
 
@@ -252,6 +264,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   Future<void> _handleStopStream(Emitter<ChatState> emit) async {
     await _streamManager.stopStream();
 
+    // Reset sending flag
+    _isSendingMessage = false;
+
     // Allow user input
     emit(state.copyWith(promptResponseState: PromptResponseState.ready));
 
@@ -272,6 +287,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   }
 
   void _handleFailedSending(Emitter<ChatState> emit) {
+    // Reset sending flag
+    _isSendingMessage = false;
+    
     final lastMessage = chatController.messages.lastOrNull;
     if (lastMessage != null) {
       chatController.remove(lastMessage);
@@ -472,8 +490,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     Map<String, dynamic>? metadata,
     String? promptId,
   ) async {
+    Log.info("🚀 [STREAM] Starting streaming message: '$message', agentId: $selectedAgentId");
+    
     // Prepare streams
     await _streamManager.prepareStreams();
+
+    // 设置QuestionStream的文本内容
+    _streamManager.questionStream!.setText(message);
 
     // Create and add question message
     final questionStreamMessage = _messageHandler.createQuestionStreamMessage(
@@ -482,10 +505,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     );
     add(ChatEvent.receiveMessage(questionStreamMessage));
 
+    Log.info("📤 [STREAM] Sending stream request with agentId: $selectedAgentId");
+    
     // Send stream request with agent_id
     await _streamManager.sendStreamRequest(message, format, promptId, selectedAgentId).fold(
       (question) {
         if (!isClosed) {
+          Log.info("✅ [STREAM] Stream request successful, question ID: ${question.messageId}");
+          
           // Create and add answer stream message
           final streamAnswer = _messageHandler.createAnswerStreamMessage(
             stream: _streamManager.answerStream!,
@@ -496,11 +523,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           lastSentMessage = question;
           add(const ChatEvent.finishSending());
           add(ChatEvent.receiveMessage(streamAnswer));
+          
+          Log.info("🎯 [STREAM] Answer stream message created and added");
         }
       },
       (err) {
         if (!isClosed) {
-          Log.error("Failed to send message: ${err.msg}");
+          Log.error("❌ [STREAM] Failed to send message: ${err.msg} (code: ${err.code})");
 
           final metadata = {
             onetimeShotType: OnetimeShotType.error,

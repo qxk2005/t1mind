@@ -24,8 +24,6 @@ PODS:
   - hotkey_manager (0.0.1):
     - FlutterMacOS
     - HotKey
-  - irondash_engine_context (0.0.1):
-    - FlutterMacOS
   - local_notifier (0.1.0):
     - FlutterMacOS
   - package_info_plus (0.0.1):
@@ -44,8 +42,6 @@ PODS:
   - Sparkle (2.7.0)
   - sqflite_darwin (0.0.4):
     - Flutter
-    - FlutterMacOS
-  - super_native_extensions (0.0.1):
     - FlutterMacOS
   - url_launcher_macos (0.0.1):
     - FlutterMacOS
@@ -67,7 +63,6 @@ DEPENDENCIES:
   - flowy_infra_ui (from `Flutter/ephemeral/.symlinks/plugins/flowy_infra_ui/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - hotkey_manager (from `Flutter/ephemeral/.symlinks/plugins/hotkey_manager/macos`)
-  - irondash_engine_context (from `Flutter/ephemeral/.symlinks/plugins/irondash_engine_context/macos`)
   - local_notifier (from `Flutter/ephemeral/.symlinks/plugins/local_notifier/macos`)
   - package_info_plus (from `Flutter/ephemeral/.symlinks/plugins/package_info_plus/macos`)
   - path_provider_foundation (from `Flutter/ephemeral/.symlinks/plugins/path_provider_foundation/darwin`)
@@ -75,7 +70,6 @@ DEPENDENCIES:
   - share_plus (from `Flutter/ephemeral/.symlinks/plugins/share_plus/macos`)
   - shared_preferences_foundation (from `Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin`)
   - sqflite_darwin (from `Flutter/ephemeral/.symlinks/plugins/sqflite_darwin/darwin`)
-  - super_native_extensions (from `Flutter/ephemeral/.symlinks/plugins/super_native_extensions/macos`)
   - url_launcher_macos (from `Flutter/ephemeral/.symlinks/plugins/url_launcher_macos/macos`)
   - webview_flutter_wkwebview (from `Flutter/ephemeral/.symlinks/plugins/webview_flutter_wkwebview/darwin`)
   - window_manager (from `Flutter/ephemeral/.symlinks/plugins/window_manager/macos`)
@@ -109,8 +103,6 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral
   hotkey_manager:
     :path: Flutter/ephemeral/.symlinks/plugins/hotkey_manager/macos
-  irondash_engine_context:
-    :path: Flutter/ephemeral/.symlinks/plugins/irondash_engine_context/macos
   local_notifier:
     :path: Flutter/ephemeral/.symlinks/plugins/local_notifier/macos
   package_info_plus:
@@ -125,8 +117,6 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin
   sqflite_darwin:
     :path: Flutter/ephemeral/.symlinks/plugins/sqflite_darwin/darwin
-  super_native_extensions:
-    :path: Flutter/ephemeral/.symlinks/plugins/super_native_extensions/macos
   url_launcher_macos:
     :path: Flutter/ephemeral/.symlinks/plugins/url_launcher_macos/macos
   webview_flutter_wkwebview:
@@ -147,7 +137,6 @@ SPEC CHECKSUMS:
   FlutterMacOS: 8f6f14fa908a6fb3fba0cd85dbd81ec4b251fb24
   HotKey: 400beb7caa29054ea8d864c96f5ba7e5b4852277
   hotkey_manager: b443f35f4d772162937aa73fd8995e579f8ac4e2
-  irondash_engine_context: 893c7d96d20ce361d7e996f39d360c4c2f9869ba
   local_notifier: ebf072651e35ae5e47280ad52e2707375cb2ae4e
   package_info_plus: f0052d280d17aa382b932f399edf32507174e870
   path_provider_foundation: 080d55be775b7414fd5a5ef3ac137b97b097e564
@@ -157,7 +146,6 @@ SPEC CHECKSUMS:
   shared_preferences_foundation: 9e1978ff2562383bd5676f64ec4e9aa8fa06a6f7
   Sparkle: 9c328bdcfbcaf8f030c4b678eadfd0fcb03822d8
   sqflite_darwin: 20b2a3a3b70e43edae938624ce550a3cbf66a3d0
-  super_native_extensions: c2795d6d9aedf4a79fae25cb6160b71b50549189
   url_launcher_macos: 0fba8ddabfc33ce0a9afe7c5fef5aab3d8d2d673
   webview_flutter_wkwebview: 1821ceac936eba6f7984d89a9f3bcb4dea99ebb2
   window_manager: e8d0b1431ab6c454f2b5c9ae26004bbfa43469aa

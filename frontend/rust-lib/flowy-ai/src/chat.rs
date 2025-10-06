@@ -178,6 +178,9 @@ impl Chat {
     let format = params.format.clone().map(Into::into).unwrap_or_default();
     
     // 传递系统提示词、智能体配置和工具调用处理器给 stream_response
+    info!("🔧 [CHAT] About to call stream_response: chat_id={}, question_id={}, answer_stream_port={}", 
+          self.chat_id, question.message_id, params.answer_stream_port);
+    
     self.stream_response(
       params.answer_stream_port,
       answer_stream_buffer,
@@ -192,6 +195,8 @@ impl Chat {
       execution_logs,  // 📝 传递执行日志存储
       tool_definitions,  // 🆕 传递工具定义列表
     );
+    
+    info!("🔧 [CHAT] stream_response call completed");
 
     let question_pb = ChatMessagePB::from(question);
     Ok(question_pb)
@@ -336,6 +341,7 @@ impl Chat {
           .await
       } else {
         // 使用普通流式响应（无工具或未启用）
+        info!("🔄 [SIMPLE-STREAM] Using simple stream response (no agent/tools)");
         cloud_service
           .stream_answer_with_system_prompt(
             &workspace_id, 
@@ -375,12 +381,15 @@ impl Chat {
                   QuestionStreamValue::Answer { value } => {
                     // 🆕 使用 OpenAI Function Call API，无需手工检测 <tool_call> 标签
                     // Metadata 中的 tool_call 信息由 middleware 自动处理
+                    info!("🔧 [STREAM-DATA] Received answer data: '{}'", value);
                     answer_stream_buffer.lock().await.push_str(&value);
                     if let Err(err) = answer_sink
                       .send(StreamMessage::OnData(value).to_string())
                       .await
                     {
                       error!("Failed to stream answer via IsolateSink: {}", err);
+                    } else {
+                      info!("🔧 [STREAM-DATA] Successfully sent data to Flutter");
                     }
                   },
                   QuestionStreamValue::Metadata { value } => {

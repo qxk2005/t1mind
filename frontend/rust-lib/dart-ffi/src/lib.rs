@@ -112,6 +112,10 @@ impl DartAppFlowyCore {
 
 #[no_mangle]
 pub extern "C" fn init_sdk(_port: i64, data: *mut c_char) -> i64 {
+  // 添加调试日志 - 这个函数肯定会被调用
+  tracing::info!("🚨 [DART-FFI] init_sdk called - This MUST appear in logs!");
+  tracing::error!("🚨 [DART-FFI] init_sdk called - This MUST appear in logs!");
+  
   let c_str = unsafe {
     if data.is_null() {
       return -1;
@@ -316,4 +320,16 @@ impl StreamLogSender for LogStreamSenderImpl {
   fn send(&self, message: &[u8]) {
     self.isolate.post(message.to_vec());
   }
+}
+
+// 添加测试函数
+#[no_mangle]
+pub extern "C" fn test_rust_connection() -> *mut c_char {
+  println!("🚨 [FFI-TEST] Rust connection test - This MUST appear in logs!");
+  eprintln!("🚨 [FFI-TEST] Rust connection test - This MUST appear in logs!");
+  tracing::info!("🔧 [FFI-TEST] Rust connection test");
+  
+  let test_message = "Rust FFI connection working!";
+  let c_string = std::ffi::CString::new(test_message).unwrap();
+  c_string.into_raw()
 }

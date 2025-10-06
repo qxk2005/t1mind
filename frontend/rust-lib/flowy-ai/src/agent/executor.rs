@@ -325,7 +325,14 @@ impl AITaskExecutor {
                 self.execute_native_tool(tool_name, arguments, context).await?
             } else {
                 // 执行MCP工具
-                self.execute_mcp_tool(source, tool_name, arguments, context).await?
+                #[cfg(feature = "mcp")]
+                {
+                    self.execute_mcp_tool(source, tool_name, arguments, context).await?
+                }
+                #[cfg(not(feature = "mcp"))]
+                {
+                    return Err(FlowyError::not_support().with_context("MCP support is disabled"));
+                }
             }
         } else {
             // 尝试自动检测工具类型
@@ -346,6 +353,7 @@ impl AITaskExecutor {
     }
 
     /// 执行MCP工具
+    #[cfg(feature = "mcp")]
     async fn execute_mcp_tool(
         &self,
         server_id: &str,
@@ -368,6 +376,17 @@ impl AITaskExecutor {
         }
 
         Ok(result_parts.join("\n"))
+    }
+    
+    #[cfg(not(feature = "mcp"))]
+    async fn execute_mcp_tool(
+        &self,
+        _server_id: &str,
+        _tool_name: &str,
+        _arguments: &Value,
+        _context: &ExecutionContext,
+    ) -> FlowyResult<String> {
+        Err(FlowyError::not_support().with_context("MCP support is disabled"))
     }
 
     /// 执行原生工具
@@ -412,11 +431,14 @@ impl AITaskExecutor {
         }
 
         // 然后尝试MCP工具
-        let servers = self.ai_manager.mcp_manager.list_servers().await;
-        for server in servers {
-            if let Ok(tools) = self.ai_manager.mcp_manager.tool_list(&server.server_id).await {
-                if tools.tools.iter().any(|t| t.name == tool_name) {
-                    return self.execute_mcp_tool(&server.server_id, tool_name, arguments, context).await;
+        #[cfg(feature = "mcp")]
+        {
+            let servers = self.ai_manager.mcp_manager.list_servers().await;
+            for server in servers {
+                if let Ok(tools) = self.ai_manager.mcp_manager.tool_list(&server.server_id).await {
+                    if tools.tools.iter().any(|t| t.name == tool_name) {
+                        return self.execute_mcp_tool(&server.server_id, tool_name, arguments, context).await;
+                    }
                 }
             }
         }

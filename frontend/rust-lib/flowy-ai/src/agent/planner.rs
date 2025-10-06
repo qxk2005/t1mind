@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::ai_manager::AIManager;
 use crate::entities::{ToolDefinitionPB, ToolTypePB};
+#[cfg(feature = "mcp")]
 use crate::mcp::entities::MCPTool;
 use crate::agent::tool_registry::ToolRegistry;
 use flowy_ai_pub::cloud::{AIModel, CompleteTextParams, CompletionType, ResponseFormat, ChatCloudService};
@@ -778,13 +779,20 @@ impl AITaskPlanner {
         } else {
             // 回退到旧的实现
             // 获取MCP工具
-            let mcp_servers = self.ai_manager.mcp_manager.list_servers().await;
-            for server in mcp_servers {
-                if let Ok(tool_list) = self.ai_manager.mcp_manager.tool_list(&server.server_id).await {
-                    for mcp_tool in tool_list.tools {
-                        tools.push(self.convert_mcp_tool_to_definition(mcp_tool, &server.server_id));
+            #[cfg(feature = "mcp")]
+            {
+                let mcp_servers = self.ai_manager.mcp_manager.list_servers().await;
+                for server in mcp_servers {
+                    if let Ok(tool_list) = self.ai_manager.mcp_manager.tool_list(&server.server_id).await {
+                        for mcp_tool in tool_list.tools {
+                            tools.push(self.convert_mcp_tool_to_definition(mcp_tool, &server.server_id));
+                        }
                     }
                 }
+            }
+            #[cfg(not(feature = "mcp"))]
+            {
+                // MCP功能未启用，跳过MCP工具发现
             }
 
             // 添加原生工具（这里可以扩展）
@@ -799,6 +807,7 @@ impl AITaskPlanner {
     }
 
     /// 转换MCP工具为工具定义
+    #[cfg(feature = "mcp")]
     fn convert_mcp_tool_to_definition(&self, mcp_tool: MCPTool, server_id: &str) -> ToolDefinitionPB {
         ToolDefinitionPB {
             name: mcp_tool.name,
@@ -808,6 +817,20 @@ impl AITaskPlanner {
             parameters_schema: serde_json::to_string(&mcp_tool.input_schema).unwrap_or_default(),
             permissions: Vec::new(), // MCP工具权限管理可以后续扩展
             is_available: true,
+            metadata: HashMap::new(),
+        }
+    }
+    
+    #[cfg(not(feature = "mcp"))]
+    fn convert_mcp_tool_to_definition(&self, _mcp_tool: (), _server_id: &str) -> ToolDefinitionPB {
+        ToolDefinitionPB {
+            name: "mcp_disabled".to_string(),
+            description: "MCP support is disabled".to_string(),
+            tool_type: ToolTypePB::Native,
+            source: "system".to_string(),
+            parameters_schema: "{}".to_string(),
+            permissions: Vec::new(),
+            is_available: false,
             metadata: HashMap::new(),
         }
     }

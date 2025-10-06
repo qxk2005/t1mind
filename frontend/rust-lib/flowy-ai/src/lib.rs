@@ -7,7 +7,7 @@ mod completion;
 pub mod entities;
 pub mod local_ai;
 
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+#[cfg(feature = "mcp")]
 pub mod mcp;
 
 pub mod agent;

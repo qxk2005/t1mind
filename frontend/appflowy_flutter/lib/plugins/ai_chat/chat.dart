@@ -170,6 +170,7 @@ class AIChatPagePluginWidgetBuilder extends PluginWidgetBuilder
         providers: [
           BlocProvider.value(value: viewInfoBloc),
           BlocProvider.value(value: chatMessageSelectorBloc),
+          BlocProvider.value(value: pageAccessLevelBloc),
         ],
         child: BlocBuilder<ChatSelectMessageBloc, ChatSelectMessageState>(
           builder: (context, state) {

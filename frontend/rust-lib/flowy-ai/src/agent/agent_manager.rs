@@ -10,6 +10,7 @@ use crate::ai_manager::AIManager;
 use crate::agent::planner::{AITaskPlanner, TaskPlan, PlanStatus, PersonalizationFeatures};
 use crate::agent::executor::{ExecutionContext, ExecutionResult};
 use crate::agent::tool_registry::{ToolRegistry, ToolRegistryStatistics, ToolSearchFilter, RegisteredTool};
+#[cfg(feature = "mcp")]
 use crate::mcp::tool_security::ToolSecurityManager;
 use crate::entities::{ToolDefinitionPB, ToolTypePB};
 
@@ -31,10 +32,12 @@ impl AgentManager {
         let planner = AITaskPlanner::new(ai_manager.clone());
         
         // 创建工具安全管理器
+        #[cfg(feature = "mcp")]
         let security_manager = Arc::new(ToolSecurityManager::new(ai_manager.store_preferences.clone()));
         
         // 创建工具注册表
         let tool_registry = Arc::new(ToolRegistry::new(
+            #[cfg(feature = "mcp")]
             security_manager,
             ai_manager.store_preferences.clone(),
         ));
@@ -274,13 +277,20 @@ impl AgentManager {
     async fn discover_and_register_mcp_tools(&self) -> FlowyResult<()> {
         info!("开始发现并注册MCP工具");
         
-        let servers = self.ai_manager.mcp_manager.list_servers().await;
-        for server in servers {
-            if let Ok(tools_list) = self.ai_manager.mcp_manager.tool_list(&server.server_id).await {
-                if let Err(e) = self.tool_registry.discover_mcp_tools(&server.server_id, tools_list.tools).await {
-                    warn!("注册MCP服务器 {} 的工具失败: {}", server.server_id, e);
+        #[cfg(feature = "mcp")]
+        {
+            let servers = self.ai_manager.mcp_manager.list_servers().await;
+            for server in servers {
+                if let Ok(tools_list) = self.ai_manager.mcp_manager.tool_list(&server.server_id).await {
+                    if let Err(e) = self.tool_registry.discover_mcp_tools(&server.server_id, tools_list.tools).await {
+                        warn!("注册MCP服务器 {} 的工具失败: {}", server.server_id, e);
+                    }
                 }
             }
+        }
+        #[cfg(not(feature = "mcp"))]
+        {
+            info!("MCP功能未启用，跳过工具发现");
         }
         
         Ok(())
@@ -334,6 +344,7 @@ impl AgentManager {
     }
 
     /// 检查工具权限
+    #[cfg(feature = "mcp")]
     pub async fn check_tool_permission(
         &self,
         tool_name: &str,
@@ -344,6 +355,7 @@ impl AgentManager {
     }
 
     /// 当MCP服务器连接时注册其工具
+    #[cfg(feature = "mcp")]
     pub async fn on_mcp_server_connected(&self, server_id: &str) -> FlowyResult<()> {
         info!("MCP服务器已连接，注册工具: {}", server_id);
         
@@ -351,6 +363,12 @@ impl AgentManager {
             self.tool_registry.discover_mcp_tools(server_id, tools_list.tools).await?;
         }
         
+        Ok(())
+    }
+    
+    #[cfg(not(feature = "mcp"))]
+    pub async fn on_mcp_server_connected(&self, _server_id: &str) -> FlowyResult<()> {
+        info!("MCP功能未启用，跳过工具注册");
         Ok(())
     }
 

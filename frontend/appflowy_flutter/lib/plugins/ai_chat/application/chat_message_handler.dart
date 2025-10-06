@@ -110,7 +110,7 @@ class ChatMessageHandler {
       },
       id: questionStreamMessageId,
       createdAt: now,
-      text: '',
+      text: stream.text, // 使用QuestionStream的文本内容
     );
   }
 

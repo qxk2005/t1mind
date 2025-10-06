@@ -5,6 +5,7 @@ import 'package:appflowy/env/backend_env.dart';
 import 'package:appflowy/env/cloud_env.dart';
 import 'package:appflowy/user/application/auth/device_id.dart';
 import 'package:appflowy_backend/appflowy_backend.dart';
+import 'package:appflowy_backend/ffi.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
@@ -40,6 +41,14 @@ class InitRustSDKTask extends LaunchTask {
       rustEnvs: context.config.rustEnvs,
     );
     await context.getIt<FlowySDK>().init(jsonEncode(env.toJson()));
+    
+    // Test Rust FFI connection
+    try {
+      final testResult = test_rust_connection();
+      print('🚨 [FLUTTER-TEST] Rust FFI test result: $testResult');
+    } catch (e) {
+      print('🚨 [FLUTTER-TEST] Rust FFI test failed: $e');
+    }
   }
 }
 

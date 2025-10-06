@@ -47,11 +47,18 @@ class TextMessageWidget extends StatelessWidget {
 
     if (messageType == OnetimeShotType.relatedQuestion) {
       final messages = context.read<ChatBloc>().chatController.messages;
-      final lastAIMessage = messages.lastWhere(
+      final aiMessages = messages.where(
         (e) =>
             onetimeMessageTypeFromMeta(e.metadata) == null &&
             (e.author.id == aiResponseUserId || e.author.id == systemUserId),
-      );
+      ).toList();
+      
+      if (aiMessages.isEmpty) {
+        Log.warn('No AI messages found for related question');
+        return const SizedBox.shrink();
+      }
+      
+      final lastAIMessage = aiMessages.last;
       final minHeight =
           ChatMessageHeightManager().calculateRelatedQuestionMinHeight(
         messageId: lastAIMessage.id,

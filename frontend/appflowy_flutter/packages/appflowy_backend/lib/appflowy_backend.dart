@@ -38,9 +38,9 @@ class FlowySDK {
     ffi.set_stream_port(RustStreamReceiver.shared.port);
     ffi.store_dart_post_cobject(NativeApi.postCObject);
 
-    // On iOS, VSCode can't print logs from Rust, so we need to use a different method to print logs.
+    // On iOS and Android, VSCode can't print logs from Rust, so we need to use a different method to print logs.
     // So we use a shared port to receive logs from Rust and print them using the logger. In release mode, we don't print logs.
-    if (Platform.isIOS && kDebugMode) {
+    if ((Platform.isIOS || Platform.isAndroid) && kDebugMode) {
       ffi.set_log_stream_port(RustLogStreamReceiver.logShared.port);
     }
 

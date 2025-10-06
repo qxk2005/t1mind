@@ -44,8 +44,17 @@ void async_event(
   _invoke_async(port, input, len);
 }
 
+/// Test function to verify Rust FFI connection
+String test_rust_connection() {
+  final result = _test_rust_connection();
+  return result.toDartString();
+}
+
 final _invoke_async_Dart _invoke_async = _dart_ffi_lib
     .lookupFunction<_invoke_async_C, _invoke_async_Dart>('async_event');
+
+final _test_rust_connection_Dart _test_rust_connection = _dart_ffi_lib
+    .lookupFunction<_test_rust_connection_C, _test_rust_connection_Dart>('test_rust_connection');
 typedef _invoke_async_C = Void Function(
   Int64 port,
   Pointer<Uint8> input,
@@ -56,6 +65,9 @@ typedef _invoke_async_Dart = void Function(
   Pointer<Uint8> input,
   int len,
 );
+
+typedef _test_rust_connection_C = Pointer<ffi.Utf8> Function();
+typedef _test_rust_connection_Dart = Pointer<ffi.Utf8> Function();
 
 /// C function `sync_event`.
 Pointer<Uint8> sync_event(
