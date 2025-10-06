@@ -358,8 +358,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         }
 
         _messageHandler.processReceivedMessage(pb);
-        final message = _messageHandler.createTextMessage(pb);
-        add(ChatEvent.receiveMessage(message));
+        
+        // 只处理AI消息，用户消息已经在_startStreamingMessage中处理了
+        if (pb.authorType == 3) { // 3 means AI message
+          final message = _messageHandler.createTextMessage(pb);
+          add(ChatEvent.receiveMessage(message));
+        }
       },
       chatErrorMessageCallback: (err) {
         if (!isClosed) {
@@ -369,15 +373,17 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       },
       latestMessageCallback: (list) {
         if (!isClosed) {
-          final messages =
-              list.messages.map(_messageHandler.createTextMessage).toList();
+          // 只处理AI消息，过滤掉用户消息
+          final aiMessages = list.messages.where((pb) => pb.authorType == 3).toList();
+          final messages = aiMessages.map(_messageHandler.createTextMessage).toList();
           add(ChatEvent.didLoadLatestMessages(messages));
         }
       },
       prevMessageCallback: (list) {
         if (!isClosed) {
-          final messages =
-              list.messages.map(_messageHandler.createTextMessage).toList();
+          // 只处理AI消息，过滤掉用户消息
+          final aiMessages = list.messages.where((pb) => pb.authorType == 3).toList();
+          final messages = aiMessages.map(_messageHandler.createTextMessage).toList();
           add(ChatEvent.didLoadPreviousMessages(messages, list.hasMore));
         }
       },
@@ -448,8 +454,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     await AIEventLoadNextMessage(loadMessagesPayload).send().fold(
       (list) {
         if (!isClosed) {
-          final messages =
-              list.messages.map(_messageHandler.createTextMessage).toList();
+          // 只处理AI消息，过滤掉用户消息
+          final aiMessages = list.messages.where((pb) => pb.authorType == 3).toList();
+          final messages = aiMessages.map(_messageHandler.createTextMessage).toList();
           add(ChatEvent.didLoadLatestMessages(messages));
         }
       },
