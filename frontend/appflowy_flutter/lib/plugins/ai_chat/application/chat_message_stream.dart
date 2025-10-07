@@ -68,14 +68,15 @@ class AnswerStream {
 
   /// Handles incoming events from the underlying stream.
   void _handleEvent(String event) {
-    // 添加调试日志
-    Log.debug("🌊 [ANSWER-STREAM] Received event: '$event'");
+    // Disabled debug logging to reduce noise
+    // Log.debug("🌊 [ANSWER-STREAM] Received event: '$event'");
     
     if (event.startsWith(AIStreamEventPrefix.data)) {
       _hasStarted = true;
       final newText = event.substring(AIStreamEventPrefix.data.length);
       _text += newText;
-      Log.debug("🌊 [ANSWER-STREAM] Data received, text length: ${_text.length}");
+      // Disabled debug logging to reduce noise
+      // Log.debug("🌊 [ANSWER-STREAM] Data received, text length: ${_text.length}");
       _onData?.call(_text);
     } else if (event.startsWith(AIStreamEventPrefix.error)) {
       _error = event.substring(AIStreamEventPrefix.error.length);

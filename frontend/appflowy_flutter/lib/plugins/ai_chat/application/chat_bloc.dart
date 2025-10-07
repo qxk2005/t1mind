@@ -497,7 +497,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     Map<String, dynamic>? metadata,
     String? promptId,
   ) async {
-    Log.info("🚀 [STREAM] Starting streaming message: '$message', agentId: $selectedAgentId");
+    // Disabled debug logging to reduce noise
+    // Log.info("🚀 [STREAM] Starting streaming message: '$message', agentId: $selectedAgentId");
     
     // Prepare streams
     await _streamManager.prepareStreams();
@@ -512,13 +513,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     );
     add(ChatEvent.receiveMessage(questionStreamMessage));
 
-    Log.info("📤 [STREAM] Sending stream request with agentId: $selectedAgentId");
+    // Disabled debug logging to reduce noise
+    // Log.info("📤 [STREAM] Sending stream request with agentId: $selectedAgentId");
     
     // Send stream request with agent_id
     await _streamManager.sendStreamRequest(message, format, promptId, selectedAgentId).fold(
       (question) {
         if (!isClosed) {
-          Log.info("✅ [STREAM] Stream request successful, question ID: ${question.messageId}");
+          // Disabled debug logging to reduce noise
+          // Log.info("✅ [STREAM] Stream request successful, question ID: ${question.messageId}");
           
           // Create and add answer stream message
           final streamAnswer = _messageHandler.createAnswerStreamMessage(
@@ -531,7 +534,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           add(const ChatEvent.finishSending());
           add(ChatEvent.receiveMessage(streamAnswer));
           
-          Log.info("🎯 [STREAM] Answer stream message created and added");
+          // Disabled debug logging to reduce noise
+          // Log.info("🎯 [STREAM] Answer stream message created and added");
         }
       },
       (err) {

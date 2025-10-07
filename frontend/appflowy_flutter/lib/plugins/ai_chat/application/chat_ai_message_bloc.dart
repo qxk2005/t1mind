@@ -138,7 +138,8 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
     });
 
     on<_ReceiveMetadata>((event, emit) {
-      Log.debug("AI Steps: ${event.metadata.progress?.step}");
+      // Disabled debug logging to reduce noise
+      // Log.debug("AI Steps: ${event.metadata.progress?.step}");
       
       // 处理推理增量数据
       String? updatedReasoningText = state.reasoningText;
@@ -203,21 +204,26 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
   }
 
   void _initializeStreamListener() {
-    Log.debug("🎯 [STREAM-LISTENER] Initializing stream listener, stream: ${state.stream}");
+    // Disabled debug logging to reduce noise
+    // Log.debug("🎯 [STREAM-LISTENER] Initializing stream listener, stream: ${state.stream}");
     if (state.stream != null) {
-      Log.debug("🎯 [STREAM-LISTENER] Stream is not null, setting up listeners");
+      // Disabled debug logging to reduce noise
+      // Log.debug("🎯 [STREAM-LISTENER] Stream is not null, setting up listeners");
       state.stream!.listen(
         onData: (text) {
-          Log.debug("🎯 [STREAM-LISTENER] Data received, text length: ${text.length}");
+          // Disabled debug logging to reduce noise
+          // Log.debug("🎯 [STREAM-LISTENER] Data received, text length: ${text.length}");
           _safeAdd(ChatAIMessageEvent.updateText(text));
         },
         onError: (error) {
-          Log.debug("🎯 [STREAM-LISTENER] Error received: $error");
+          // Disabled debug logging to reduce noise
+          // Log.debug("🎯 [STREAM-LISTENER] Error received: $error");
           _safeAdd(ChatAIMessageEvent.receiveError(error.toString()));
         },
         onEnd: () {
           // 流结束时，确保推理过程被标记为完成
-          Log.debug("🎯 [STREAM] Stream ended, marking reasoning as complete");
+          // Disabled debug logging to reduce noise
+          // Log.debug("🎯 [STREAM] Stream ended, marking reasoning as complete");
           _reasoningManager.setReasoningComplete(chatId, true);
           
           // 获取最终的推理文本并更新状态
