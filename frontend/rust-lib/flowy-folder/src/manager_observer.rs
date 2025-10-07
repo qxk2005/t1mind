@@ -50,12 +50,14 @@ pub(crate) fn subscribe_folder_view_changed(
             let folder = lock.read().await;
             if let Ok(parent_view_id) = Uuid::from_str(&view.parent_view_id) {
               notify_parent_view_did_change(workspace_id, &folder, vec![parent_view_id]);
-              sync_trace!("[Folder] create view: {:?}", view);
+              // Disabled debug logging to reduce noise
+              // sync_trace!("[Folder] create view: {:?}", view);
             }
           },
           ViewChange::DidDeleteView { views } => {
             for view in views {
-              sync_trace!("[Folder] delete view: {:?}", view);
+              // Disabled debug logging to reduce noise
+              // sync_trace!("[Folder] delete view: {:?}", view);
 
               notify_child_views_changed(
                 view_pb_without_child_views(view.as_ref().clone()),
@@ -64,7 +66,8 @@ pub(crate) fn subscribe_folder_view_changed(
             }
           },
           ViewChange::DidUpdate { view } => {
-            sync_trace!("[Folder] update view: {:?}", view);
+            // Disabled debug logging to reduce noise
+            // sync_trace!("[Folder] update view: {:?}", view);
 
             notify_view_did_change(view.clone());
             notify_child_views_changed(

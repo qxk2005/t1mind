@@ -178,8 +178,9 @@ impl Chat {
     let format = params.format.clone().map(Into::into).unwrap_or_default();
     
     // 传递系统提示词、智能体配置和工具调用处理器给 stream_response
-    info!("🔧 [CHAT] About to call stream_response: chat_id={}, question_id={}, answer_stream_port={}", 
-          self.chat_id, question.message_id, params.answer_stream_port);
+    // Disabled debug logging to reduce noise
+    // info!("🔧 [CHAT] About to call stream_response: chat_id={}, question_id={}, answer_stream_port={}", 
+    //       self.chat_id, question.message_id, params.answer_stream_port);
     
     self.stream_response(
       params.answer_stream_port,
@@ -196,7 +197,8 @@ impl Chat {
       tool_definitions,  // 🆕 传递工具定义列表
     );
     
-    info!("🔧 [CHAT] stream_response call completed");
+    // Disabled debug logging to reduce noise
+    // info!("🔧 [CHAT] stream_response call completed");
 
     let question_pb = ChatMessagePB::from(question);
     Ok(question_pb)
@@ -278,52 +280,56 @@ impl Chat {
     let has_execution_logs = execution_logs.is_some();
     let has_tool_definitions = tool_definitions.is_some();
     let tool_count = tool_definitions.as_ref().map(|t| t.len()).unwrap_or(0);
-    info!("🔧 [RESPONSE] Starting stream_response: chat_id={}, question_id={}, has_agent={}, has_tool_handler={}, has_tool_definitions={}, tool_count={}, has_execution_logs={}", 
-          chat_id, question_id, has_agent, has_tool_handler, has_tool_definitions, tool_count, has_execution_logs);
+    // Disabled detailed debug logging to reduce noise
+    // info!("🔧 [RESPONSE] Starting stream_response: chat_id={}, question_id={}, has_agent={}, has_tool_handler={}, has_tool_definitions={}, tool_count={}, has_execution_logs={}", 
+    //       chat_id, question_id, has_agent, has_tool_handler, has_tool_definitions, tool_count, has_execution_logs);
     
-    // 📝 详细调试信息
-    if let Some(ref config) = agent_config {
-      info!("🔧 [AGENT] Using agent: {} ({}), tool_calling_enabled: {}, available_tools: {:?}", 
-            config.name, config.id, config.capabilities.enable_tool_calling, config.available_tools);
-    } else {
-      warn!("🔧 [AGENT] No agent config provided!");
-    }
+    // 📝 详细调试信息 - Disabled to reduce noise
+    // if let Some(ref config) = agent_config {
+    //   info!("🔧 [AGENT] Using agent: {} ({}), tool_calling_enabled: {}, available_tools: {:?}", 
+    //         config.name, config.id, config.capabilities.enable_tool_calling, config.available_tools);
+    // } else {
+    //   warn!("🔧 [AGENT] No agent config provided!");
+    // }
     
-    if let Some(ref tools) = tool_definitions {
-      info!("🔧 [TOOLS] Tool definitions loaded: {} tools", tools.len());
-      for tool in tools {
-        info!("🔧 [TOOL] - {}: {} ({:?})", tool.name, tool.description, tool.tool_type);
-      }
-    } else {
-      warn!("🔧 [TOOLS] No tool definitions provided!");
-    }
+    // if let Some(ref tools) = tool_definitions {
+    //   info!("🔧 [TOOLS] Tool definitions loaded: {} tools", tools.len());
+    //   for tool in tools {
+    //     info!("🔧 [TOOL] - {}: {} ({:?})", tool.name, tool.description, tool.tool_type);
+    //   }
+    // } else {
+    //   warn!("🔧 [TOOLS] No tool definitions provided!");
+    // }
     
     tokio::spawn(async move {
       let mut answer_sink = IsolateSink::new(Isolate::new(answer_stream_port));
                   
       // 🔧 多轮对话支持：记录工具调用和结果
             
-      // 📝 日志记录辅助函数
+      // 📝 日志记录辅助函数 - Disabled debug logging to reduce noise
       let add_log = |logs: &Option<Arc<DashMap<String, Vec<AgentExecutionLogPB>>>>, log: AgentExecutionLogPB| {
         if let Some(logs_map) = logs {
           let session_key = format!("{}_{}", log.session_id, log.message_id);
-          info!("📝 [LOG] Recording log: session_key={}, phase={:?}, step={}", 
-                session_key, log.phase, log.step);
+          // Disabled debug logging to reduce noise
+          // info!("📝 [LOG] Recording log: session_key={}, phase={:?}, step={}", 
+          //       session_key, log.phase, log.step);
           logs_map.entry(session_key.clone())
             .or_insert_with(Vec::new)
             .push(log);
-          let count = logs_map.get(&session_key).map(|v| v.len()).unwrap_or(0);
-          info!("📝 [LOG] Total logs for session: {}", count);
+          // let count = logs_map.get(&session_key).map(|v| v.len()).unwrap_or(0);
+          // info!("📝 [LOG] Total logs for session: {}", count);
         } else {
-          warn!("📝 [LOG] Cannot record log - execution_logs is None! phase={:?}, step={}", 
-                log.phase, log.step);
+          // Disabled debug logging to reduce noise
+          // warn!("📝 [LOG] Cannot record log - execution_logs is None! phase={:?}, step={}", 
+          //       log.phase, log.step);
         }
       };
       
       // 🔄 使用自动多轮对话（如果启用了工具调用）
       let stream_result = if has_agent && has_tool_handler && tool_definitions.is_some() {
-        info!("🔄 [AUTO-MULTI-TURN] Using auto multi-turn conversation with {} tools", 
-              tool_definitions.as_ref().unwrap().len());
+        // Disabled debug logging to reduce noise
+        // info!("🔄 [AUTO-MULTI-TURN] Using auto multi-turn conversation with {} tools", 
+        //       tool_definitions.as_ref().unwrap().len());
         
         cloud_service
           .stream_answer_with_auto_multi_turn(
@@ -381,7 +387,8 @@ impl Chat {
                   QuestionStreamValue::Answer { value } => {
                     // 🆕 使用 OpenAI Function Call API，无需手工检测 <tool_call> 标签
                     // Metadata 中的 tool_call 信息由 middleware 自动处理
-                    info!("🔧 [STREAM-DATA] Received answer data: '{}'", value);
+                    // Disabled debug logging to reduce noise
+                    // info!("🔧 [STREAM-DATA] Received answer data: '{}'", value);
                     answer_stream_buffer.lock().await.push_str(&value);
                     if let Err(err) = answer_sink
                       .send(StreamMessage::OnData(value).to_string())
@@ -389,7 +396,8 @@ impl Chat {
                     {
                       error!("Failed to stream answer via IsolateSink: {}", err);
                     } else {
-                      info!("🔧 [STREAM-DATA] Successfully sent data to Flutter");
+                      // Disabled debug logging to reduce noise
+                      // info!("🔧 [STREAM-DATA] Successfully sent data to Flutter");
                     }
                   },
                   QuestionStreamValue::Metadata { value } => {

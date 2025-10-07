@@ -43,7 +43,7 @@ pub fn create_log_filter(
     .collect::<Vec<String>>();
   filters.push(format!("flowy_core={}", level));
   filters.push(format!("flowy_folder={}", level));
-  filters.push(format!("collab_sync={}", level));
+  filters.push(format!("sync_trace_log={}", "warn"));
   filters.push(format!("collab_folder={}", level));
   filters.push(format!("collab_database={}", level));
   filters.push(format!("collab_plugins={}", level));

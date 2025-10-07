@@ -11,12 +11,13 @@ use uuid::Uuid;
 pub fn subscribe_document_changed(doc_id: &Uuid, document: &mut Document) {
   let doc_id_clone_for_block_changed = doc_id.to_string();
   document.subscribe_block_changed("key", move |events, is_remote| {
-    sync_trace!(
-      "[Document] block changed in doc_id: {}, is_remote: {}, events: {:?}",
-      doc_id_clone_for_block_changed,
-      is_remote,
-      events
-    );
+    // Disabled debug logging to reduce noise
+    // sync_trace!(
+    //   "[Document] block changed in doc_id: {}, is_remote: {}, events: {:?}",
+    //   doc_id_clone_for_block_changed,
+    //   is_remote,
+    //   events
+    // );
 
     // send notification to the client.
     document_notification_builder(
@@ -29,11 +30,12 @@ pub fn subscribe_document_changed(doc_id: &Uuid, document: &mut Document) {
 
   let doc_id_clone_for_awareness_state = doc_id.to_owned();
   document.subscribe_awareness_state("key", move |events| {
-    sync_trace!(
-      "[Document] awareness state in doc_id: {}, events: {:?}",
-      doc_id_clone_for_awareness_state,
-      events
-    );
+    // Disabled debug logging to reduce noise
+    // sync_trace!(
+    //   "[Document] awareness state in doc_id: {}, events: {:?}",
+    //   doc_id_clone_for_awareness_state,
+    //   events
+    // );
 
     document_notification_builder(
       &doc_id_clone_for_awareness_state.to_string(),
