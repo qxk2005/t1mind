@@ -81,6 +81,7 @@ dart = [
 ]
 openssl_vendored = ["flowy-sqlite/openssl_vendored"]
 mcp = ["flowy-ai/mcp"]
+web-search = ["flowy-ai/web-search"]
 
 # Enable/Disable AppFlowy Verbose Log Configuration
 verbose_log = [

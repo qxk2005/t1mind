@@ -47,11 +47,12 @@ flowy-error = { workspace = true, features = ["impl_from_sqlite", "impl_from_dis
 futures = "0.3.31"
 
 [features]
-default = ["dart"]
+default = ["dart", "web-search"]
 dart = ["flowy-core/dart"]
 http_sync = ["flowy-core/http_sync"]
 openssl_vendored = ["flowy-core/openssl_vendored"]
 mcp = ["flowy-core/mcp"]
+web-search = ["flowy-core/web-search"]
 verbose_log = []
 
 [build-dependencies]
