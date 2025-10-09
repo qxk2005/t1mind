@@ -2,7 +2,6 @@
 mod simple_tests {
     use crate::agent::{ToolRegistry, ToolRegistrationRequest, ToolStatus};
     use crate::entities::{ToolDefinitionPB, ToolTypePB};
-    use crate::mcp::tool_security::ToolSecurityManager;
     use flowy_sqlite::kv::KVStorePreferences;
     use serde_json::json;
     use std::collections::HashMap;
@@ -13,8 +12,7 @@ mod simple_tests {
     fn test_tool_registry_creation() {
         let temp_dir = TempDir::new().unwrap();
         let store_preferences = Arc::new(KVStorePreferences::new(temp_dir.path().to_str().unwrap()).unwrap());
-        let security_manager = Arc::new(ToolSecurityManager::new(store_preferences.clone()));
-        let _registry = ToolRegistry::new(security_manager, store_preferences);
+        let _registry = ToolRegistry::new(store_preferences);
         
         // 如果能创建成功，说明基本结构是正确的
         assert!(true);

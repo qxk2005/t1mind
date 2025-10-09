@@ -12,6 +12,8 @@ use crate::event_handler::*;
 #[cfg(feature = "mcp")]
 use crate::mcp::event_handler::*;
 use crate::agent::event_handler::*;
+#[cfg(feature = "web-search")]
+use crate::web_search::event_handler::*;
 
 pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
   // 使用tracing而不是println!，因为Android上println!可能不会显示
@@ -92,8 +94,8 @@ pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
         .event(AIEvent::CallMCPTool, call_mcp_tool_handler);
     }
     
-    plugin
     // 智能体事件注册
+    plugin = plugin
     .event(AIEvent::GetAgentList, get_agent_list_handler)
     .event(AIEvent::CreateAgent, create_agent_handler)
     .event(AIEvent::GetAgent, get_agent_handler)
@@ -105,7 +107,26 @@ pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
     // 执行日志事件注册
     .event(AIEvent::GetExecutionLogs, get_execution_logs_handler)
     .event(AIEvent::AddExecutionLog, add_execution_log_handler)
-    .event(AIEvent::ClearExecutionLogs, clear_execution_logs_handler)
+    .event(AIEvent::ClearExecutionLogs, clear_execution_logs_handler);
+    
+    // 网络搜索事件注册（仅在启用 web-search feature 时）
+    #[cfg(feature = "web-search")]
+    {
+      plugin = plugin
+        .event(AIEvent::GetWebSearchProviderList, get_web_search_provider_list_handler)
+        .event(AIEvent::CreateWebSearchProvider, create_web_search_provider_handler)
+        .event(AIEvent::GetWebSearchProvider, get_web_search_provider_handler)
+        .event(AIEvent::UpdateWebSearchProvider, update_web_search_provider_handler)
+        .event(AIEvent::DeleteWebSearchProvider, delete_web_search_provider_handler)
+        .event(AIEvent::TestWebSearchProvider, test_web_search_provider_handler)
+        .event(AIEvent::ExecuteWebSearch, execute_web_search_handler)
+        .event(AIEvent::GetWebSearchGlobalConfig, get_web_search_global_config_handler)
+        .event(AIEvent::UpdateWebSearchGlobalConfig, update_web_search_global_config_handler)
+        .event(AIEvent::GetWebSearchCacheStats, get_web_search_cache_stats_handler)
+        .event(AIEvent::ClearWebSearchCache, clear_web_search_cache_handler);
+    }
+    
+    plugin
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Display, Hash, ProtoBuf_Enum, Flowy_Event)]
@@ -276,4 +297,50 @@ pub enum AIEvent {
   /// 清空执行日志
   #[event(input = "ClearExecutionLogsRequestPB")]
   ClearExecutionLogs = 56,
+
+  // ==================== 网络搜索相关事件 ====================
+  
+  /// 获取网络搜索供应商列表
+  #[event(output = "WebSearchProviderListPB")]
+  GetWebSearchProviderList = 57,
+
+  /// 创建网络搜索供应商
+  #[event(input = "CreateWebSearchProviderRequestPB", output = "WebSearchProviderConfigPB")]
+  CreateWebSearchProvider = 58,
+
+  /// 获取网络搜索供应商配置
+  #[event(input = "GetWebSearchProviderRequestPB", output = "WebSearchProviderConfigPB")]
+  GetWebSearchProvider = 59,
+
+  /// 更新网络搜索供应商配置
+  #[event(input = "UpdateWebSearchProviderRequestPB", output = "WebSearchProviderConfigPB")]
+  UpdateWebSearchProvider = 60,
+
+  /// 删除网络搜索供应商
+  #[event(input = "DeleteWebSearchProviderRequestPB")]
+  DeleteWebSearchProvider = 61,
+
+  /// 测试网络搜索供应商
+  #[event(input = "TestWebSearchProviderRequestPB", output = "TestWebSearchProviderResponsePB")]
+  TestWebSearchProvider = 62,
+
+  /// 执行网络搜索
+  #[event(input = "WebSearchRequestPB", output = "WebSearchResponsePB")]
+  ExecuteWebSearch = 63,
+
+  /// 获取网络搜索全局配置
+  #[event(output = "WebSearchGlobalConfigPB")]
+  GetWebSearchGlobalConfig = 64,
+
+  /// 更新网络搜索全局配置
+  #[event(input = "UpdateWebSearchGlobalConfigRequestPB", output = "WebSearchGlobalConfigPB")]
+  UpdateWebSearchGlobalConfig = 65,
+
+  /// 获取网络搜索缓存统计
+  #[event(output = "WebSearchCacheStatsPB")]
+  GetWebSearchCacheStats = 66,
+
+  /// 清空网络搜索缓存
+  #[event()]
+  ClearWebSearchCache = 67,
 }

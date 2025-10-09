@@ -418,8 +418,9 @@ pub struct SSEMCPClient {
 
 impl SSEMCPClient {
     pub fn new(config: MCPServerConfig) -> Result<Self, FlowyError> {
-        if config.transport_type != MCPTransportType::SSE {
-            return Err(FlowyError::invalid_data().with_context("Invalid transport type for SSE client"));
+        // UI中的HTTP对应streamable-http(SSE)实现
+        if config.transport_type != MCPTransportType::HTTP {
+            return Err(FlowyError::invalid_data().with_context("Invalid transport type for SSE client (expects HTTP)"));
         }
         
         // 创建HTTP客户端
@@ -842,8 +843,9 @@ pub struct HttpMCPClient {
 
 impl HttpMCPClient {
     pub fn new(config: MCPServerConfig) -> Result<Self, FlowyError> {
-        if config.transport_type != MCPTransportType::HTTP {
-            return Err(FlowyError::invalid_data().with_context("Invalid transport type for HTTP client"));
+        // UI中的SSE对应纯JSON HTTP实现
+        if config.transport_type != MCPTransportType::SSE {
+            return Err(FlowyError::invalid_data().with_context("Invalid transport type for HTTP client (expects SSE)"));
         }
         
         Ok(Self {

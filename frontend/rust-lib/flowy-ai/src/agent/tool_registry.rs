@@ -15,6 +15,8 @@ use crate::mcp::entities::MCPTool;
 #[cfg(feature = "mcp")]
 use crate::mcp::tool_security::{ToolSecurityManager, ToolExecutionPermission};
 use crate::agent::native_tools::NativeToolsManager;
+#[cfg(feature = "web-search")]
+use crate::web_search::WebSearchToolManager;
 
 /// 工具注册表 - 统一管理所有类型的工具
 /// 支持MCP、原生、搜索等工具的元数据管理，包含发现和权限管理
@@ -32,6 +34,9 @@ pub struct ToolRegistry {
     discovery_listeners: Arc<RwLock<Vec<Box<dyn ToolDiscoveryListener + Send + Sync>>>>,
     /// 原生工具管理器
     native_tools: Option<Arc<NativeToolsManager>>,
+    /// 网络搜索工具管理器
+    #[cfg(feature = "web-search")]
+    web_search_tools: Option<Arc<WebSearchToolManager>>,
 }
 
 /// 注册的工具信息
@@ -216,12 +221,21 @@ impl ToolRegistry {
             store_preferences,
             discovery_listeners: Arc::new(RwLock::new(Vec::new())),
             native_tools: None,
+            #[cfg(feature = "web-search")]
+            web_search_tools: None,
         }
     }
 
     /// 设置原生工具管理器
     pub fn with_native_tools(mut self, native_tools: Arc<NativeToolsManager>) -> Self {
         self.native_tools = Some(native_tools);
+        self
+    }
+
+    /// 设置网络搜索工具管理器
+    #[cfg(feature = "web-search")]
+    pub fn with_web_search_tools(mut self, web_search_tools: Arc<WebSearchToolManager>) -> Self {
+        self.web_search_tools = Some(web_search_tools);
         self
     }
 
@@ -841,43 +855,51 @@ impl ToolRegistry {
             }
         }
         
-        // 注册搜索工具
-        let search_tools = vec![
-            ToolDefinitionPB {
-                name: "web_search".to_string(),
-                description: "网络搜索".to_string(),
-                tool_type: ToolTypePB::Search,
-                source: "builtin".to_string(),
-                parameters_schema: json!({
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "搜索查询"},
-                        "max_results": {"type": "integer", "description": "最大结果数", "default": 10}
+        // 注册网络搜索工具
+        #[cfg(feature = "web-search")]
+        {
+            let web_search_tools = if let Some(web_search_manager) = &self.web_search_tools {
+                web_search_manager.get_tool_definitions()
+            } else {
+                // 回退到基本的网络搜索工具定义
+                vec![
+                    ToolDefinitionPB {
+                        name: "web_search".to_string(),
+                        description: "网络搜索".to_string(),
+                        tool_type: ToolTypePB::Search,
+                        source: "web_search".to_string(),
+                        parameters_schema: json!({
+                            "type": "object",
+                            "properties": {
+                                "query": {"type": "string", "description": "搜索查询"},
+                                "max_results": {"type": "integer", "description": "最大结果数", "default": 10}
+                            },
+                            "required": ["query"]
+                        }).to_string(),
+                        permissions: vec!["search.web".to_string()],
+                        is_available: true,
+                        metadata: HashMap::new(),
                     },
-                    "required": ["query"]
-                }).to_string(),
-                permissions: vec!["search.web".to_string()],
-                is_available: true,
-                metadata: HashMap::new(),
-            },
-        ];
-        
-        for tool_def in search_tools {
-            let request = ToolRegistrationRequest {
-                definition: tool_def,
-                config: Some(ToolConfig {
-                    timeout_seconds: Some(60),
-                    retry_count: Some(2),
-                    cache_policy: CachePolicy::Medium,
-                    concurrency_limit: Some(5),
-                    custom_config: HashMap::new(),
-                }),
-                dependencies: Vec::new(),
-                overwrite: true,
+                ]
             };
             
-            if let Err(e) = self.register_tool(request).await {
-                warn!("注册搜索工具失败: {}", e);
+            for tool_def in web_search_tools {
+                let request = ToolRegistrationRequest {
+                    definition: tool_def,
+                    config: Some(ToolConfig {
+                        timeout_seconds: Some(60),
+                        retry_count: Some(2),
+                        cache_policy: CachePolicy::Medium,
+                        concurrency_limit: Some(5),
+                        custom_config: HashMap::new(),
+                    }),
+                    dependencies: Vec::new(),
+                    overwrite: true,
+                };
+                
+                if let Err(e) = self.register_tool(request).await {
+                    warn!("注册网络搜索工具失败: {}", e);
+                }
             }
         }
         
@@ -1047,6 +1069,8 @@ impl Clone for ToolRegistry {
             store_preferences: self.store_preferences.clone(),
             discovery_listeners: self.discovery_listeners.clone(),
             native_tools: self.native_tools.clone(),
+            #[cfg(feature = "web-search")]
+            web_search_tools: self.web_search_tools.clone(),
         }
     }
 }

@@ -1,0 +1,24 @@
+pub mod entities;
+pub mod provider_manager;
+pub mod providers;
+pub mod result_processor;
+pub mod cache_manager;
+pub mod enhanced_cache_manager;
+pub mod cache_demo;
+pub mod demo;
+pub mod hub;
+pub mod hub_demo;
+pub mod tool;
+pub mod event_handler;
+
+pub use entities::*;
+pub use provider_manager::WebSearchProviderManager;
+pub use providers::*;
+pub use result_processor::{WebSearchResultProcessor, CitationInfo};
+pub use cache_manager::{WebSearchCacheManager, CacheConfig, CacheStats, CacheHealthReport};
+pub use enhanced_cache_manager::{EnhancedWebSearchCacheManager, DatabaseCacheStats};
+pub use cache_demo::{run_all_cache_demonstrations, demonstrate_basic_cache_manager, demonstrate_enhanced_cache_manager, demonstrate_cache_configuration};
+pub use demo::{demonstrate_result_processor, demonstrate_citations};
+pub use hub::{WebSearchHub, WebSearchHubStatus};
+pub use hub_demo::{demonstrate_web_search_hub, demonstrate_advanced_hub_features};
+pub use tool::{WebSearchToolManager, WebSearchToolStatus};

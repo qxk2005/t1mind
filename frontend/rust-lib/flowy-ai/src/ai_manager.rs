@@ -13,6 +13,8 @@ use crate::middleware::chat_service_mw::ChatServiceMiddleware;
 #[cfg(feature = "mcp")]
 use crate::mcp::manager::MCPClientManager;
 use crate::agent::config_manager::AgentConfigManager;
+#[cfg(feature = "web-search")]
+use crate::web_search::hub::WebSearchHub;
 use flowy_ai_pub::persistence::{
   ChatTableChangeset, select_chat_metadata, select_chat_rag_ids, select_chat_summary, update_chat,
 };
@@ -74,6 +76,8 @@ pub struct AIManager {
   pub mcp_manager: Arc<MCPClientManager>,
   pub agent_manager: Arc<AgentConfigManager>,
   execution_logs: Arc<DashMap<String, Vec<AgentExecutionLogPB>>>,
+  #[cfg(feature = "web-search")]
+  pub web_search_hub: Arc<WebSearchHub>,
 }
 impl Drop for AIManager {
   fn drop(&mut self) {
@@ -107,6 +111,8 @@ impl AIManager {
     #[cfg(feature = "mcp")]
     let mcp_manager = Arc::new(MCPClientManager::new(store_preferences.clone()));
     let agent_manager = Arc::new(AgentConfigManager::new(store_preferences.clone()));
+    #[cfg(feature = "web-search")]
+    let web_search_hub = Arc::new(WebSearchHub::new(store_preferences.clone()));
 
     Self {
       cloud_service_wm,
@@ -120,6 +126,8 @@ impl AIManager {
       mcp_manager,
       agent_manager,
       execution_logs: Arc::new(DashMap::new()),
+      #[cfg(feature = "web-search")]
+      web_search_hub,
     }
   }
 
@@ -352,9 +360,32 @@ impl AIManager {
                 config.available_tools.len(), config.capabilities.enable_tool_calling);
           
           // 🔍 获取工具详情用于增强系统提示
-          let (discovered_tool_names, tool_details) = self.discover_available_tools().await;
-          info!("[Chat] Discovered {} tools with {} tool details", 
-                discovered_tool_names.len(), tool_details.len());
+          let tool_details = self.discover_available_tools().await;
+          info!("[Chat] 🔍 Discovered {} tools from MCP servers", tool_details.len());
+          
+          // 打印每个发现的工具及其来源服务器
+          #[cfg(feature = "mcp")]
+          for (server_id, tool) in &tool_details {
+            info!("[Chat] 🔍   - Tool '{}' from server '{}'", tool.name, server_id);
+          }
+          
+          // 收集工具名称（去重）
+          use std::collections::HashSet;
+          let mut unique_tool_names: HashSet<String> = HashSet::new();
+          #[cfg(feature = "mcp")]
+          let discovered_tool_names: Vec<String> = tool_details.iter()
+            .filter_map(|(_, tool)| {
+              if unique_tool_names.insert(tool.name.clone()) {
+                Some(tool.name.clone())
+              } else {
+                None
+              }
+            })
+            .collect();
+          #[cfg(not(feature = "mcp"))]
+          let discovered_tool_names: Vec<String> = vec![];
+          
+          info!("[Chat] 🔍 Collected {} unique tool names", discovered_tool_names.len());
           
           // 自动填充工具列表（如果为空）
           if config.available_tools.is_empty() && config.capabilities.enable_tool_calling {
@@ -363,6 +394,7 @@ impl AIManager {
             if !discovered_tool_names.is_empty() {
               config.available_tools = discovered_tool_names.clone();
               config.updated_at = chrono::Utc::now().timestamp();
+              info!("[Chat] ✅ 已将 {} 个工具添加到智能体配置", config.available_tools.len());
               
               // 使用更新方法保存配置
               let update_request = crate::entities::UpdateAgentRequestPB {
@@ -375,6 +407,7 @@ impl AIManager {
                 available_tools: config.available_tools.clone(),
                 status: None,
                 metadata: std::collections::HashMap::new(),
+                selected_mcp_servers: config.selected_mcp_servers.clone(),  // 🆕 添加字段
               };
               
               if let Err(e) = self.agent_manager.update_agent(update_request) {
@@ -393,8 +426,12 @@ impl AIManager {
             #[cfg(feature = "mcp")]
             {
               use crate::agent::system_prompt::build_agent_system_prompt_with_tools;
-              let prompt = build_agent_system_prompt_with_tools(&config, &tool_details);
-              info!("[Chat] 🔧 Using enhanced system prompt with {} tool details", tool_details.len());
+              // 将 Vec<(String, MCPTool)> 转换为 HashMap<String, MCPTool>
+              let tool_map: std::collections::HashMap<String, crate::mcp::entities::MCPTool> = tool_details.iter()
+                .map(|(_server_id, tool)| (tool.name.clone(), tool.clone()))
+                .collect();
+              let prompt = build_agent_system_prompt_with_tools(&config, &tool_map);
+              info!("[Chat] 🔧 Using enhanced system prompt with {} tool details", tool_map.len());
               Some(prompt)
             }
             #[cfg(not(feature = "mcp"))]
@@ -447,14 +484,16 @@ impl AIManager {
 
     // 🆕 获取工具定义列表（用于 OpenAI Function Call API）
     let tool_definitions = if let Some(ref config) = agent_config {
-      info!("[Chat] 🔧 Agent config found: {} ({}), enable_tool_calling: {}, available_tools: {:?}", 
-            config.name, config.id, config.capabilities.enable_tool_calling, config.available_tools);
+      info!("[Chat] 🔧 Agent config found: {} ({}), enable_tool_calling: {}, available_tools count: {}", 
+            config.name, config.id, config.capabilities.enable_tool_calling, config.available_tools.len());
+      info!("[Chat] 🔧 Available tools list: {:?}", config.available_tools);
       
       if config.capabilities.enable_tool_calling && !config.available_tools.is_empty() {
         let tools = self.get_tool_definitions_by_names(&config.available_tools).await;
         info!("[Chat] 🔧 Got {} tool definitions for OpenAI Function Call", tools.len());
         for tool in &tools {
-          info!("[Chat] 🔧 Tool: {} - {}", tool.name, tool.description);
+          info!("[Chat] 🔧   - Tool '{}' from server '{}': {}", 
+                tool.name, tool.source, tool.description);
         }
         Some(tools)
       } else {
@@ -935,9 +974,39 @@ impl AIManager {
 
   /// 创建智能体
   pub async fn create_agent(&self, mut request: CreateAgentRequestPB) -> FlowyResult<AgentConfigPB> {
-    // 如果工具列表为空且启用了工具调用，动态发现工具
-    if request.available_tools.is_empty() && request.capabilities.enable_tool_calling {
-      let (discovered_tool_names, _tool_details) = self.discover_available_tools().await;
+    // 🆕 优先处理：如果指定了 MCP 服务器列表，从这些服务器获取工具
+    if !request.selected_mcp_servers.is_empty() && request.capabilities.enable_tool_calling {
+      info!("🆕 [Create Agent] 使用已选择的 {} 个 MCP 服务器", request.selected_mcp_servers.len());
+      let tools_from_servers = self.get_tools_from_selected_servers(&request.selected_mcp_servers).await;
+      
+      if !tools_from_servers.is_empty() {
+        info!("🆕 [Create Agent] 从已选择的服务器获取到 {} 个工具", tools_from_servers.len());
+        request.available_tools = tools_from_servers;
+      } else {
+        warn!("⚠️ [Create Agent] 已选择的服务器未返回任何工具");
+      }
+    }
+    // 如果没有指定服务器，且工具列表为空，则自动发现所有工具
+    else if request.available_tools.is_empty() && request.capabilities.enable_tool_calling {
+      let tool_details = self.discover_available_tools().await;
+      
+      // 提取所有工具名称（去重）
+      #[cfg(feature = "mcp")]
+      let discovered_tool_names: Vec<String> = {
+        use std::collections::HashSet;
+        let mut unique_names = HashSet::new();
+        tool_details.iter()
+          .filter_map(|(_, tool)| {
+            if unique_names.insert(tool.name.clone()) {
+              Some(tool.name.clone())
+            } else {
+              None
+            }
+          })
+          .collect()
+      };
+      #[cfg(not(feature = "mcp"))]
+      let discovered_tool_names: Vec<String> = vec![];
       
       if !discovered_tool_names.is_empty() {
         info!("为新智能体 '{}' 自动发现了 {} 个工具", request.name, discovered_tool_names.len());
@@ -962,12 +1031,43 @@ impl AIManager {
     
     info!("🔄 [Agent Update] 开始更新智能体: {}", request.id);
     info!("🔄 [Agent Update] 请求工具列表长度: {}", request.available_tools.len());
+    info!("🔄 [Agent Update] 请求已选择服务器数量: {}", request.selected_mcp_servers.len());
     info!("🔄 [Agent Update] 请求是否包含 capabilities: {}", request.capabilities.is_some());
     
     if let Some(ref existing) = existing_config {
       info!("🔄 [Agent Update] 现有智能体: {}", existing.name);
       info!("🔄 [Agent Update] 现有工具列表长度: {}", existing.available_tools.len());
+      info!("🔄 [Agent Update] 现有已选择服务器数量: {}", existing.selected_mcp_servers.len());
       info!("🔄 [Agent Update] 现有 enable_tool_calling: {}", existing.capabilities.enable_tool_calling);
+    }
+
+    // 🆕 核心逻辑：如果提供了 selected_mcp_servers，自动同步工具列表
+    if !request.selected_mcp_servers.is_empty() {
+      info!("🆕 [Agent Update] 检测到 MCP 服务器列表变更，自动同步工具列表");
+      
+      // 判断是否启用了工具调用
+      let tool_calling_enabled = if let Some(ref caps) = request.capabilities {
+        caps.enable_tool_calling
+      } else if let Some(ref existing) = existing_config {
+        existing.capabilities.enable_tool_calling
+      } else {
+        false
+      };
+      
+      if tool_calling_enabled {
+        let tools_from_servers = self.get_tools_from_selected_servers(&request.selected_mcp_servers).await;
+        
+        if !tools_from_servers.is_empty() {
+          info!("🆕 [Agent Update] 从 {} 个已选择的服务器同步了 {} 个工具", 
+                request.selected_mcp_servers.len(), tools_from_servers.len());
+          request.available_tools = tools_from_servers;
+        } else {
+          warn!("⚠️ [Agent Update] 已选择的服务器未返回任何工具");
+          request.available_tools = vec![];
+        }
+      } else {
+        info!("ℹ️ [Agent Update] 工具调用未启用，跳过工具同步");
+      }
     }
     
     // 如果更新了能力配置，且启用了工具调用，但请求中的工具列表为空
@@ -985,7 +1085,25 @@ impl AIManager {
           
           if should_discover {
             info!("✨ [Agent Update] 检测到工具调用能力变更或工具列表为空，开始自动发现工具...");
-            let (discovered_tool_names, _tool_details) = self.discover_available_tools().await;
+            let tool_details = self.discover_available_tools().await;
+            
+            // 提取所有工具名称（支持同名工具）
+            #[cfg(feature = "mcp")]
+            let discovered_tool_names: Vec<String> = {
+              use std::collections::HashSet;
+              let mut unique_names = HashSet::new();
+              tool_details.iter()
+                .filter_map(|(_, tool)| {
+                  if unique_names.insert(tool.name.clone()) {
+                    Some(tool.name.clone())
+                  } else {
+                    None
+                  }
+                })
+                .collect()
+            };
+            #[cfg(not(feature = "mcp"))]
+            let discovered_tool_names: Vec<String> = vec![];
             
             if !discovered_tool_names.is_empty() {
               info!("✅ [Agent Update] 为智能体 '{}' 自动发现了 {} 个工具", 
@@ -1049,6 +1167,12 @@ impl AIManager {
       updated_at: settings.updated_at.duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default().as_secs() as i64,
     })
+  }
+
+  /// 获取网络搜索中心
+  #[cfg(feature = "web-search")]
+  pub async fn get_web_search_hub(&self) -> FlowyResult<Arc<WebSearchHub>> {
+    Ok(self.web_search_hub.clone())
   }
 
   /// 更新智能体全局设置
@@ -1240,31 +1364,40 @@ const CUSTOM_PROMPT_DATABASE_CONFIGURATION_KEY: &str = "custom_prompt_database_c
 impl AIManager {
   /// 根据工具名称列表获取工具定义
   pub async fn get_tool_definitions_by_names(&self, tool_names: &[String]) -> Vec<ToolDefinitionPB> {
-    let mut result = Vec::new();
+    let mut result: Vec<ToolDefinitionPB> = Vec::new();
     
     // Get tools from MCP servers using discover_available_tools
-    let (_, tool_details) = self.discover_available_tools().await;
+    // 修复：使用新的返回格式，包含服务器ID信息，支持同名工具
+    let tool_details = self.discover_available_tools().await;
     
-    for tool_name in tool_names {
-      if let Some(mcp_tool) = tool_details.get(tool_name) {
-        // Convert MCP tool to ToolDefinitionPB
-        #[cfg(feature = "mcp")]
-        {
-          let tool_def = ToolDefinitionPB {
-            name: mcp_tool.name.clone(),
-            description: mcp_tool.description.clone().unwrap_or_default(),
-            tool_type: crate::entities::ToolTypePB::MCP,
-            source: "mcp".to_string(),
-            parameters_schema: serde_json::to_string(&mcp_tool.input_schema).unwrap_or_default(),
-            permissions: Vec::new(),
-            is_available: true,
-            metadata: std::collections::HashMap::new(),
-          };
-          result.push(tool_def);
+    #[cfg(feature = "mcp")]
+    {
+      for tool_name in tool_names {
+        // 查找所有匹配的工具（可能来自不同服务器）
+        let mut found = false;
+        for (server_id, mcp_tool) in &tool_details {
+          if &mcp_tool.name == tool_name {
+            // Convert MCP tool to ToolDefinitionPB
+            let tool_def = ToolDefinitionPB {
+              name: mcp_tool.name.clone(),
+              description: mcp_tool.description.clone().unwrap_or_default(),
+              tool_type: crate::entities::ToolTypePB::MCP,
+              source: server_id.clone(),  // 使用服务器ID作为source
+              parameters_schema: serde_json::to_string(&mcp_tool.input_schema).unwrap_or_default(),
+              permissions: Vec::new(),
+              is_available: true,
+              metadata: std::collections::HashMap::new(),
+            };
+            result.push(tool_def);
+            found = true;
+            info!("[Tool Def] Added tool '{}' from server '{}' to definitions", tool_name, server_id);
+            // 对于同名工具，我们只添加第一个找到的（优先级由服务器顺序决定）
+            break;
+          }
         }
-        #[cfg(not(feature = "mcp"))]
-        {
-          // Skip MCP tools when feature is disabled
+        
+        if !found {
+          warn!("[Tool Def] Tool '{}' not found in any MCP server", tool_name);
         }
       }
     }
@@ -1273,10 +1406,10 @@ impl AIManager {
   }
 
   /// 从已配置的 MCP 服务器动态发现所有可用工具
+  /// 🔧 修复：返回 Vec<(server_id, tool)> 而不是 HashMap，以支持多个服务器提供同名工具
   #[cfg(feature = "mcp")]
-  async fn discover_available_tools(&self) -> (Vec<String>, HashMap<String, crate::mcp::entities::MCPTool>) {
-    let mut tool_names = Vec::new();
-    let mut tool_details = HashMap::new();
+  async fn discover_available_tools(&self) -> Vec<(String, crate::mcp::entities::MCPTool)> {
+    let mut tool_details = Vec::new();
     
     // 🔍 关键修复：从配置管理器获取所有已配置的服务器，而不是只查询已连接的客户端池
     let server_configs = self.mcp_manager.config_manager().get_all_servers();
@@ -1286,7 +1419,7 @@ impl AIManager {
     
     if server_configs.is_empty() {
       info!("[Tool Discovery] 未找到任何已配置的 MCP 服务器");
-      return (tool_names, tool_details);
+      return tool_details;
     }
     
     // 遍历所有已配置且活跃的服务器
@@ -1306,8 +1439,8 @@ impl AIManager {
         info!("[Tool Discovery] 从服务器 '{}' 的缓存中发现 {} 个工具", config.name, tool_count);
         
         for tool in cached_tools {
-          tool_names.push(tool.name.clone());
-          tool_details.insert(tool.name.clone(), tool.clone());
+          info!("[Tool Discovery]   - 工具: {} (服务器: {})", tool.name, config.id);
+          tool_details.push((config.id.clone(), tool.clone()));
         }
         continue;
       }
@@ -1320,8 +1453,8 @@ impl AIManager {
           if tool_count > 0 {
             info!("[Tool Discovery] 从服务器 '{}' 的客户端获取到 {} 个工具", config.name, tool_count);
             for tool in tools_list.tools {
-              tool_names.push(tool.name.clone());
-              tool_details.insert(tool.name.clone(), tool);
+              info!("[Tool Discovery]   - 工具: {} (服务器: {})", tool.name, config.id);
+              tool_details.push((config.id.clone(), tool));
             }
           } else {
             warn!("[Tool Discovery] 服务器 '{}' 已激活但未返回任何工具", config.name);
@@ -1333,13 +1466,59 @@ impl AIManager {
       }
     }
     
-    info!("✅ [Tool Discovery] 共从 {} 个已配置服务器发现 {} 个可用工具", 
-          config_count, tool_names.len());
-    (tool_names, tool_details)
+    info!("✅ [Tool Discovery] 共从 {} 个已配置服务器发现 {} 个工具（包含所有同名工具）", 
+          config_count, tool_details.len());
+    
+    // 打印所有发现的工具及其来源服务器
+    for (server_id, tool) in &tool_details {
+      info!("  📦 工具 '{}' 来自服务器 '{}'", tool.name, server_id);
+    }
+    
+    tool_details
   }
   
   #[cfg(not(feature = "mcp"))]
-  async fn discover_available_tools(&self) -> (Vec<String>, HashMap<String, ()>) {
-    (vec![], HashMap::new())
+  async fn discover_available_tools(&self) -> Vec<(String, ())> {
+    vec![]
+  }
+
+  /// 🆕 根据已选择的 MCP 服务器列表获取工具名称
+  /// 这个方法用于根据UI中勾选的服务器自动填充工具列表
+  #[cfg(feature = "mcp")]
+  async fn get_tools_from_selected_servers(&self, server_ids: &[String]) -> Vec<String> {
+    use std::collections::HashSet;
+    
+    if server_ids.is_empty() {
+      return vec![];
+    }
+    
+    info!("[🔧 Selected Servers] 开始从 {} 个已选择的服务器获取工具", server_ids.len());
+    
+    let all_tool_details = self.discover_available_tools().await;
+    let mut unique_tool_names = HashSet::new();
+    let mut tools = Vec::new();
+    
+    for server_id in server_ids {
+      let server_tools: Vec<_> = all_tool_details.iter()
+        .filter(|(sid, _)| sid == server_id)
+        .collect();
+      
+      info!("[🔧 Selected Servers] 服务器 '{}' 提供了 {} 个工具", server_id, server_tools.len());
+      
+      for (_, tool) in server_tools {
+        if unique_tool_names.insert(tool.name.clone()) {
+          tools.push(tool.name.clone());
+          info!("[🔧 Selected Servers]   - 添加工具: {}", tool.name);
+        }
+      }
+    }
+    
+    info!("[🔧 Selected Servers] ✅ 从已选择的服务器共获取 {} 个工具", tools.len());
+    tools
+  }
+  
+  #[cfg(not(feature = "mcp"))]
+  async fn get_tools_from_selected_servers(&self, _server_ids: &[String]) -> Vec<String> {
+    vec![]
   }
 }

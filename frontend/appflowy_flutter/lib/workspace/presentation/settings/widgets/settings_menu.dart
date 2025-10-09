@@ -128,6 +128,16 @@ class SettingsMenu extends StatelessWidget {
               ),
               changeSelectedPage: changeSelectedPage,
             ),
+            SettingsMenuElement(
+              page: SettingsPage.webSearch,
+              selectedPage: currentPage,
+              label: "网络搜索",
+              icon: const Icon(
+                Icons.search,
+                size: 20,
+              ),
+              changeSelectedPage: changeSelectedPage,
+            ),
             if (userProfile.workspaceType == WorkspaceTypePB.ServerW &&
                 currentUserRole != null &&
                 currentUserRole != AFRolePB.Guest)

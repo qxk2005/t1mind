@@ -173,6 +173,7 @@ pub fn group_paragraphs_by_max_content_len(
       }
 
       if paragraph.len() > context_size {
+        // Use TextSplitter for proper text splitting
         let paragraph_chunks = splitter.chunks(&paragraph);
         result.extend(paragraph_chunks.map(String::from));
       } else {

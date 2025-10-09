@@ -1,4 +1,5 @@
 import 'package:appflowy/plugins/ai_chat/application/agent_settings_bloc.dart';
+import 'package:appflowy/plugins/ai_chat/application/mcp_settings_bloc.dart';
 import 'package:appflowy_backend/protobuf/flowy-ai/entities.pb.dart';
 import 'package:flowy_infra_ui/flowy_infra_ui.dart';
 import 'package:flutter/material.dart';
@@ -26,6 +27,9 @@ class _AgentDialogState extends State<AgentDialog> {
   bool _enableToolCalling = true;
   bool _enableReflection = false;
   bool _enableMemory = true;
+  
+  // 🆕 选中的 MCP 服务器 ID 列表
+  final Set<String> _selectedMCPServerIds = {};
 
   @override
   void initState() {
@@ -54,6 +58,11 @@ class _AgentDialogState extends State<AgentDialog> {
     }
     _maxToolResultLengthController = TextEditingController(text: defaultLength.toString());
     _maxReflectionIterationsController = TextEditingController(text: defaultReflectionIterations.toString());
+    
+    // 🆕 加载已选择的 MCP 服务器
+    if (widget.existingAgent != null) {
+      _selectedMCPServerIds.addAll(widget.existingAgent!.selectedMcpServers);
+    }
   }
 
   @override
@@ -171,7 +180,7 @@ class _AgentDialogState extends State<AgentDialog> {
                               return FlowyText.regular(
                                 recommendation,
                                 fontSize: 11,
-                                color: Theme.of(context).colorScheme.primary.withOpacity(0.7),
+                                color: Theme.of(context).colorScheme.primary,
                               );
                             },
                           ),
@@ -218,6 +227,19 @@ class _AgentDialogState extends State<AgentDialog> {
                         Switch(value: _enableMemory, onChanged: (v) => setState(() => _enableMemory = v)),
                       ],
                     ),
+                    // 🆕 MCP 服务器选择（仅在启用工具调用时显示）
+                    if (_enableToolCalling) ...[
+                      const VSpace(20),
+                      FlowyText.medium("选择 MCP 服务器", fontSize: 16),
+                      const VSpace(8),
+                      FlowyText.regular(
+                        "勾选服务器后，将自动使用该服务器的所有工具",
+                        fontSize: 12,
+                        color: Theme.of(context).textTheme.bodySmall?.color,
+                      ),
+                      const VSpace(12),
+                      _buildMCPServerSelector(),
+                    ],
                   ],
                 ),
               ),
@@ -293,8 +315,8 @@ class _AgentDialogState extends State<AgentDialog> {
         ..description = _descriptionController.text.trim()
         ..personality = _personalityController.text.trim()
         ..avatar = _avatarController.text.trim()
-        ..capabilities = capabilities;
-        // 移除 availableTools，让系统自动从 MCP 服务器发现
+        ..capabilities = capabilities
+        ..selectedMcpServers.addAll(_selectedMCPServerIds);  // 🆕 传递选中的服务器列表
 
       context.read<AgentSettingsBloc>().add(
         AgentSettingsEvent.updateAgent(request),
@@ -305,8 +327,8 @@ class _AgentDialogState extends State<AgentDialog> {
         ..description = _descriptionController.text.trim()
         ..personality = _personalityController.text.trim()
         ..avatar = _avatarController.text.trim()
-        ..capabilities = capabilities;
-        // 移除 availableTools，让系统自动从 MCP 服务器发现
+        ..capabilities = capabilities
+        ..selectedMcpServers.addAll(_selectedMCPServerIds);  // 🆕 传递选中的服务器列表
 
       context.read<AgentSettingsBloc>().add(
         AgentSettingsEvent.createAgent(request),
@@ -314,6 +336,157 @@ class _AgentDialogState extends State<AgentDialog> {
     }
 
     Navigator.of(context).pop();
+  }
+
+  // 🆕 构建 MCP 服务器选择器
+  Widget _buildMCPServerSelector() {
+    return BlocProvider(
+      create: (context) => MCPSettingsBloc()..add(const MCPSettingsEvent.loadServerList()),
+      child: BlocBuilder<MCPSettingsBloc, MCPSettingsState>(
+        builder: (context, state) {
+          if (state.isLoading) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: CircularProgressIndicator(),
+              ),
+            );
+          }
+
+          if (state.servers.isEmpty) {
+            return Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Theme.of(context).dividerColor,
+                ),
+              ),
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    size: 32,
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                  ),
+                  const VSpace(8),
+                  FlowyText.regular(
+                    "暂无可用的 MCP 服务器",
+                    fontSize: 13,
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                  ),
+                  const VSpace(4),
+                  FlowyText.regular(
+                    "请先在 MCP 设置中添加和配置服务器",
+                    fontSize: 11,
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                  ),
+                ],
+              ),
+            );
+          }
+
+          // 🔧 修改：显示所有服务器，不再过滤 isActive
+          // 让用户可以选择任何已配置的服务器
+          final availableServers = state.servers;
+
+          return Container(
+            constraints: const BoxConstraints(maxHeight: 200),
+            decoration: BoxDecoration(
+              border: Border.all(color: Theme.of(context).dividerColor),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: availableServers.length,
+              separatorBuilder: (context, index) => Divider(height: 1, color: Theme.of(context).dividerColor),
+              itemBuilder: (context, index) {
+                final server = availableServers[index];
+                final isSelected = _selectedMCPServerIds.contains(server.id);
+                final toolCount = server.hasCachedTools() ? server.cachedTools.tools.length : 0;
+                
+                return CheckboxListTile(
+                  dense: true,
+                  value: isSelected,
+                  onChanged: (checked) {
+                    setState(() {
+                      if (checked == true) {
+                        _selectedMCPServerIds.add(server.id);
+                      } else {
+                        _selectedMCPServerIds.remove(server.id);
+                      }
+                    });
+                  },
+                  title: Row(
+                    children: [
+                      if (server.icon.isNotEmpty) ...[
+                        Text(server.icon, style: const TextStyle(fontSize: 16)),
+                        const HSpace(8),
+                      ],
+                      Expanded(
+                        child: FlowyText.medium(server.name, fontSize: 13),
+                      ),
+                      // 🔧 新增：显示服务器状态标签
+                      if (!server.isActive) ...[
+                        const HSpace(4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: Theme.of(context).dividerColor,
+                            ),
+                          ),
+                          child: FlowyText.regular(
+                            '未激活',
+                            fontSize: 10,
+                            color: Theme.of(context).textTheme.bodySmall?.color,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (server.description.isNotEmpty) ...[
+                        const VSpace(2),
+                        FlowyText.regular(
+                          server.description,
+                          fontSize: 11,
+                          color: Theme.of(context).textTheme.bodySmall?.color,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      if (toolCount > 0) ...[
+                        const VSpace(4),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.build_circle_outlined,
+                              size: 12,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const HSpace(4),
+                            FlowyText.regular(
+                              '$toolCount 个工具',
+                              fontSize: 11,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              },
+            ),
+          );
+        },
+      ),
+    );
   }
 }
 

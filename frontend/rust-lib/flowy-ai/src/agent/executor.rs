@@ -12,6 +12,8 @@ use uuid::Uuid;
 use crate::ai_manager::AIManager;
 use crate::agent::planner::{PlanningStep, PlanningStepStatus, TaskPlan, PlanStatus};
 use crate::agent::native_tools::NativeToolsManager;
+#[cfg(feature = "web-search")]
+use crate::web_search::WebSearchToolManager;
 // use crate::entities::{ToolDefinitionPB, ToolTypePB};
 use flowy_ai_pub::cloud::{CompleteTextParams, CompletionType, ResponseFormat, ChatCloudService};
 
@@ -88,6 +90,9 @@ pub struct AITaskExecutor {
     ai_manager: Arc<AIManager>,
     /// 原生工具管理器
     native_tools: Option<Arc<NativeToolsManager>>,
+    /// 网络搜索工具管理器
+    #[cfg(feature = "web-search")]
+    web_search_tools: Option<Arc<WebSearchToolManager>>,
     /// 执行历史记录
     execution_history: Vec<ExecutionResult>,
 }
@@ -98,6 +103,8 @@ impl AITaskExecutor {
         Self {
             ai_manager,
             native_tools: None,
+            #[cfg(feature = "web-search")]
+            web_search_tools: None,
             execution_history: Vec::new(),
         }
     }
@@ -105,6 +112,13 @@ impl AITaskExecutor {
     /// 设置原生工具管理器
     pub fn with_native_tools(mut self, native_tools: Arc<NativeToolsManager>) -> Self {
         self.native_tools = Some(native_tools);
+        self
+    }
+
+    /// 设置网络搜索工具管理器
+    #[cfg(feature = "web-search")]
+    pub fn with_web_search_tools(mut self, web_search_tools: Arc<WebSearchToolManager>) -> Self {
+        self.web_search_tools = Some(web_search_tools);
         self
     }
 
@@ -323,6 +337,16 @@ impl AITaskExecutor {
             if source == "appflowy" {
                 // 执行原生工具
                 self.execute_native_tool(tool_name, arguments, context).await?
+            } else if source == "web_search" {
+                // 执行网络搜索工具
+                #[cfg(feature = "web-search")]
+                {
+                    self.execute_web_search_tool(tool_name, arguments, context).await?
+                }
+                #[cfg(not(feature = "web-search"))]
+                {
+                    return Err(FlowyError::not_support().with_context("Web search support is disabled"));
+                }
             } else {
                 // 执行MCP工具
                 #[cfg(feature = "mcp")]
@@ -418,6 +442,26 @@ impl AITaskExecutor {
         }
     }
 
+    /// 执行网络搜索工具
+    #[cfg(feature = "web-search")]
+    async fn execute_web_search_tool(
+        &self,
+        tool_name: &str,
+        arguments: &Value,
+        context: &ExecutionContext,
+    ) -> FlowyResult<String> {
+        debug!("调用网络搜索工具: {}", tool_name);
+
+        // 使用网络搜索工具管理器
+        if let Some(web_search_tools) = &self.web_search_tools {
+            return web_search_tools.execute_tool(tool_name, arguments, context.safe_mode).await;
+        }
+
+        // 如果没有网络搜索工具管理器，返回错误
+        Err(FlowyError::invalid_data()
+            .with_context(format!("网络搜索工具管理器未配置，无法执行工具: {}", tool_name)))
+    }
+
     /// 自动检测并执行工具
     async fn execute_auto_detected_tool(
         &self,
@@ -430,7 +474,15 @@ impl AITaskExecutor {
             return Ok(result);
         }
 
-        // 然后尝试MCP工具
+        // 然后尝试网络搜索工具
+        #[cfg(feature = "web-search")]
+        {
+            if let Ok(result) = self.execute_web_search_tool(tool_name, arguments, context).await {
+                return Ok(result);
+            }
+        }
+
+        // 最后尝试MCP工具
         #[cfg(feature = "mcp")]
         {
             let servers = self.ai_manager.mcp_manager.list_servers().await;

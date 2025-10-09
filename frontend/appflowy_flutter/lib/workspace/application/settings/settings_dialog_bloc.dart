@@ -20,6 +20,7 @@ enum SettingsPage {
   ai,
   mcp,
   agent,
+  webSearch,
   plan,
   billing,
   sites,

@@ -123,6 +123,7 @@ impl AgentConfigManager {
             capabilities: request.capabilities,
             available_tools,
             status: AgentStatusPB::AgentActive,
+            selected_mcp_servers: request.selected_mcp_servers,  // 🆕 保存选中的服务器
             created_at: now,
             updated_at: now,
             metadata: request.metadata,
@@ -191,6 +192,11 @@ impl AgentConfigManager {
         
         if !request.metadata.is_empty() {
             agent_config.metadata.extend(request.metadata);
+        }
+        
+        // 🆕 更新已选择的 MCP 服务器列表
+        if !request.selected_mcp_servers.is_empty() {
+            agent_config.selected_mcp_servers = request.selected_mcp_servers;
         }
         
         // 更新时间戳
@@ -657,6 +663,7 @@ mod tests {
                 max_tool_calls: 20,
                 memory_limit: 100,
                 max_tool_result_length: 4000,
+                max_reflection_iterations: 3,
             },
             available_tools: vec!["search".to_string(), "calculator".to_string()],
             metadata: HashMap::new(),
@@ -711,6 +718,7 @@ mod tests {
             available_tools: vec![],
             status: Some(AgentStatusPB::AgentPaused),
             metadata: HashMap::new(),
+            selected_mcp_servers: vec![],  // 🆕 添加字段
         };
         let updated_agent = manager.update_agent(update_request).unwrap();
         assert_eq!(updated_agent.name, "更新后的智能体");

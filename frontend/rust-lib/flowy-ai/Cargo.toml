@@ -29,6 +29,7 @@ lib-infra = { workspace = true, features = ["isolate_flutter"] }
 flowy-ai-pub.workspace = true
 dashmap.workspace = true
 flowy-sqlite = { workspace = true }
+flowy-sqlite-vec = { workspace = true }
 tokio.workspace = true
 futures.workspace = true
 allo-isolate = { version = "^0.1", features = ["catch-unwind"] }
@@ -53,8 +54,9 @@ flowy-database-pub = { workspace = true }
 flowy-document = { workspace = true }
 collab-document = { workspace = true }
 langchain-rust = { version = "4.6.0", features = ["ollama"] }
-text-splitter = { version = "0.25.1" }
-flowy-sqlite-vec.workspace = true
+text-splitter = "0.28.0"
+url = "2.5.0"
+tempfile = "3.8.1"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))'.dependencies]
 notify = "6.1.1"
@@ -80,3 +82,4 @@ local_ai = []
 file_reader = ["lopdf", "pulldown-cmark"]
 ai-tool = []
 mcp = []
+web-search = []

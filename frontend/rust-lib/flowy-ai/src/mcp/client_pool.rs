@@ -47,11 +47,13 @@ impl MCPClientPool {
             MCPTransportType::Stdio => {
                 Box::new(StdioMCPClient::new(config.clone())?)
             }
+            // UI 中的 SSE 对应纯 JSON HTTP 实现
             MCPTransportType::SSE => {
-                Box::new(SSEMCPClient::new(config.clone())?)
-            }
-            MCPTransportType::HTTP => {
                 Box::new(HttpMCPClient::new(config.clone())?)
+            }
+            // UI 中的 HTTP 对应 streamable-http (SSE) 实现
+            MCPTransportType::HTTP => {
+                Box::new(SSEMCPClient::new(config.clone())?)
             }
         };
 

@@ -26,3 +26,6 @@ pub mod offline;
 mod protobuf;
 mod search;
 mod stream_message;
+
+#[cfg(feature = "web-search")]
+pub mod web_search;

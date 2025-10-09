@@ -1,0 +1,38 @@
+{
+  "filePath": ".spec-workflow/specs/web-search-tools/tasks.md",
+  "currentVersion": 4,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-10-07T04:25:07.037Z",
+      "trigger": "initial",
+      "approvalId": "approval_1759811107035_l4wn3rd6p",
+      "approvalTitle": "网络搜索工具功能任务文档"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-10-07T04:25:53.614Z",
+      "trigger": "revision_requested",
+      "approvalId": "approval_1759811107035_l4wn3rd6p",
+      "approvalTitle": "网络搜索工具功能任务文档"
+    },
+    {
+      "version": 3,
+      "filename": "snapshot-003.json",
+      "timestamp": "2025-10-07T04:26:29.609Z",
+      "trigger": "revision_requested",
+      "approvalId": "approval_1759811171438_i3ipx6t0h",
+      "approvalTitle": "网络搜索工具功能任务文档（中文版）"
+    },
+    {
+      "version": 4,
+      "filename": "snapshot-004.json",
+      "timestamp": "2025-10-07T04:28:10.699Z",
+      "trigger": "approved",
+      "approvalId": "approval_1759811226740_szt8oxezw",
+      "approvalTitle": "网络搜索工具功能任务文档（完全中文化）"
+    }
+  ]
+}

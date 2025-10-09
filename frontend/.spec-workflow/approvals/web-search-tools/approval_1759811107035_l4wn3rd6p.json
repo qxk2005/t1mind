@@ -1,0 +1,21 @@
+{
+  "id": "approval_1759811107035_l4wn3rd6p",
+  "title": "网络搜索工具功能任务文档",
+  "filePath": ".spec-workflow/specs/web-search-tools/tasks.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2025-10-07T04:25:07.035Z",
+  "category": "spec",
+  "categoryName": "web-search-tools",
+  "response": "Feedback Summary (1 comments):\n\nGeneral Comments:\n1. 请用中文描述任务\n\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"general\",\n      \"comment\": \"请用中文描述任务\",\n      \"timestamp\": \"2025-10-07T04:25:52.691Z\",\n      \"id\": \"comment_1759811152691_zkizlywxk\"\n    }\n  ],\n  \"summary\": \"Feedback Summary (1 comments):\\n\\nGeneral Comments:\\n1. 请用中文描述任务\\n\\n\",\n  \"timestamp\": \"2025-10-07T04:25:53.607Z\"\n}",
+  "respondedAt": "2025-10-07T04:25:53.616Z",
+  "comments": [
+    {
+      "type": "general",
+      "comment": "请用中文描述任务",
+      "timestamp": "2025-10-07T04:25:52.691Z",
+      "id": "comment_1759811152691_zkizlywxk"
+    }
+  ]
+}

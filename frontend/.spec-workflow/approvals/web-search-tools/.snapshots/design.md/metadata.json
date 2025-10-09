@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/web-search-tools/design.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-10-07T04:22:53.145Z",
+      "trigger": "initial",
+      "approvalId": "approval_1759810973142_x92z32cwl",
+      "approvalTitle": "网络搜索工具功能设计文档"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-10-07T04:24:04.086Z",
+      "trigger": "approved",
+      "approvalId": "approval_1759810973142_x92z32cwl",
+      "approvalTitle": "网络搜索工具功能设计文档"
+    }
+  ]
+}

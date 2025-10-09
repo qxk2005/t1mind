@@ -170,6 +170,28 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    web_search_cache_table (cache_key) {
+        cache_key -> Text,
+        query -> Text,
+        provider_id -> Text,
+        search_response -> Text,
+        created_at -> BigInt,
+        expires_at -> BigInt,
+        hit_count -> BigInt,
+        metadata -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    web_search_cache_stats_table (id) {
+        id -> Integer,
+        stat_name -> Text,
+        stat_value -> Text,
+        updated_at -> BigInt,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(
   af_collab_metadata,
   chat_local_setting_table,
@@ -183,6 +205,8 @@ diesel::allow_tables_to_appear_in_same_query!(
   user_data_migration_records,
   user_table,
   user_workspace_table,
+  web_search_cache_table,
+  web_search_cache_stats_table,
   workspace_members_table,
   workspace_setting_table,
   workspace_shared_user,

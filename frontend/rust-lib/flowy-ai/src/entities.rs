@@ -1021,6 +1021,10 @@ pub struct AgentConfigPB {
   #[pb(index = 8)]
   pub status: AgentStatusPB,
 
+  /// 🆕 已选择的 MCP 服务器列表（用于UI勾选）
+  #[pb(index = 12)]
+  pub selected_mcp_servers: Vec<String>,
+
   /// 创建时间（时间戳）
   #[pb(index = 9)]
   pub created_at: i64,
@@ -1126,6 +1130,10 @@ pub struct CreateAgentRequestPB {
 
   #[pb(index = 7)]
   pub metadata: HashMap<String, String>,
+
+  /// 🆕 已选择的 MCP 服务器列表
+  #[pb(index = 8)]
+  pub selected_mcp_servers: Vec<String>,
 }
 
 /// 更新智能体请求
@@ -1158,6 +1166,10 @@ pub struct UpdateAgentRequestPB {
 
   #[pb(index = 9)]
   pub metadata: HashMap<String, String>,
+
+  /// 🆕 已选择的 MCP 服务器列表
+  #[pb(index = 10)]
+  pub selected_mcp_servers: Vec<String>,
 }
 
 /// 删除智能体请求
@@ -1751,6 +1763,449 @@ pub struct AgentGlobalSettingsPB {
   pub updated_at: i64,
 }
 
+// ==================== 网络搜索相关实体 ====================
+
+/// 网络搜索供应商类型枚举
+#[derive(Debug, Default, Clone, PartialEq, Eq, Copy, ProtoBuf_Enum, Serialize, Deserialize)]
+pub enum WebSearchProviderTypePB {
+    /// Tavily 搜索引擎
+    #[default]
+    Tavily = 0,
+    /// Brave Search 引擎
+    BraveSearch = 1,
+    /// 自定义搜索引擎
+    Custom = 2,
+}
+
+/// 供应商测试状态枚举
+#[derive(Debug, Default, Clone, PartialEq, Eq, Copy, ProtoBuf_Enum, Serialize, Deserialize)]
+pub enum ProviderTestStatusPB {
+    /// 未测试
+    #[default]
+    NotTested = 0,
+    /// 测试中
+    Testing = 1,
+    /// 测试成功
+    TestPassed = 2,
+    /// 测试失败
+    TestFailed = 3,
+}
+
+impl std::fmt::Display for ProviderTestStatusPB {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProviderTestStatusPB::NotTested => write!(f, "未测试"),
+            ProviderTestStatusPB::Testing => write!(f, "测试中"),
+            ProviderTestStatusPB::TestPassed => write!(f, "测试成功"),
+            ProviderTestStatusPB::TestFailed => write!(f, "测试失败"),
+        }
+    }
+}
+
+/// 网络搜索供应商配置
+#[derive(Default, ProtoBuf, Validate, Clone, Debug, Serialize, Deserialize)]
+pub struct WebSearchProviderConfigPB {
+    /// 供应商唯一标识符
+    #[pb(index = 1)]
+    #[validate(custom(function = "required_not_empty_str"))]
+    pub id: String,
+    /// 供应商名称
+    #[pb(index = 2)]
+    #[validate(custom(function = "required_not_empty_str"))]
+    pub name: String,
+    /// 供应商类型
+    #[pb(index = 3)]
+    pub provider_type: WebSearchProviderTypePB,
+    /// 供应商描述
+    #[pb(index = 4)]
+    pub description: String,
+    /// 供应商图标
+    #[pb(index = 5)]
+    pub icon: String,
+    /// API 密钥（加密存储）
+    #[pb(index = 6)]
+    pub api_key: String,
+    /// API 基础 URL
+    #[pb(index = 7)]
+    pub base_url: String,
+    /// 是否激活
+    #[pb(index = 8)]
+    pub is_active: bool,
+    /// 是否启用
+    #[pb(index = 9)]
+    pub is_enabled: bool,
+    /// 最大搜索结果数量
+    #[pb(index = 10)]
+    pub max_results: i32,
+    /// 请求超时时间（秒）
+    #[pb(index = 11)]
+    pub timeout_seconds: u64,
+    /// 创建时间（时间戳）
+    #[pb(index = 12)]
+    pub created_at: i64,
+    /// 更新时间（时间戳）
+    #[pb(index = 13)]
+    pub updated_at: i64,
+    /// 最后测试时间（时间戳）
+    #[pb(index = 14, one_of)]
+    pub last_tested_at: Option<i64>,
+    /// 测试状态
+    #[pb(index = 15)]
+    pub test_status: ProviderTestStatusPB,
+    /// 供应商元数据
+    #[pb(index = 16)]
+    pub metadata: HashMap<String, String>,
+}
+
+/// 网络搜索供应商列表响应
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct WebSearchProviderListPB {
+    #[pb(index = 1)]
+    pub providers: Vec<WebSearchProviderConfigPB>,
+}
+
+/// 创建网络搜索供应商请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct CreateWebSearchProviderRequestPB {
+    #[pb(index = 1)]
+    #[validate(custom(function = "required_not_empty_str"))]
+    pub name: String,
+    #[pb(index = 2)]
+    pub provider_type: WebSearchProviderTypePB,
+    #[pb(index = 3)]
+    pub description: String,
+    #[pb(index = 4)]
+    pub icon: String,
+    #[pb(index = 5)]
+    #[validate(custom(function = "required_not_empty_str"))]
+    pub api_key: String,
+    #[pb(index = 6)]
+    #[validate(custom(function = "required_not_empty_str"))]
+    pub base_url: String,
+    #[pb(index = 7)]
+    pub max_results: i32,
+    #[pb(index = 8)]
+    pub timeout_seconds: u64,
+    #[pb(index = 9)]
+    pub metadata: HashMap<String, String>,
+}
+
+/// 更新网络搜索供应商请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct UpdateWebSearchProviderRequestPB {
+    #[pb(index = 1)]
+    #[validate(custom(function = "required_not_empty_str"))]
+    pub id: String,
+    #[pb(index = 2, one_of)]
+    pub name: Option<String>,
+    #[pb(index = 3, one_of)]
+    pub description: Option<String>,
+    #[pb(index = 4, one_of)]
+    pub icon: Option<String>,
+    #[pb(index = 5, one_of)]
+    pub api_key: Option<String>,
+    #[pb(index = 6, one_of)]
+    pub base_url: Option<String>,
+    #[pb(index = 7, one_of)]
+    pub is_active: Option<bool>,
+    #[pb(index = 8, one_of)]
+    pub is_enabled: Option<bool>,
+    #[pb(index = 9, one_of)]
+    pub max_results: Option<i32>,
+    #[pb(index = 10, one_of)]
+    pub timeout_seconds: Option<u64>,
+    #[pb(index = 11)]
+    pub metadata: HashMap<String, String>,
+}
+
+/// 删除网络搜索供应商请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct DeleteWebSearchProviderRequestPB {
+    #[pb(index = 1)]
+    #[validate(custom(function = "required_not_empty_str"))]
+    pub id: String,
+}
+
+/// 获取网络搜索供应商请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct GetWebSearchProviderRequestPB {
+    #[pb(index = 1)]
+    #[validate(custom(function = "required_not_empty_str"))]
+    pub id: String,
+}
+
+/// 测试网络搜索供应商请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct TestWebSearchProviderRequestPB {
+    #[pb(index = 1)]
+    #[validate(custom(function = "required_not_empty_str"))]
+    pub id: String,
+}
+
+/// 测试网络搜索供应商响应
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct TestWebSearchProviderResponsePB {
+    #[pb(index = 1)]
+    pub success: bool,
+    #[pb(index = 2, one_of)]
+    pub error_message: Option<String>,
+    #[pb(index = 3)]
+    pub response_time_ms: i64,
+    #[pb(index = 4)]
+    pub test_results: Vec<WebSearchTestResultPB>,
+}
+
+/// 网络搜索测试结果
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct WebSearchTestResultPB {
+    #[pb(index = 1)]
+    pub test_name: String,
+    #[pb(index = 2)]
+    pub success: bool,
+    #[pb(index = 3, one_of)]
+    pub error_message: Option<String>,
+    #[pb(index = 4)]
+    pub response_time_ms: i64,
+    #[pb(index = 5)]
+    pub details: String,
+}
+
+/// 网络搜索结果
+#[derive(Default, ProtoBuf, Clone, Debug, Serialize, Deserialize)]
+pub struct WebSearchResultPB {
+    /// 结果唯一标识符
+    #[pb(index = 1)]
+    pub id: String,
+    /// 搜索结果标题
+    #[pb(index = 2)]
+    pub title: String,
+    /// 搜索结果 URL
+    #[pb(index = 3)]
+    pub url: String,
+    /// 搜索结果摘要
+    #[pb(index = 4)]
+    pub snippet: String,
+    /// 搜索结果内容（如果可用）
+    #[pb(index = 5, one_of)]
+    pub content: Option<String>,
+    /// 搜索结果发布时间
+    #[pb(index = 6, one_of)]
+    pub published_date: Option<i64>,
+    /// 搜索结果来源域名
+    #[pb(index = 7)]
+    pub domain: String,
+    /// 搜索结果语言
+    #[pb(index = 8)]
+    pub language: String,
+    /// 搜索结果相关性评分（0.0-1.0）
+    #[pb(index = 9)]
+    pub relevance_score: f64,
+    /// 搜索结果元数据
+    #[pb(index = 10)]
+    pub metadata: HashMap<String, String>,
+}
+
+/// 网络搜索响应
+#[derive(Default, ProtoBuf, Clone, Debug, Serialize, Deserialize)]
+pub struct WebSearchResponsePB {
+    /// 搜索查询
+    #[pb(index = 1)]
+    pub query: String,
+    /// 搜索结果列表
+    #[pb(index = 2)]
+    pub results: Vec<WebSearchResultPB>,
+    /// 使用的供应商ID
+    #[pb(index = 3)]
+    pub provider_id: String,
+    /// 搜索执行时间（毫秒）
+    #[pb(index = 4)]
+    pub execution_time_ms: i64,
+    /// 搜索结果总数
+    #[pb(index = 5)]
+    pub total_results: i64,
+    /// 搜索是否成功
+    #[pb(index = 6)]
+    pub success: bool,
+    /// 错误信息（如果有）
+    #[pb(index = 7, one_of)]
+    pub error_message: Option<String>,
+    /// 搜索元数据
+    #[pb(index = 8)]
+    pub metadata: HashMap<String, String>,
+}
+
+/// 网络搜索请求
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct WebSearchRequestPB {
+    /// 搜索查询
+    #[pb(index = 1)]
+    #[validate(custom(function = "required_not_empty_str"))]
+    pub query: String,
+    /// 指定使用的供应商ID（可选）
+    #[pb(index = 2, one_of)]
+    pub provider_id: Option<String>,
+    /// 最大结果数量
+    #[pb(index = 3)]
+    pub max_results: i32,
+    /// 搜索语言
+    #[pb(index = 4)]
+    pub language: String,
+    /// 搜索区域
+    #[pb(index = 5)]
+    pub region: String,
+    /// 是否包含内容
+    #[pb(index = 6)]
+    pub include_content: bool,
+    /// 搜索元数据
+    #[pb(index = 7)]
+    pub metadata: HashMap<String, String>,
+}
+
+/// 网络搜索全局配置
+#[derive(Default, ProtoBuf, Clone, Debug, Serialize, Deserialize)]
+pub struct WebSearchGlobalConfigPB {
+    /// 是否启用网络搜索功能
+    #[pb(index = 1)]
+    pub enabled: bool,
+    /// 默认激活的供应商ID
+    #[pb(index = 2, one_of)]
+    pub default_provider_id: Option<String>,
+    /// 默认最大结果数量
+    #[pb(index = 3)]
+    pub default_max_results: i32,
+    /// 默认请求超时时间（秒）
+    #[pb(index = 4)]
+    pub default_timeout_seconds: u64,
+    /// 是否启用搜索结果缓存
+    #[pb(index = 5)]
+    pub enable_cache: bool,
+    /// 缓存过期时间（秒）
+    #[pb(index = 6)]
+    pub cache_expiry_seconds: u64,
+    /// 是否启用搜索结果过滤
+    #[pb(index = 7)]
+    pub enable_content_filter: bool,
+    /// 内容过滤规则
+    #[pb(index = 8)]
+    pub content_filter_rules: Vec<String>,
+    /// 创建时间（时间戳）
+    #[pb(index = 9)]
+    pub created_at: i64,
+    /// 更新时间（时间戳）
+    #[pb(index = 10)]
+    pub updated_at: i64,
+    /// 配置元数据
+    #[pb(index = 11)]
+    pub metadata: HashMap<String, String>,
+}
+
+/// 更新网络搜索全局配置请求
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct UpdateWebSearchGlobalConfigRequestPB {
+    #[pb(index = 1, one_of)]
+    pub enabled: Option<bool>,
+    #[pb(index = 2, one_of)]
+    pub default_provider_id: Option<String>,
+    #[pb(index = 3, one_of)]
+    pub default_max_results: Option<i32>,
+    #[pb(index = 4, one_of)]
+    pub default_timeout_seconds: Option<u64>,
+    #[pb(index = 5, one_of)]
+    pub enable_cache: Option<bool>,
+    #[pb(index = 6, one_of)]
+    pub cache_expiry_seconds: Option<u64>,
+    #[pb(index = 7, one_of)]
+    pub enable_content_filter: Option<bool>,
+    #[pb(index = 8)]
+    pub content_filter_rules: Vec<String>,
+    #[pb(index = 9)]
+    pub metadata: HashMap<String, String>,
+}
+
+/// 网络搜索缓存条目
+#[derive(Default, ProtoBuf, Clone, Debug, Serialize, Deserialize)]
+pub struct WebSearchCacheEntryPB {
+    /// 缓存键（基于查询和参数生成）
+    #[pb(index = 1)]
+    pub cache_key: String,
+    /// 搜索结果
+    #[pb(index = 2)]
+    pub search_response: WebSearchResponsePB,
+    /// 缓存创建时间（时间戳）
+    #[pb(index = 3)]
+    pub created_at: i64,
+    /// 缓存过期时间（时间戳）
+    #[pb(index = 4)]
+    pub expires_at: i64,
+    /// 缓存命中次数
+    #[pb(index = 5)]
+    pub hit_count: i64,
+    /// 缓存元数据
+    #[pb(index = 6)]
+    pub metadata: HashMap<String, String>,
+}
+
+/// 网络搜索缓存统计
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct WebSearchCacheStatsPB {
+    /// 缓存条目总数
+    #[pb(index = 1)]
+    pub total_entries: i64,
+    /// 缓存命中次数
+    #[pb(index = 2)]
+    pub hit_count: i64,
+    /// 缓存未命中次数
+    #[pb(index = 3)]
+    pub miss_count: i64,
+    /// 缓存命中率
+    #[pb(index = 4)]
+    pub hit_rate: f64,
+    /// 缓存大小（字节）
+    #[pb(index = 5)]
+    pub cache_size_bytes: i64,
+    /// 最后清理时间（时间戳）
+    #[pb(index = 6, one_of)]
+    pub last_cleanup_at: Option<i64>,
+}
+
+/// 网络搜索事件类型枚举
+#[derive(Debug, Default, Clone, PartialEq, Eq, Copy, ProtoBuf_Enum, Serialize, Deserialize)]
+pub enum WebSearchEventTypePB {
+    /// 搜索请求事件
+    #[default]
+    SearchRequest = 0,
+    /// 搜索结果事件
+    SearchResponse = 1,
+    /// 供应商状态变化事件
+    ProviderStatusChanged = 2,
+    /// 配置更新事件
+    ConfigUpdated = 3,
+    /// 缓存更新事件
+    CacheUpdated = 4,
+    /// 错误事件
+    Error = 5,
+}
+
+/// 网络搜索事件
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct WebSearchEventPB {
+    /// 事件唯一标识符
+    #[pb(index = 1)]
+    pub id: String,
+    /// 事件类型
+    #[pb(index = 2)]
+    pub event_type: WebSearchEventTypePB,
+    /// 事件数据（JSON字符串）
+    #[pb(index = 3)]
+    pub data: String,
+    /// 事件时间戳
+    #[pb(index = 4)]
+    pub timestamp: i64,
+    /// 事件元数据
+    #[pb(index = 5)]
+    pub metadata: HashMap<String, String>,
+}
+
 // ==================== 实用工具函数和转换 ====================
 
 impl AgentConfigPB {
@@ -1766,6 +2221,7 @@ impl AgentConfigPB {
       capabilities: AgentCapabilitiesPB::default(),
       available_tools: Vec::new(),
       status: AgentStatusPB::AgentActive,
+      selected_mcp_servers: Vec::new(),  // 🆕 初始化为空列表
       created_at: now,
       updated_at: now,
       metadata: HashMap::new(),
@@ -1881,6 +2337,258 @@ impl AgentExecutionLogPB {
     self.completed_at = Some(now);
     if let Some(started_at) = Some(self.started_at) {
       self.duration_ms = (now - started_at) * 1000;
+    }
+  }
+}
+
+// ==================== 网络搜索实体实用工具函数和转换 ====================
+
+impl WebSearchProviderConfigPB {
+  /// 创建新的网络搜索供应商配置
+  pub fn new(
+    name: String,
+    provider_type: WebSearchProviderTypePB,
+    api_key: String,
+    base_url: String,
+  ) -> Self {
+    let now = Utc::now().timestamp();
+    Self {
+      id: Uuid::new_v4().to_string(),
+      name,
+      provider_type,
+      description: String::new(),
+      icon: "search".to_string(),
+      api_key,
+      base_url,
+      is_active: false,
+      is_enabled: true,
+      max_results: 10,
+      timeout_seconds: 30,
+      created_at: now,
+      updated_at: now,
+      last_tested_at: None,
+      test_status: ProviderTestStatusPB::NotTested,
+      metadata: HashMap::new(),
+    }
+  }
+
+  /// 检查供应商是否可用
+  pub fn is_available(&self) -> bool {
+    self.is_enabled && self.is_active && self.test_status == ProviderTestStatusPB::TestPassed
+  }
+
+  /// 更新测试状态
+  pub fn update_test_status(&mut self, status: ProviderTestStatusPB) {
+    self.test_status = status;
+    self.last_tested_at = Some(Utc::now().timestamp());
+    self.updated_at = self.last_tested_at.unwrap_or(self.updated_at);
+  }
+}
+
+impl WebSearchResultPB {
+  /// 创建新的网络搜索结果
+  pub fn new(title: String, url: String, snippet: String) -> Self {
+    Self {
+      id: Uuid::new_v4().to_string(),
+      title,
+      url,
+      snippet,
+      content: None,
+      published_date: None,
+      domain: String::new(),
+      language: "en".to_string(),
+      relevance_score: 0.0,
+      metadata: HashMap::new(),
+    }
+  }
+
+  /// 检查结果是否有效
+  pub fn is_valid(&self) -> bool {
+    !self.title.is_empty() && !self.url.is_empty() && !self.snippet.is_empty()
+  }
+
+  /// 获取结果摘要（用于显示）
+  pub fn get_display_summary(&self, max_length: usize) -> String {
+    if self.snippet.len() <= max_length {
+      self.snippet.clone()
+    } else {
+      format!("{}...", &self.snippet[..max_length.saturating_sub(3)])
+    }
+  }
+}
+
+impl WebSearchResponsePB {
+  /// 创建新的网络搜索响应
+  pub fn new(query: String, provider_id: String) -> Self {
+    Self {
+      query,
+      results: Vec::new(),
+      provider_id,
+      execution_time_ms: 0,
+      total_results: 0,
+      success: true,
+      error_message: None,
+      metadata: HashMap::new(),
+    }
+  }
+
+  /// 检查响应是否成功
+  pub fn is_successful(&self) -> bool {
+    self.success && self.error_message.is_none()
+  }
+
+  /// 获取结果数量
+  pub fn result_count(&self) -> usize {
+    self.results.len()
+  }
+
+  /// 添加搜索结果
+  pub fn add_result(&mut self, result: WebSearchResultPB) {
+    self.results.push(result);
+    self.total_results = self.results.len() as i64;
+  }
+
+  /// 设置错误状态
+  pub fn set_error(&mut self, error_message: String) {
+    self.success = false;
+    self.error_message = Some(error_message);
+  }
+}
+
+impl WebSearchGlobalConfigPB {
+  /// 创建默认的网络搜索全局配置
+  pub fn default_config() -> Self {
+    let now = Utc::now().timestamp();
+    Self {
+      enabled: true,
+      default_provider_id: None,
+      default_max_results: 10,
+      default_timeout_seconds: 30,
+      enable_cache: true,
+      cache_expiry_seconds: 3600, // 1小时
+      enable_content_filter: true,
+      content_filter_rules: vec![
+        "adult_content".to_string(),
+        "malware".to_string(),
+        "phishing".to_string(),
+      ],
+      created_at: now,
+      updated_at: now,
+      metadata: HashMap::new(),
+    }
+  }
+
+  /// 检查配置是否有效
+  pub fn is_valid(&self) -> bool {
+    self.default_max_results > 0
+      && self.default_timeout_seconds > 0
+      && self.cache_expiry_seconds > 0
+  }
+}
+
+impl WebSearchCacheEntryPB {
+  /// 创建新的缓存条目
+  pub fn new(cache_key: String, search_response: WebSearchResponsePB) -> Self {
+    let now = Utc::now().timestamp();
+    Self {
+      cache_key,
+      search_response,
+      created_at: now,
+      expires_at: now + 3600, // 默认1小时过期
+      hit_count: 0,
+      metadata: HashMap::new(),
+    }
+  }
+
+  /// 检查缓存是否过期
+  pub fn is_expired(&self) -> bool {
+    let now = Utc::now().timestamp();
+    now > self.expires_at
+  }
+
+  /// 增加命中次数
+  pub fn increment_hit_count(&mut self) {
+    self.hit_count += 1;
+  }
+}
+
+impl WebSearchEventPB {
+  /// 创建新的网络搜索事件
+  pub fn new(event_type: WebSearchEventTypePB, data: String) -> Self {
+    Self {
+      id: Uuid::new_v4().to_string(),
+      event_type,
+      data,
+      timestamp: Utc::now().timestamp(),
+      metadata: HashMap::new(),
+    }
+  }
+}
+
+// ==================== 从现有实体转换 ====================
+
+impl std::fmt::Display for WebSearchProviderTypePB {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WebSearchProviderTypePB::Tavily => write!(f, "Tavily"),
+            WebSearchProviderTypePB::BraveSearch => write!(f, "Brave Search"),
+            WebSearchProviderTypePB::Custom => write!(f, "Custom"),
+        }
+    }
+}
+impl From<WebSearchProviderTypePB> for ToolTypePB {
+  fn from(provider_type: WebSearchProviderTypePB) -> Self {
+    match provider_type {
+      WebSearchProviderTypePB::Tavily | WebSearchProviderTypePB::BraveSearch => {
+        ToolTypePB::Search
+      }
+      WebSearchProviderTypePB::Custom => ToolTypePB::ExternalAPI,
+    }
+  }
+}
+
+impl From<WebSearchProviderConfigPB> for ToolDefinitionPB {
+  fn from(config: WebSearchProviderConfigPB) -> Self {
+    let is_available = config.is_available();
+    Self {
+      name: format!("web_search_{}", config.provider_type),
+      description: config.description,
+      tool_type: ToolTypePB::Search,
+      source: config.id,
+      parameters_schema: serde_json::to_string(&serde_json::json!({
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "搜索查询"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "最大结果数量",
+            "default": config.max_results
+          }
+        },
+        "required": ["query"]
+      }))
+      .unwrap_or_default(),
+      permissions: vec!["web_search".to_string()],
+      is_available,
+      metadata: config.metadata,
+    }
+  }
+}
+
+/// 空请求类型（用于不需要参数的事件）
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ProtoBuf)]
+pub struct EmptyRequestPB {
+  #[pb(index = 1)]
+  pub dummy: String,
+}
+
+impl EmptyRequestPB {
+  pub fn new() -> Self {
+    Self {
+      dummy: String::new(),
     }
   }
 }
