@@ -326,40 +326,54 @@ class _WebSearchProviderList extends StatelessWidget {
   }
 
   void _showAddProviderDialog(BuildContext context) {
+    final bloc = context.read<WebSearchSettingsBloc>();
     showDialog(
       context: context,
-      builder: (context) => const _AddWebSearchProviderDialog(),
+      builder: (dialogContext) => BlocProvider.value(
+        value: bloc,
+        child: const _AddWebSearchProviderDialog(),
+      ),
     );
   }
 
   void _showProviderConfigDialog(BuildContext context, WebSearchProviderConfigPB provider) {
+    final bloc = context.read<WebSearchSettingsBloc>();
     showDialog(
       context: context,
-      builder: (context) => _ConfigureWebSearchProviderDialog(provider: provider),
+      builder: (dialogContext) => BlocProvider.value(
+        value: bloc,
+        child: _ConfigureWebSearchProviderDialog(provider: provider),
+      ),
     );
   }
 
   void _showDeleteConfirmDialog(BuildContext context, WebSearchProviderConfigPB provider) {
+    final bloc = context.read<WebSearchSettingsBloc>();
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text("删除搜索供应商"),
-        content: Text("确定要删除供应商 '${provider.name}' 吗？"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(LocaleKeys.button_cancel.tr()),
+      builder: (dialogContext) => BlocProvider.value(
+        value: bloc,
+        child: Builder(
+          builder: (context) => AlertDialog(
+            title: Text("删除搜索供应商"),
+            content: Text("确定要删除供应商 '${provider.name}' 吗？"),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(LocaleKeys.button_cancel.tr()),
+              ),
+              TextButton(
+                onPressed: () {
+                  context.read<WebSearchSettingsBloc>().add(
+                    WebSearchSettingsEvent.removeProvider(provider.id),
+                  );
+                  Navigator.of(context).pop();
+                },
+                child: Text(LocaleKeys.button_delete.tr()),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () {
-              context.read<WebSearchSettingsBloc>().add(
-                WebSearchSettingsEvent.removeProvider(provider.id),
-              );
-              Navigator.of(context).pop();
-            },
-            child: Text(LocaleKeys.button_delete.tr()),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -842,7 +856,11 @@ class _AddWebSearchProviderDialogState extends State<_AddWebSearchProviderDialog
   }
 
   Widget _buildTestResult() {
-    final isSuccess = _testResult!.contains('success') || _testResult!.contains('successful');
+    // 检查是否包含成功相关的关键词（支持中英文）
+    final isSuccess = _testResult!.contains('success') || 
+                      _testResult!.contains('successful') ||
+                      _testResult!.contains('成功') ||
+                      _testResult!.contains('通过');
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -964,7 +982,7 @@ class _AddWebSearchProviderDialogState extends State<_AddWebSearchProviderDialog
     });
   }
 
-  void _saveProvider() {
+  void _saveProvider() async {
     if (!_canSave()) return;
 
     final providerInfo = _getProviderInfo(_selectedProvider);
@@ -982,19 +1000,33 @@ class _AddWebSearchProviderDialogState extends State<_AddWebSearchProviderDialog
       ..isActive = false
       ..isEnabled = true;
 
+    // 显示加载状态
+    setState(() {
+      _isTestingConnection = true;
+      _testResult = null;
+    });
+
+    // 发送添加供应商事件
     context.read<WebSearchSettingsBloc>().add(
       WebSearchSettingsEvent.addProvider(config),
     );
     
-    Navigator.of(context).pop();
+    // 等待足够的时间让 BLoC 处理事件并保存到存储
+    // 增加延迟时间以确保操作完成
+    await Future.delayed(const Duration(seconds: 2));
     
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          "供应商 '${_nameController.text}' 已保存",
+    // 关闭对话框
+    if (mounted) {
+      Navigator.of(context).pop();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "供应商 '${_nameController.text}' 已保存",
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   String _getBaseUrl() {
@@ -1109,7 +1141,11 @@ class _ConfigureWebSearchProviderDialogState extends State<_ConfigureWebSearchPr
   }
 
   Widget _buildTestResult() {
-    final isSuccess = _testResult!.contains('success') || _testResult!.contains('successful');
+    // 检查是否包含成功相关的关键词（支持中英文）
+    final isSuccess = _testResult!.contains('success') || 
+                      _testResult!.contains('successful') ||
+                      _testResult!.contains('成功') ||
+                      _testResult!.contains('通过');
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1219,7 +1255,7 @@ class _ConfigureWebSearchProviderDialogState extends State<_ConfigureWebSearchPr
     });
   }
 
-  void _saveProvider() {
+  void _saveProvider() async {
     if (!_canSave()) return;
 
     final config = WebSearchProviderConfigPB()
@@ -1242,19 +1278,32 @@ class _ConfigureWebSearchProviderDialogState extends State<_ConfigureWebSearchPr
       ..testStatus = widget.provider.testStatus
       ..metadata.addAll(widget.provider.metadata);
 
+    // 显示加载状态
+    setState(() {
+      _isTestingConnection = true;
+      _testResult = null;
+    });
+
+    // 发送更新供应商事件
     context.read<WebSearchSettingsBloc>().add(
       WebSearchSettingsEvent.updateProvider(config),
     );
     
-    Navigator.of(context).pop();
+    // 等待足够的时间让 BLoC 处理事件并保存到存储
+    await Future.delayed(const Duration(seconds: 2));
     
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          "供应商 '${_nameController.text}' 已更新",
+    // 关闭对话框
+    if (mounted) {
+      Navigator.of(context).pop();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "供应商 '${_nameController.text}' 已更新",
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 }
 
@@ -1496,31 +1545,37 @@ class _WebSearchCacheSection extends StatelessWidget {
   }
 
   void _showClearCacheDialog(BuildContext context) {
+    final bloc = context.read<WebSearchSettingsBloc>();
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text("清空缓存"),
-        content: Text("确定要清空所有网络搜索缓存吗？此操作不可撤销。"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(LocaleKeys.button_cancel.tr()),
+      builder: (dialogContext) => BlocProvider.value(
+        value: bloc,
+        child: Builder(
+          builder: (context) => AlertDialog(
+            title: Text("清空缓存"),
+            content: Text("确定要清空所有网络搜索缓存吗？此操作不可撤销。"),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(LocaleKeys.button_cancel.tr()),
+              ),
+              TextButton(
+                onPressed: () {
+                  context.read<WebSearchSettingsBloc>().add(
+                    const WebSearchSettingsEvent.clearCache(),
+                  );
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text("缓存已清空"),
+                    ),
+                  );
+                },
+                child: Text(LocaleKeys.button_delete.tr()),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () {
-              context.read<WebSearchSettingsBloc>().add(
-                const WebSearchSettingsEvent.clearCache(),
-              );
-              Navigator.of(context).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text("缓存已清空"),
-                ),
-              );
-            },
-            child: Text(LocaleKeys.button_delete.tr()),
-          ),
-        ],
+        ),
       ),
     );
   }

@@ -43,10 +43,10 @@ struct TavilySearchResult {
 #[derive(Debug, Deserialize)]
 struct TavilySearchResponse {
     query: String,
-    follow_up_questions: Vec<String>,
+    follow_up_questions: Option<Vec<String>>,
     answer: Option<String>,
-    images: Vec<String>,
-    results: Vec<TavilySearchResult>,
+    images: Option<Vec<String>>,
+    results: Option<Vec<TavilySearchResult>>,
     response_time: f64,
 }
 
@@ -127,10 +127,13 @@ impl TavilySearchProvider {
         // 转换响应格式
         let mut search_response = WebSearchResponsePB::new(request.query, self.config.id.clone());
         search_response.execution_time_ms = execution_time;
-        search_response.total_results = response.results.len() as i64;
+        
+        // 处理搜索结果，如果 results 为 None 则使用空数组
+        let results = response.results.unwrap_or_default();
+        search_response.total_results = results.len() as i64;
 
         // 转换搜索结果
-        for tavily_result in response.results {
+        for tavily_result in results {
             let mut result = WebSearchResultPB::new(
                 tavily_result.title,
                 tavily_result.url.clone(),
@@ -157,11 +160,13 @@ impl TavilySearchProvider {
         }
 
         // 添加后续问题（如果有）
-        if !response.follow_up_questions.is_empty() {
-            search_response.metadata.insert(
-                "follow_up_questions".to_string(),
-                response.follow_up_questions.join("; ")
-            );
+        if let Some(follow_up_questions) = &response.follow_up_questions {
+            if !follow_up_questions.is_empty() {
+                search_response.metadata.insert(
+                    "follow_up_questions".to_string(),
+                    follow_up_questions.join("; ")
+                );
+            }
         }
 
         info!("Tavily search completed: {} results in {}ms", 
@@ -215,7 +220,7 @@ impl TavilySearchProvider {
                 FlowyError::internal().with_context(format!("解析 Tavily API 响应失败: {}", e))
             })?;
 
-        debug!("Tavily API response received: {} results", tavily_response.results.len());
+        debug!("Tavily API response received: {} results", tavily_response.results.as_ref().map_or(0, |r| r.len()));
         Ok(tavily_response)
     }
 
@@ -248,13 +253,26 @@ impl TavilySearchProvider {
 
     /// 测试连接
     pub async fn test_connection(&self) -> FlowyResult<()> {
-        // 检查网络连接
-        let url = format!("{}/health", self.base_url.trim_end_matches('/'));
-        
-        debug!("Testing Tavily connection to: {}", url);
+        // 使用一个简单的搜索请求来测试连接，而不是依赖可能不存在的 /health 端点
+        let test_request = TavilySearchRequest {
+            query: "test".to_string(),
+            search_depth: "basic".to_string(),
+            include_answer: false,
+            include_images: false,
+            include_raw_content: false,
+            max_results: 1,
+            include_domains: Vec::new(),
+            exclude_domains: Vec::new(),
+            category: None,
+        };
+
+        debug!("Testing Tavily connection with simple search request");
 
         let response = self.client
-            .get(&url)
+            .post(&format!("{}/search", self.base_url.trim_end_matches('/')))
+            .header("Authorization", format!("Bearer {}", self.config.api_key))
+            .header("Content-Type", "application/json")
+            .json(&test_request)
             .timeout(Duration::from_secs(10))
             .send()
             .await
@@ -263,11 +281,13 @@ impl TavilySearchProvider {
                 FlowyError::internal().with_context(format!("Tavily 连接测试失败: {}", e))
             })?;
 
-        if response.status().is_success() {
+        let status = response.status();
+        
+        // 如果状态码是 200 或者 400（参数错误但连接正常），都认为连接成功
+        if status.is_success() || status == 400 {
             info!("Tavily connection test successful");
             Ok(())
         } else {
-            let status = response.status();
             error!("Tavily connection test failed with status: {}", status);
             Err(FlowyError::internal()
                 .with_context(format!("Tavily 连接测试失败，状态码: {}", status)))
@@ -559,8 +579,8 @@ mod tests {
 
         let response: TavilySearchResponse = serde_json::from_str(json).unwrap();
         assert_eq!(response.query, "test query");
-        assert_eq!(response.results.len(), 1);
-        assert_eq!(response.results[0].title, "Test Result");
-        assert_eq!(response.results[0].score, 0.95);
+        assert_eq!(response.results.as_ref().unwrap().len(), 1);
+        assert_eq!(response.results.as_ref().unwrap()[0].title, "Test Result");
+        assert_eq!(response.results.as_ref().unwrap()[0].score, 0.95);
     }
 }

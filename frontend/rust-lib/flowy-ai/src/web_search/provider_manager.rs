@@ -416,7 +416,7 @@ impl WebSearchProviderManager {
     }
 
     /// 测试网络搜索供应商
-    pub fn test_provider(&self, request: TestWebSearchProviderRequestPB) -> FlowyResult<TestWebSearchProviderResponsePB> {
+    pub async fn test_provider(&self, request: TestWebSearchProviderRequestPB) -> FlowyResult<TestWebSearchProviderResponsePB> {
         let mut provider_config = self.get_provider_config(&request.id)
             .ok_or_else(|| FlowyError::record_not_found().with_context("网络搜索供应商配置不存在"))?;
         
@@ -430,7 +430,7 @@ impl WebSearchProviderManager {
         let mut error_message = None;
         
         // 执行测试
-        match self.execute_provider_tests(&provider_config) {
+        match self.execute_provider_tests(&provider_config).await {
             Ok(results) => {
                 test_results = results;
                 overall_success = test_results.iter().all(|r| r.success);
@@ -714,15 +714,14 @@ impl WebSearchProviderManager {
     }
 
     /// 执行供应商测试
-    fn execute_provider_tests(&self, config: &WebSearchProviderConfigPB) -> FlowyResult<Vec<WebSearchTestResultPB>> {
+    async fn execute_provider_tests(&self, config: &WebSearchProviderConfigPB) -> FlowyResult<Vec<WebSearchTestResultPB>> {
         // 根据供应商类型创建相应的供应商实例并执行测试
         match config.provider_type {
             WebSearchProviderTypePB::Tavily => {
                 match crate::web_search::providers::create_tavily_provider(config.clone()) {
                     Ok(provider) => {
-                        // 使用异步运行时执行测试
-                        let rt = tokio::runtime::Handle::current();
-                        let test_response = rt.block_on(provider.run_tests())?;
+                        // 直接 await 异步测试
+                        let test_response = provider.run_tests().await?;
                         Ok(test_response.test_results)
                     }
                     Err(e) => Err(e),
@@ -731,9 +730,8 @@ impl WebSearchProviderManager {
             WebSearchProviderTypePB::BraveSearch => {
                 match crate::web_search::providers::create_brave_search_provider(config.clone()) {
                     Ok(provider) => {
-                        // 使用异步运行时执行测试
-                        let rt = tokio::runtime::Handle::current();
-                        let test_response = rt.block_on(provider.run_tests())?;
+                        // 直接 await 异步测试
+                        let test_response = provider.run_tests().await?;
                         Ok(test_response.test_results)
                     }
                     Err(e) => Err(e),
@@ -985,8 +983,8 @@ mod tests {
         assert!(manager.create_provider(invalid_request).is_err());
     }
 
-    #[test]
-    fn test_provider_testing() {
+    #[tokio::test]
+    async fn test_provider_testing() {
         let (manager, _tempdir) = create_test_provider_manager();
         
         // 创建供应商
@@ -995,7 +993,7 @@ mod tests {
         
         // 测试供应商
         let test_request = TestWebSearchProviderRequestPB { id: provider.id.clone() };
-        let test_response = manager.test_provider(test_request).unwrap();
+        let test_response = manager.test_provider(test_request).await.unwrap();
         
         // 验证测试结果
         assert!(test_response.success);

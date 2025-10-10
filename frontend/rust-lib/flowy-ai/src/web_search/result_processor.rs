@@ -26,10 +26,10 @@ struct TavilySearchResult {
 #[derive(Debug, Deserialize)]
 struct TavilySearchResponse {
     query: String,
-    follow_up_questions: Vec<String>,
+    follow_up_questions: Option<Vec<String>>,
     answer: Option<String>,
-    images: Vec<String>,
-    results: Vec<TavilySearchResult>,
+    images: Option<Vec<String>>,
+    results: Option<Vec<TavilySearchResult>>,
     response_time: f64,
 }
 
@@ -147,11 +147,13 @@ impl WebSearchResultProcessor {
 
         // 处理搜索结果
         let mut processed_results = Vec::new();
-        for tavily_result in tavily_response.results {
-            if let Ok(processed_result) = self.process_tavily_result(&tavily_result) {
-                // 应用内容过滤
-                if self.should_include_result(&processed_result) {
-                    processed_results.push(processed_result);
+        if let Some(results) = tavily_response.results {
+            for tavily_result in results {
+                if let Ok(processed_result) = self.process_tavily_result(&tavily_result) {
+                    // 应用内容过滤
+                    if self.should_include_result(&processed_result) {
+                        processed_results.push(processed_result);
+                    }
                 }
             }
         }
@@ -176,9 +178,11 @@ impl WebSearchResultProcessor {
         if let Some(answer) = tavily_response.answer {
             response.metadata.insert("answer".to_string(), answer);
         }
-        if !tavily_response.follow_up_questions.is_empty() {
-            response.metadata.insert("follow_up_questions".to_string(), 
-                serde_json::to_string(&tavily_response.follow_up_questions).unwrap_or_default());
+        if let Some(follow_up_questions) = &tavily_response.follow_up_questions {
+            if !follow_up_questions.is_empty() {
+                response.metadata.insert("follow_up_questions".to_string(), 
+                    serde_json::to_string(follow_up_questions).unwrap_or_default());
+            }
         }
 
         info!("Processed {} Tavily results for query: {}", response.results.len(), request.query);

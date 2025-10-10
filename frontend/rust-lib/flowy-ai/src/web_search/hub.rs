@@ -332,7 +332,7 @@ impl WebSearchHub {
 
     /// 测试供应商
     pub async fn test_provider(&self, request: TestWebSearchProviderRequestPB) -> FlowyResult<TestWebSearchProviderResponsePB> {
-        self.provider_manager.test_provider(request)
+        self.provider_manager.test_provider(request).await
     }
 
     /// 获取全局配置
