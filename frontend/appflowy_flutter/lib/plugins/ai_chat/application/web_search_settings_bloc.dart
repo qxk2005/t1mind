@@ -614,10 +614,10 @@ class WebSearchSettingsBloc extends Bloc<WebSearchSettingsEvent, WebSearchSettin
   /// 加载供应商列表并直接emit（避免嵌套事件）
   Future<void> _loadProviderListAndEmit(Emitter<WebSearchSettingsState> emit) async {
     try {
-      Log.info('开始加载网络搜索供应商列表...');
+      // Log.info('开始加载网络搜索供应商列表...');
       final result = await AIEventGetWebSearchProviderList().send();
       
-      Log.info('网络搜索供应商列表请求完成，检查emit状态: isDone=${emit.isDone}');
+      // Log.info('网络搜索供应商列表请求完成，检查emit状态: isDone=${emit.isDone}');
       
       if (emit.isDone) {
         Log.warn('emit已完成，无法更新状态');
@@ -658,10 +658,10 @@ class WebSearchSettingsBloc extends Bloc<WebSearchSettingsEvent, WebSearchSettin
   /// 加载全局配置并直接emit（避免嵌套事件）
   Future<void> _loadGlobalConfigAndEmit(Emitter<WebSearchSettingsState> emit) async {
     try {
-      Log.info('开始加载网络搜索全局配置...');
+      // Log.info('开始加载网络搜索全局配置...');
       final result = await AIEventGetWebSearchGlobalConfig().send();
       
-      Log.info('网络搜索全局配置请求完成，检查emit状态: isDone=${emit.isDone}');
+      // Log.info('网络搜索全局配置请求完成，检查emit状态: isDone=${emit.isDone}');
       
       if (emit.isDone) {
         Log.warn('emit已完成，无法更新状态');
@@ -702,10 +702,10 @@ class WebSearchSettingsBloc extends Bloc<WebSearchSettingsEvent, WebSearchSettin
   /// 加载缓存统计并直接emit（避免嵌套事件）
   Future<void> _loadCacheStatsAndEmit(Emitter<WebSearchSettingsState> emit) async {
     try {
-      Log.info('开始加载网络搜索缓存统计...');
+      // Log.info('开始加载网络搜索缓存统计...');
       final result = await AIEventGetWebSearchCacheStats().send();
       
-      Log.info('网络搜索缓存统计请求完成，检查emit状态: isDone=${emit.isDone}');
+      // Log.info('网络搜索缓存统计请求完成，检查emit状态: isDone=${emit.isDone}');
       
       if (emit.isDone) {
         Log.warn('emit已完成，无法更新状态');

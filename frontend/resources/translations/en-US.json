@@ -273,6 +273,13 @@
     "documentsDescription": "Based on selected document pages",
     "noSource": "No Source",
     "noSourceDescription": "Use only AI knowledge base",
+    "webSearchCitations": {
+      "zero": "0 web search results",
+      "one": "{count} web search result",
+      "other": "{count} web search results"
+    },
+    "webSearchCitationsExpand": "Show {count} more results",
+    "webSearchCitationsCollapse": "Collapse results",
     "sourceUnsupported": "We don't support chatting with databases at this time",
     "regenerate": "Try again",
     "addToPageButton": "Add message to page",

@@ -401,9 +401,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   // Split method to handle related questions
   Future<void> _fetchRelatedQuestionsIfNeeded() async {
     // Don't fetch related questions if conditions aren't met
+    // Log.debug("🔍 [RELATED_Q] Checking if should fetch related questions");
+    // Log.debug("🔍 [RELATED_Q] answerStream: ${_streamManager.answerStream != null}");
+    // Log.debug("🔍 [RELATED_Q] lastSentMessage: ${lastSentMessage != null}");
+    // Log.debug("🔍 [RELATED_Q] shouldFetch: $shouldFetchRelatedQuestions");
+    
     if (_streamManager.answerStream == null ||
         lastSentMessage == null ||
         !shouldFetchRelatedQuestions) {
+      // Log.debug("🔍 [RELATED_Q] Conditions not met, skipping fetch");
       return;
     }
 
@@ -412,9 +418,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       messageId: lastSentMessage!.messageId,
     );
 
+    // Log.debug("🔍 [RELATED_Q] Fetching related questions...");
     isFetchingRelatedQuestions = true;
     await AIEventGetRelatedQuestion(payload).send().fold(
       (list) {
+        // Log.debug("🔍 [RELATED_Q] Received ${list.items.length} related questions");
         // while fetching related questions, the user might enter a new
         // question or regenerate a previous response. In such cases, don't
         // display the relatedQuestions

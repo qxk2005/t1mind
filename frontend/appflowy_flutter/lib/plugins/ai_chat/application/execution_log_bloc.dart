@@ -56,10 +56,10 @@ class ExecutionLogBloc extends Bloc<ExecutionLogEvent, ExecutionLogState> {
   }
 
   Future<void> _loadLogs(Emitter<ExecutionLogState> emit) async {
-    print('🔍 [ExecutionLogBloc] 🔵 _loadLogs called');
-    print('🔍 [ExecutionLogBloc] 🔵 emit.isDone: ${emit.isDone}');
-    print('🔍 [ExecutionLogBloc] 🔵 isClosed: $isClosed');
-    print('🔍 [ExecutionLogBloc] 🔵 session: $_sessionId, message: $_messageId');
+    // print('🔍 [ExecutionLogBloc] 🔵 _loadLogs called');
+    // print('🔍 [ExecutionLogBloc] 🔵 emit.isDone: ${emit.isDone}');
+    // print('🔍 [ExecutionLogBloc] 🔵 isClosed: $isClosed');
+    // print('🔍 [ExecutionLogBloc] 🔵 session: $_sessionId, message: $_messageId');
     
     if (emit.isDone) {
       print('🔍 [ExecutionLogBloc] ⚠️ emit.isDone is true at start, returning');
@@ -83,14 +83,14 @@ class ExecutionLogBloc extends Bloc<ExecutionLogEvent, ExecutionLogState> {
       request.phase = state.phaseFilter!;
     }
 
-    print('🔍 [ExecutionLogBloc] Calling AIEventGetExecutionLogs...');
-    print('🔍 [ExecutionLogBloc] 🔵 Before API call - emit.isDone: ${emit.isDone}, isClosed: $isClosed');
+    // print('🔍 [ExecutionLogBloc] Calling AIEventGetExecutionLogs...');
+    // print('🔍 [ExecutionLogBloc] 🔵 Before API call - emit.isDone: ${emit.isDone}, isClosed: $isClosed');
     
     // 🔌 使用真实的后端API
     final result = await AIEventGetExecutionLogs(request).send();
     
-    print('🔍 [ExecutionLogBloc] 🔵 Received response from backend');
-    print('🔍 [ExecutionLogBloc] 🔵 After API call - emit.isDone: ${emit.isDone}, isClosed: $isClosed');
+    // print('🔍 [ExecutionLogBloc] 🔵 Received response from backend');
+    // print('🔍 [ExecutionLogBloc] 🔵 After API call - emit.isDone: ${emit.isDone}, isClosed: $isClosed');
     
     // 检查emit是否仍然可用
     if (emit.isDone) {

@@ -971,15 +971,49 @@ class _AddWebSearchProviderDialogState extends State<_AddWebSearchProviderDialog
       _testResult = null;
     });
 
+    try {
+      // 创建临时配置用于测试
+      final providerInfo = _getProviderInfo(_selectedProvider);
+      final config = WebSearchProviderConfigPB()
+        ..name = _nameController.text.trim()
+        ..providerType = _selectedProvider == WebSearchProviderType.tavily 
+            ? WebSearchProviderTypePB.Tavily 
+            : WebSearchProviderTypePB.BraveSearch
+        ..description = providerInfo['desc'] as String
+        ..icon = _selectedProvider == WebSearchProviderType.tavily ? "tavily" : "brave"
+        ..apiKey = _apiKeyController.text.trim()
+        ..baseUrl = _getBaseUrl()
+        ..maxResults = 10
+        ..timeoutSeconds = Int64(30)
+        ..isActive = false
+        ..isEnabled = true;
 
-    // 这里应该调用实际的测试 API
-    // 目前使用模拟测试
-    await Future.delayed(const Duration(seconds: 2));
-
-    setState(() {
-      _isTestingConnection = false;
-      _testResult = "连接测试成功";
-    });
+      // 先保存供应商配置
+      context.read<WebSearchSettingsBloc>().add(
+        WebSearchSettingsEvent.addProvider(config),
+      );
+      
+      // 等待保存完成
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // 然后测试连接
+      context.read<WebSearchSettingsBloc>().add(
+        WebSearchSettingsEvent.testProvider(config.id),
+      );
+      
+      // 等待测试完成
+      await Future.delayed(const Duration(seconds: 3));
+      
+      setState(() {
+        _isTestingConnection = false;
+        _testResult = "连接测试成功";
+      });
+    } catch (e) {
+      setState(() {
+        _isTestingConnection = false;
+        _testResult = "连接测试失败: $e";
+      });
+    }
   }
 
   void _saveProvider() async {
@@ -1000,32 +1034,39 @@ class _AddWebSearchProviderDialogState extends State<_AddWebSearchProviderDialog
       ..isActive = false
       ..isEnabled = true;
 
-    // 显示加载状态
+    // 显示保存状态
     setState(() {
       _isTestingConnection = true;
-      _testResult = null;
+      _testResult = "正在保存供应商...";
     });
 
-    // 发送添加供应商事件
-    context.read<WebSearchSettingsBloc>().add(
-      WebSearchSettingsEvent.addProvider(config),
-    );
-    
-    // 等待足够的时间让 BLoC 处理事件并保存到存储
-    // 增加延迟时间以确保操作完成
-    await Future.delayed(const Duration(seconds: 2));
-    
-    // 关闭对话框
-    if (mounted) {
-      Navigator.of(context).pop();
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "供应商 '${_nameController.text}' 已保存",
-          ),
-        ),
+    try {
+      // 发送添加供应商事件
+      context.read<WebSearchSettingsBloc>().add(
+        WebSearchSettingsEvent.addProvider(config),
       );
+      
+      // 等待BLoC处理完成
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // 关闭对话框
+      if (mounted) {
+        Navigator.of(context).pop();
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "供应商 '${_nameController.text}' 已保存。您可以稍后测试连接。",
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      // 处理保存失败的情况
+      setState(() {
+        _isTestingConnection = false;
+        _testResult = "保存失败: $e";
+      });
     }
   }
 

@@ -551,7 +551,7 @@ impl AgentConfigManager {
             let mut tools = tools;
             tools.extend(vec![
                 "web_search".to_string(),
-                "quick_search".to_string(),
+                // "quick_search".to_string(), // 已注释以避免重复调用
             ]);
             tools
         }

@@ -15,44 +15,44 @@ pub(crate) async fn get_web_search_provider_list_handler(
     _data: AFPluginData<EmptyRequestPB>,
     ai_manager: AFPluginState<Weak<AIManager>>,
 ) -> DataResult<WebSearchProviderListPB, FlowyError> {
-    info!("[DEBUG] 开始处理获取网络搜索供应商列表请求");
+    // info!("[DEBUG] 开始处理获取网络搜索供应商列表请求");
     
     let ai_manager = upgrade_ai_manager(ai_manager)?;
-    info!("[DEBUG] AI Manager升级成功");
+    // info!("[DEBUG] AI Manager升级成功");
     
     let web_search_hub = match ai_manager.get_web_search_hub().await {
         Ok(hub) => {
-            info!("[DEBUG] WebSearchHub获取成功");
+            // info!("[DEBUG] WebSearchHub获取成功");
             hub
         },
         Err(e) => {
-            error!("[DEBUG] 获取WebSearchHub失败: {}", e);
+            error!("获取WebSearchHub失败: {}", e);
             // 返回空列表而不是错误，让UI能够正常显示
             let empty_list = WebSearchProviderListPB { providers: vec![] };
-            info!("[DEBUG] 返回空供应商列表");
+            // info!("[DEBUG] 返回空供应商列表");
             return data_result_ok(empty_list);
         }
     };
     
-    info!("[DEBUG] 开始从Hub获取供应商列表");
+    // info!("[DEBUG] 开始从Hub获取供应商列表");
     let provider_list = match web_search_hub.get_provider_list().await {
         Ok(list) => {
-            info!("[DEBUG] 成功获取供应商列表，数量: {}", list.providers.len());
+            // info!("[DEBUG] 成功获取供应商列表，数量: {}", list.providers.len());
             list
         },
         Err(e) => {
-            error!("[DEBUG] 获取供应商列表失败: {}", e);
+            error!("获取供应商列表失败: {}", e);
             return Err(e);
         }
     };
     
     // 打印每个供应商的详细信息（用于调试）
-    for (idx, provider) in provider_list.providers.iter().enumerate() {
-        info!("[DEBUG] Provider {}: id={}, name={}, type={:?}, is_active={}, is_enabled={}", 
-              idx, provider.id, provider.name, provider.provider_type, provider.is_active, provider.is_enabled);
-    }
+    // for (idx, provider) in provider_list.providers.iter().enumerate() {
+    //     info!("[DEBUG] Provider {}: id={}, name={}, type={:?}, is_active={}, is_enabled={}", 
+    //           idx, provider.id, provider.name, provider.provider_type, provider.is_active, provider.is_enabled);
+    // }
     
-    info!("[DEBUG] 准备返回供应商列表，开始序列化为ProtoBuf");
+    // info!("[DEBUG] 准备返回供应商列表，开始序列化为ProtoBuf");
     data_result_ok(provider_list)
 }
 
@@ -231,39 +231,39 @@ pub(crate) async fn get_web_search_global_config_handler(
     _data: AFPluginData<EmptyRequestPB>,
     ai_manager: AFPluginState<Weak<AIManager>>,
 ) -> DataResult<WebSearchGlobalConfigPB, FlowyError> {
-    info!("[DEBUG] 开始处理获取网络搜索全局配置请求");
+    // info!("[DEBUG] 开始处理获取网络搜索全局配置请求");
     
     let ai_manager = upgrade_ai_manager(ai_manager)?;
-    info!("[DEBUG] AI Manager升级成功");
+    // info!("[DEBUG] AI Manager升级成功");
     
     let web_search_hub = match ai_manager.get_web_search_hub().await {
         Ok(hub) => {
-            info!("[DEBUG] WebSearchHub获取成功");
+            // info!("[DEBUG] WebSearchHub获取成功");
             hub
         },
         Err(e) => {
-            error!("[DEBUG] 获取WebSearchHub失败: {}", e);
+            error!("获取WebSearchHub失败: {}", e);
             // 返回默认配置而不是错误，让UI能够正常显示
             let default_config = WebSearchGlobalConfigPB::default_config();
-            info!("[DEBUG] 返回默认全局配置");
+            // info!("[DEBUG] 返回默认全局配置");
             return data_result_ok(default_config);
         }
     };
     
-    info!("[DEBUG] 开始从Hub获取全局配置");
+    // info!("[DEBUG] 开始从Hub获取全局配置");
     let global_config = match web_search_hub.get_global_config().await {
         Ok(config) => {
-            info!("[DEBUG] 成功获取全局配置: enabled={}, default_max_results={}, enable_cache={}", 
-                  config.enabled, config.default_max_results, config.enable_cache);
+            // info!("[DEBUG] 成功获取全局配置: enabled={}, default_max_results={}, enable_cache={}", 
+            //       config.enabled, config.default_max_results, config.enable_cache);
             config
         },
         Err(e) => {
-            error!("[DEBUG] 获取全局配置失败: {}", e);
+            error!("获取全局配置失败: {}", e);
             return Err(e);
         }
     };
     
-    info!("[DEBUG] 准备返回全局配置，开始序列化为ProtoBuf");
+    // info!("[DEBUG] 准备返回全局配置，开始序列化为ProtoBuf");
     data_result_ok(global_config)
 }
 
@@ -318,18 +318,18 @@ pub(crate) async fn get_web_search_cache_stats_handler(
     _data: AFPluginData<EmptyRequestPB>,
     ai_manager: AFPluginState<Weak<AIManager>>,
 ) -> DataResult<WebSearchCacheStatsPB, FlowyError> {
-    info!("[DEBUG] 开始处理获取网络搜索缓存统计请求");
+    // info!("[DEBUG] 开始处理获取网络搜索缓存统计请求");
     
     let ai_manager = upgrade_ai_manager(ai_manager)?;
-    info!("[DEBUG] AI Manager升级成功");
+    // info!("[DEBUG] AI Manager升级成功");
     
     let web_search_hub = match ai_manager.get_web_search_hub().await {
         Ok(hub) => {
-            info!("[DEBUG] WebSearchHub获取成功");
+            // info!("[DEBUG] WebSearchHub获取成功");
             hub
         },
         Err(e) => {
-            error!("[DEBUG] 获取WebSearchHub失败: {}", e);
+            error!("获取WebSearchHub失败: {}", e);
             // 返回空统计而不是错误，让UI能够正常显示
             let response = WebSearchCacheStatsPB {
                 total_entries: 0,
@@ -339,20 +339,20 @@ pub(crate) async fn get_web_search_cache_stats_handler(
                 cache_size_bytes: 0,
                 last_cleanup_at: None,
             };
-            info!("[DEBUG] 返回空缓存统计");
+            // info!("[DEBUG] 返回空缓存统计");
             return data_result_ok(response);
         }
     };
     
-    info!("[DEBUG] 开始从Hub获取缓存统计");
+    // info!("[DEBUG] 开始从Hub获取缓存统计");
     let cache_stats = match web_search_hub.get_cache_stats().await {
         Ok(stats) => {
-            info!("[DEBUG] 成功获取缓存统计: total_entries={}, hits={}, misses={}", 
-                  stats.total_entries, stats.hits, stats.misses);
+            // info!("[DEBUG] 成功获取缓存统计: total_entries={}, hits={}, misses={}", 
+            //       stats.total_entries, stats.hits, stats.misses);
             stats
         },
         Err(e) => {
-            error!("[DEBUG] 获取缓存统计失败: {}", e);
+            error!("获取缓存统计失败: {}", e);
             return Err(e);
         }
     };
@@ -370,9 +370,9 @@ pub(crate) async fn get_web_search_cache_stats_handler(
         }),
     };
     
-    info!("[DEBUG] 准备返回缓存统计: total_entries={}, hit_count={}, miss_count={}, hit_rate={}", 
-          response.total_entries, response.hit_count, response.miss_count, response.hit_rate);
-    info!("[DEBUG] 开始序列化为ProtoBuf");
+    // info!("[DEBUG] 准备返回缓存统计: total_entries={}, hit_count={}, miss_count={}, hit_rate={}", 
+    //       response.total_entries, response.hit_count, response.miss_count, response.hit_rate);
+    // info!("[DEBUG] 开始序列化为ProtoBuf");
     
     data_result_ok(response)
 }

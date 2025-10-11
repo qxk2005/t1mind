@@ -397,7 +397,7 @@ impl AIManager {
             {
               let web_search_tools = vec![
                 "web_search".to_string(),
-                "quick_search".to_string(),
+                // "quick_search".to_string(), // 已注释以避免重复调用
               ];
               for tool in web_search_tools {
                 if !all_tools.contains(&tool) {

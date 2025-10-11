@@ -237,7 +237,14 @@
     "webSearchDescription": "使用网络搜索获取最新信息",
     "documentsDescription": "基于选中的文档页面",
     "noSource": "无信息源",
-    "noSourceDescription": "仅使用AI知识库回答"
+    "noSourceDescription": "仅使用AI知识库回答",
+    "webSearchCitations": {
+      "zero": "0 个网络搜索结果",
+      "one": "{count} 个网络搜索结果",
+      "other": "{count} 个网络搜索结果"
+    },
+    "webSearchCitationsExpand": "展开 {count} 个更多结果",
+    "webSearchCitationsCollapse": "收起结果"
   },
   "trash": {
     "text": "回收站",

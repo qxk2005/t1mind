@@ -160,10 +160,10 @@ impl AIExternalService for ChatQueryServiceImpl {
   }
 
   async fn notify_did_send_message(&self, chat_id: &Uuid, message: &str) -> Result<(), FlowyError> {
-    info!(
-      "notify_did_send_message: chat_id: {}, message: {}",
-      chat_id, message
-    );
+    // info!(
+    //   "notify_did_send_message: chat_id: {}, message: {}",
+    //   chat_id, message
+    // );
     self
       .folder_service
       .set_view_title_if_empty(chat_id, message)

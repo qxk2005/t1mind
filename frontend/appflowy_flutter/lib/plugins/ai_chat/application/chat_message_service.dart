@@ -115,6 +115,23 @@ MetadataCollection parseMetadata(String? s) {
           reasoningDelta = delta;
           // Log.debug("📝 [REALTIME] Received reasoning delta: '$delta'");
         }
+      } else if (map.containsKey("tool_call")) {
+        // 🔧 处理工具调用数据，特别是网络搜索结果
+        final toolCallData = map["tool_call"] as Map<String, dynamic>?;
+        if (toolCallData != null) {
+          final toolName = toolCallData["tool_name"] as String?;
+          final result = toolCallData["result"] as String?;
+          final status = toolCallData["status"] as String?;
+          
+          // 检查是否是成功的网络搜索调用
+          if (toolName == "web_search" && status == "success" && result != null) {
+            Log.info("🔍 [WEB_SEARCH] Parsing web search result from tool_call");
+            // 从result字符串中提取URL引用
+            final citations = _extractCitationsFromSearchResult(result);
+            metadata.addAll(citations);
+            Log.info("🔍 [WEB_SEARCH] Extracted ${citations.length} citations");
+          }
+        }
       } else {
         Log.info("Unsupported metadata format: $map");
       }
@@ -144,6 +161,50 @@ MetadataCollection parseMetadata(String? s) {
     reasoningDelta: reasoningDelta,
     rawMetadata: rawMetadata,
   );
+}
+
+/// 从网络搜索结果字符串中提取引用信息
+/// 
+/// 搜索结果格式示例：
+/// ```
+/// 搜索结果 (查询词):
+/// 1. 标题1
+///    链接: https://example.com/1
+/// 2. 标题2
+///    链接: https://example.com/2
+/// ```
+List<ChatMessageRefSource> _extractCitationsFromSearchResult(String result) {
+  final List<ChatMessageRefSource> citations = [];
+  
+  try {
+    // 使用正则表达式匹配引用模式
+    // 匹配格式: 数字. 标题\n   链接: URL
+    final pattern = RegExp(
+      r'(\d+)\.\s+([^\n]+)\s+链接:\s+(https?://[^\s]+)',
+      multiLine: true,
+    );
+    
+    final matches = pattern.allMatches(result);
+    
+    for (final match in matches) {
+      final index = match.group(1); // 引用序号
+      final title = match.group(2)?.trim(); // 标题
+      final url = match.group(3)?.trim(); // URL
+      
+      if (title != null && url != null) {
+        citations.add(ChatMessageRefSource(
+          id: url,
+          name: title,
+          source: 'web', // 标记为网络来源
+        ));
+        Log.debug("🔍 [WEB_SEARCH] Extracted citation $index: $title -> $url");
+      }
+    }
+  } catch (e) {
+    Log.error("Failed to extract citations from search result: $e");
+  }
+  
+  return citations;
 }
 
 Future<List<ChatMessageMetaPB>> metadataPBFromMetadata(

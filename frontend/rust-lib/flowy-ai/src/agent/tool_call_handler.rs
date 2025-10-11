@@ -586,7 +586,7 @@ impl ToolCallHandler {
         {
             if let Some(web_search_tools) = &self.web_search_tools {
                 // 检查是否是网络搜索工具
-                let web_search_tool_names = vec!["web_search", "quick_search"];
+                let web_search_tool_names = vec!["web_search"]; // 移除 "quick_search"
                 if web_search_tool_names.contains(&request.tool_name.as_str()) {
                     info!("🔧 [NATIVE TOOL] Executing web search tool: {}", request.tool_name);
                     return web_search_tools.execute_tool(&request.tool_name, &request.arguments, true).await;
@@ -613,7 +613,7 @@ impl ToolCallHandler {
         #[cfg(feature = "web-search")]
         {
             if let Some(web_search_tools) = &self.web_search_tools {
-                let web_search_tool_names = vec!["web_search", "quick_search"];
+                let web_search_tool_names = vec!["web_search"]; // 移除 "quick_search"
                 if web_search_tool_names.contains(&request.tool_name.as_str()) {
                     info!("✅ [TOOL AUTO] Tool '{}' identified as web search tool", request.tool_name);
                     return web_search_tools.execute_tool(&request.tool_name, &request.arguments, true).await;

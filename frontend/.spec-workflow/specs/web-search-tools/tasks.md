@@ -108,7 +108,7 @@
   - _Requirements: 1.7, 2.3
   - _Prompt: 为规范 web-search-tools 实现任务，首先运行 spec-workflow-guide 获取工作流程指南，然后实现任务: 角色: 专门从事 UI 组件和用户交互的 Flutter 开发者 | 任务: 根据需求 1.7 和 2.3 创建信息源选择器组件，实现信息源选择的下拉菜单 | 限制: 必须遵循现有的 UI 模式，不要绕过状态管理，确保可访问性 | 成功: 信息源选择器正常工作，网络搜索选项被适当集成，用户交互流畅
 
-- [x] 13. 扩展聊天 UI 以支持网络搜索集成
+- [ ] 13. 扩展聊天 UI 以支持网络搜索集成
   - 文件: appflowy_flutter/lib/plugins/ai_chat/widgets/chat_input.dart (修改现有)
   - 将信息源选择器添加到聊天输入
   - 将网络搜索选项与聊天流程集成

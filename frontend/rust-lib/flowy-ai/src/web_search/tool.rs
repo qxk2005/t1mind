@@ -85,29 +85,29 @@ impl WebSearchToolManager {
             },
         });
 
-        // 快速搜索工具 (示例)
-        tools.push(ToolDefinitionPB {
-            name: "quick_search".to_string(),
-            description: "执行快速网络搜索以获取简短、直接的答案。".to_string(),
-            tool_type: ToolTypePB::Search,
-            source: "web_search".to_string(),
-            parameters_schema: json!({
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "快速搜索查询"},
-                },
-                "required": ["query"]
-            }).to_string(),
-            permissions: vec!["search.web".to_string()],
-            is_available: self.web_search_hub.get_status().enabled,
-            metadata: {
-                let mut meta = HashMap::new();
-                meta.insert("category".to_string(), "search".to_string());
-                meta.insert("safe_mode".to_string(), "true".to_string());
-                meta.insert("speed".to_string(), "fast".to_string());
-                meta
-            },
-        });
+        // 快速搜索工具已注释 - 避免与web_search重复调用
+        // tools.push(ToolDefinitionPB {
+        //     name: "quick_search".to_string(),
+        //     description: "执行快速网络搜索以获取简短、直接的答案。".to_string(),
+        //     tool_type: ToolTypePB::Search,
+        //     source: "web_search".to_string(),
+        //     parameters_schema: json!({
+        //         "type": "object",
+        //         "properties": {
+        //             "query": {"type": "string", "description": "快速搜索查询"},
+        //         },
+        //         "required": ["query"]
+        //     }).to_string(),
+        //     permissions: vec!["search.web".to_string()],
+        //     is_available: self.web_search_hub.get_status().enabled,
+        //     metadata: {
+        //         let mut meta = HashMap::new();
+        //         meta.insert("category".to_string(), "search".to_string());
+        //         meta.insert("safe_mode".to_string(), "true".to_string());
+        //         meta.insert("speed".to_string(), "fast".to_string());
+        //         meta
+        //     },
+        // });
 
         // 新闻搜索工具 (示例)
         tools.push(ToolDefinitionPB {

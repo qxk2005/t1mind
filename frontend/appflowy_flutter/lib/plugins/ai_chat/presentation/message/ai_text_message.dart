@@ -8,7 +8,8 @@ import 'package:appflowy/plugins/ai_chat/application/chat_message_stream.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/widgets/message_height_calculator.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/message/tool_call_display.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/message/task_plan_display.dart';
-import 'package:appflowy_backend/log.dart';
+import 'package:appflowy/plugins/ai_chat/widgets/citation_display.dart';
+import 'package:string_validator/string_validator.dart';
 import 'package:appflowy_backend/protobuf/flowy-ai/protobuf.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:fixnum/fixnum.dart';
@@ -335,19 +336,60 @@ class _NonEmptyMessage extends StatelessWidget {
                   withAnimation: enableAnimation && stream != null,
                 ),
               ),
-              if (state.sources.isNotEmpty)
+              
+              // 网络搜索结果引用显示
+              if (_hasWebSearchCitations(state.sources))
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(start: 4.0, top: 8.0),
+                  child: CitationDisplay(
+                    citations: _extractWebSearchCitations(state.sources),
+                    maxVisibleCitations: 3,
+                    showExpandButton: true,
+                  ),
+                ),
+              
+              // 文档来源元数据显示
+              if (_hasDocumentSources(state.sources))
                 SelectionContainer.disabled(
                   child: AIMessageMetadata(
-                    sources: state.sources,
+                    sources: _extractDocumentSources(state.sources),
                     onSelectedMetadata: onSelectedMetadata,
                   ),
                 ),
+              
               if (state.sources.isNotEmpty && !isLastMessage) const VSpace(8.0),
             ],
           ),
         );
       },
     );
+  }
+
+  /// 检查是否有网络搜索引用
+  bool _hasWebSearchCitations(List<ChatMessageRefSource> sources) {
+    return sources.any((source) => source.source == 'web' && isURL(source.id));
+  }
+
+  /// 检查是否有文档来源
+  bool _hasDocumentSources(List<ChatMessageRefSource> sources) {
+    return sources.any((source) => source.source == 'appflowy' || 
+        (source.source == 'web' && !isURL(source.id)));
+  }
+
+  /// 提取网络搜索引用
+  List<CitationInfo> _extractWebSearchCitations(List<ChatMessageRefSource> sources) {
+    return sources
+        .where((source) => source.source == 'web' && isURL(source.id))
+        .map((source) => CitationInfo.fromRefSource(source))
+        .toList();
+  }
+
+  /// 提取文档来源
+  List<ChatMessageRefSource> _extractDocumentSources(List<ChatMessageRefSource> sources) {
+    return sources
+        .where((source) => source.source == 'appflowy' || 
+            (source.source == 'web' && !isURL(source.id)))
+        .toList();
   }
 }
 
