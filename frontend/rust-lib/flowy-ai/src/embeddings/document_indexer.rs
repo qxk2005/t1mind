@@ -3,7 +3,6 @@ use crate::embeddings::indexer::{EmbeddingModel, Indexer};
 use flowy_ai_pub::entities::{EmbeddedChunk, SOURCE, SOURCE_ID, SOURCE_NAME};
 use flowy_error::FlowyError;
 use lib_infra::async_trait::async_trait;
-use ollama_rs::generation::embeddings::request::{EmbeddingsInput, GenerateEmbeddingsRequest};
 use serde_json::json;
 use text_splitter::{ChunkConfig, TextSplitter};
 use tracing::{debug, error, trace, warn};
@@ -54,26 +53,25 @@ impl Indexer for DocumentIndexer {
       contents.push(chunks[i].content.as_ref().unwrap().to_owned());
     }
 
-    let request = GenerateEmbeddingsRequest::new(
-      embedder.model().name().to_string(),
-      EmbeddingsInput::Multiple(contents),
-    );
-    let resp = embedder.embed(request).await?;
-    if resp.embeddings.len() != valid_indices.len() {
+    // 使用新的 embed_texts 方法（支持 OpenAI 和 Ollama）
+    let embeddings = embedder.embed_texts(contents).await?;
+    
+    if embeddings.len() != valid_indices.len() {
       error!(
         "[Embedding] requested {} embeddings, received {} embeddings",
         valid_indices.len(),
-        resp.embeddings.len()
+        embeddings.len()
       );
       return Err(FlowyError::internal().with_context(format!(
         "Mismatch in number of embeddings requested and received: {} vs {}",
         valid_indices.len(),
-        resp.embeddings.len()
+        embeddings.len()
       )));
     }
 
-    for (index, embedding) in resp.embeddings.into_iter().enumerate() {
+    for (index, embedding) in embeddings.into_iter().enumerate() {
       let chunk_idx = valid_indices[index];
+      // 直接使用 Vec<f32>（无需转换）
       chunks[chunk_idx].embeddings = Some(embedding);
     }
 

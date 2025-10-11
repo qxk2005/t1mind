@@ -18,6 +18,7 @@ use flowy_ai_pub::cloud::chat_dto::ChatAuthorType;
 use flowy_ai_pub::cloud::{
   CompleteTextParams, CompletionType, ResponseFormat, StreamAnswer, StreamComplete,
 };
+use tracing::trace;
 use flowy_ai_pub::persistence::select_latest_user_message;
 use flowy_ai_pub::user_service::AIUserService;
 use flowy_database_pub::cloud::{SummaryRowContent, TranslateRowContent};
@@ -29,7 +30,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 use tokio::sync::RwLock;
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 type OllamaClientRef = Arc<RwLock<Option<Weak<Ollama>>>>;
@@ -82,8 +83,30 @@ impl LLMChatController {
   }
 
   pub async fn set_rag_ids(&self, chat_id: &Uuid, rag_ids: &[String]) {
+    info!(
+      "[RAG] 🔧 设置 chat {} 的 RAG IDs: {:?}",
+      chat_id, rag_ids
+    );
     if let Some(chat) = self.get_chat(chat_id) {
       chat.write().await.set_rag_ids(rag_ids.to_vec());
+      trace!("[RAG] ✅ RAG IDs 已成功设置到 chat retriever");
+    } else {
+      trace!("[RAG] ⚠️ Chat {} 不存在，无法设置 RAG IDs", chat_id);
+    }
+  }
+
+  /// 搜索文档（用于 OpenAI 兼容服务器等外部 AI）
+  pub async fn search_documents(
+    &self,
+    chat_id: &Uuid,
+    query: &str,
+    limit: usize,
+    rag_ids: Vec<String>,
+  ) -> FlowyResult<Vec<langchain_rust::schemas::Document>> {
+    if let Some(chat) = self.get_chat(chat_id) {
+      chat.read().await.search(query, limit, rag_ids).await
+    } else {
+      Err(FlowyError::local_ai().with_context(format!("Chat with id {} not found", chat_id)))
     }
   }
 

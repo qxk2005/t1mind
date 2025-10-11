@@ -15,6 +15,7 @@ use crate::mcp::manager::MCPClientManager;
 use crate::agent::config_manager::AgentConfigManager;
 #[cfg(feature = "web-search")]
 use crate::web_search::hub::WebSearchHub;
+use crate::vector_index_manager::VectorIndexManager;
 use flowy_ai_pub::persistence::{
   ChatTableChangeset, select_chat_metadata, select_chat_rag_ids, select_chat_summary, update_chat,
 };
@@ -78,6 +79,7 @@ pub struct AIManager {
   execution_logs: Arc<DashMap<String, Vec<AgentExecutionLogPB>>>,
   #[cfg(feature = "web-search")]
   pub web_search_hub: Arc<WebSearchHub>,
+  pub vector_index_manager: Arc<VectorIndexManager>,
 }
 impl Drop for AIManager {
   fn drop(&mut self) {
@@ -93,6 +95,7 @@ impl AIManager {
     storage_service: Weak<dyn StorageService>,
     query_service: impl AIExternalService,
     local_ai: Arc<LocalAIController>,
+    folder_service: Arc<dyn flowy_folder_pub::query::FolderService>,
   ) -> AIManager {
     let user_service = Arc::new(user_service);
     let external_service = Arc::new(query_service);
@@ -113,6 +116,9 @@ impl AIManager {
     let agent_manager = Arc::new(AgentConfigManager::new(store_preferences.clone()));
     #[cfg(feature = "web-search")]
     let web_search_hub = Arc::new(WebSearchHub::new(store_preferences.clone()));
+    
+    // 初始化向量索引管理器
+    let vector_index_manager = Arc::new(VectorIndexManager::new(folder_service));
 
     Self {
       cloud_service_wm,
@@ -128,6 +134,7 @@ impl AIManager {
       execution_logs: Arc::new(DashMap::new()),
       #[cfg(feature = "web-search")]
       web_search_hub,
+      vector_index_manager,
     }
   }
 
@@ -206,7 +213,88 @@ impl AIManager {
     info!("{} local ai is enabled: {}", workspace_id, is_enabled);
     self.prepare_local_ai(workspace_id, is_enabled).await;
     self.reload_with_workspace_id(workspace_id).await;
+    
+    // 🔧 加载并应用 OpenAI 兼容的嵌入服务配置
+    self.load_and_apply_embedding_config(workspace_id).await;
+    
     Ok(())
+  }
+  
+  /// 加载并应用嵌入服务配置
+  async fn load_and_apply_embedding_config(&self, workspace_id: &Uuid) {
+    use crate::embeddings::context::EmbedContext;
+    use crate::embeddings::scheduler::OpenAIEmbeddingConfig;
+    
+    trace!("[Embedding] 🔍 开始加载嵌入服务配置 for workspace: {}", workspace_id);
+    
+    // 尝试从 store_preferences 读取 OpenAI 兼容嵌入服务配置
+    if let Some(settings_json) = self.store_preferences.get_str("appearance_settings") {
+      trace!("[Embedding] 📄 找到 appearance_settings 配置");
+      if let Ok(v) = serde_json::from_str::<serde_json::Value>(&settings_json) {
+        trace!("[Embedding] ✅ 成功解析 JSON");
+        let map = v
+          .get("setting_key_value")
+          .or_else(|| v.get("settingKeyValue"))
+          .and_then(|v| v.as_object());
+        
+        if let Some(map) = map {
+          trace!("[Embedding] 🗂️ 找到 setting_key_value map，键数量: {}", map.len());
+          trace!("[Embedding] 🔑 所有键名: {:?}", map.keys().collect::<Vec<_>>());
+          let scoped = |k: &str| -> String { format!("{}.{}", k, workspace_id) };
+          let get = |k: &str| -> Option<String> {
+            let scoped_key = scoped(k);
+            let result = map.get(&scoped_key)
+              .and_then(|v| v.as_str().map(|s| s.to_string()))
+              .or_else(|| map.get(k).and_then(|v| v.as_str().map(|s| s.to_string())));
+            trace!("[Embedding] 🔑 尝试读取键 '{}' / '{}': {:?}", scoped_key, k, result.as_ref().map(|s| if s.len() > 20 { format!("{}...", &s[..20]) } else { s.clone() }));
+            result
+          };
+          
+          // 读取嵌入服务配置
+          // 优先使用 embedBaseUrl，如果没有则回退到 baseUrl 或 chatBaseUrl
+          let embedding_base_url = get("ai.openai.embedBaseUrl")
+            .or_else(|| get("ai.openai.baseUrl"))
+            .or_else(|| get("ai.openai.chatBaseUrl"));
+          
+          if let Some(embedding_base_url) = embedding_base_url {
+            let api_key = get("ai.openai.apiKey").unwrap_or_default();
+            let model = get("ai.openai.embeddingModel")
+              .unwrap_or_else(|| "text-embedding-3-small".to_string());
+            
+            if !embedding_base_url.is_empty() && !api_key.is_empty() {
+              info!(
+                "[Embedding] 🔧 检测到 OpenAI 兼容嵌入服务配置: {} (模型: {})",
+                embedding_base_url, model
+              );
+              
+              let config = OpenAIEmbeddingConfig {
+                base_url: embedding_base_url,
+                api_key,
+                model,
+              };
+              
+              EmbedContext::shared().set_openai_embedding_config(Some(config));
+              return;
+            } else {
+              warn!("[Embedding] ⚠️ OpenAI 嵌入服务配置不完整: base_url={}, api_key_len={}", 
+                    embedding_base_url, api_key.len());
+            }
+          } else {
+            trace!("[Embedding] ℹ️ 未找到 ai.openai.embedBaseUrl 配置");
+          }
+        } else {
+          warn!("[Embedding] ⚠️ 未找到 setting_key_value 或 settingKeyValue 字段");
+        }
+      } else {
+        warn!("[Embedding] ⚠️ 无法解析 appearance_settings JSON");
+      }
+    } else {
+      warn!("[Embedding] ⚠️ 未找到 appearance_settings 配置");
+    }
+    
+    // 如果没有 OpenAI 配置或配置无效，清除配置（使用 Ollama）
+    trace!("[Embedding] 🔧 使用默认 Ollama 嵌入服务");
+    EmbedContext::shared().set_openai_embedding_config(None);
   }
 
   pub async fn initialize_after_sign_in(&self, workspace_id: &Uuid) -> Result<(), FlowyError> {
@@ -330,7 +418,7 @@ impl AIManager {
       .query_chat_rag_ids(parent_view_id, chat_id)
       .await
       .unwrap_or_default();
-    info!("[Chat] create chat with rag_ids: {:?}", rag_ids);
+    trace!("[Chat] create chat with rag_ids: {:?}", rag_ids);
 
     self
       .cloud_service_wm
@@ -355,18 +443,18 @@ impl AIManager {
     let agent_config = if let Some(ref agent_id) = params.agent_id {
       match self.agent_manager.get_agent_config(agent_id) {
         Some(mut config) => {
-          info!("[Chat] Using agent: {} ({})", config.name, config.id);
-          info!("[Chat] Agent has {} tools, tool_calling enabled: {}", 
+          trace!("[Chat] Using agent: {} ({})", config.name, config.id);
+          trace!("[Chat] Agent has {} tools, tool_calling enabled: {}", 
                 config.available_tools.len(), config.capabilities.enable_tool_calling);
           
           // 🔍 获取工具详情用于增强系统提示
           let tool_details = self.discover_available_tools().await;
-          info!("[Chat] 🔍 Discovered {} tools from MCP servers", tool_details.len());
+          trace!("[Chat] 🔍 Discovered {} tools from MCP servers", tool_details.len());
           
           // 打印每个发现的工具及其来源服务器
           #[cfg(feature = "mcp")]
           for (server_id, tool) in &tool_details {
-            // info!("[Chat] 🔍   - Tool '{}' from server '{}'", tool.name, server_id);
+            // trace!("[Chat] 🔍   - Tool '{}' from server '{}'", tool.name, server_id);
           }
           
           // 收集工具名称（去重）
@@ -385,7 +473,7 @@ impl AIManager {
           #[cfg(not(feature = "mcp"))]
           let discovered_tool_names: Vec<String> = vec![];
           
-          info!("[Chat] 🔍 Collected {} unique tool names", discovered_tool_names.len());
+          trace!("[Chat] 🔍 Collected {} unique tool names", discovered_tool_names.len());
           
           // 🆕 确保内置工具总是被包含（无论工具列表是否为空）
           if config.capabilities.enable_tool_calling {
@@ -403,7 +491,7 @@ impl AIManager {
                 if !all_tools.contains(&tool) {
                   all_tools.push(tool.clone());
                   needs_update = true;
-                  info!("[Chat] ✅ 添加内置网络搜索工具: {}", tool);
+                  trace!("[Chat] ✅ 添加内置网络搜索工具: {}", tool);
                 }
               }
             }
@@ -419,13 +507,13 @@ impl AIManager {
               if !all_tools.contains(&tool) {
                 all_tools.push(tool.clone());
                 needs_update = true;
-                info!("[Chat] ✅ 添加内置工具: {}", tool);
+                trace!("[Chat] ✅ 添加内置工具: {}", tool);
               }
             }
             
             // 如果工具列表为空，添加发现的 MCP 工具
             if config.available_tools.is_empty() {
-              info!("[Chat] 智能体工具列表为空，开始自动发现工具...");
+              trace!("[Chat] 智能体工具列表为空，开始自动发现工具...");
               all_tools.extend(discovered_tool_names.clone());
               needs_update = true;
             }
@@ -433,7 +521,7 @@ impl AIManager {
             if needs_update {
               config.available_tools = all_tools;
               config.updated_at = chrono::Utc::now().timestamp();
-              info!("[Chat] ✅ 已将 {} 个工具添加到智能体配置（包含内置工具）", config.available_tools.len());
+              trace!("[Chat] ✅ 已将 {} 个工具添加到智能体配置（包含内置工具）", config.available_tools.len());
               
               // 使用更新方法保存配置
               let update_request = crate::entities::UpdateAgentRequestPB {
@@ -468,7 +556,7 @@ impl AIManager {
                 .map(|(_server_id, tool)| (tool.name.clone(), tool.clone()))
                 .collect();
               let prompt = build_agent_system_prompt_with_tools(&config, &tool_map);
-              // info!("[Chat] 🔧 Using enhanced system prompt with {} tool details", tool_map.len());
+              // trace!("[Chat] 🔧 Using enhanced system prompt with {} tool details", tool_map.len());
               Some(prompt)
             }
             #[cfg(not(feature = "mcp"))]
@@ -541,15 +629,15 @@ impl AIManager {
 
     // 🆕 获取工具定义列表（用于 OpenAI Function Call API）
     let tool_definitions = if let Some(ref config) = agent_config {
-      // info!("[Chat] 🔧 Agent config found: {} ({}), enable_tool_calling: {}, available_tools count: {}", 
+      // trace!("[Chat] 🔧 Agent config found: {} ({}), enable_tool_calling: {}, available_tools count: {}", 
       //       config.name, config.id, config.capabilities.enable_tool_calling, config.available_tools.len());
-      // info!("[Chat] 🔧 Available tools list: {:?}", config.available_tools);
+      // trace!("[Chat] 🔧 Available tools list: {:?}", config.available_tools);
       
       if config.capabilities.enable_tool_calling && !config.available_tools.is_empty() {
         let tools = self.get_tool_definitions_by_names(&config.available_tools).await;
-        // info!("[Chat] 🔧 Got {} tool definitions for OpenAI Function Call", tools.len());
+        // trace!("[Chat] 🔧 Got {} tool definitions for OpenAI Function Call", tools.len());
         for tool in &tools {
-          // info!("[Chat] 🔧   - Tool '{}' from server '{}': {}", 
+          // trace!("[Chat] 🔧   - Tool '{}' from server '{}': {}", 
           //       tool.name, tool.source, tool.description);
         }
         Some(tools)
@@ -564,6 +652,31 @@ impl AIManager {
     };
 
     let chat = self.get_or_create_chat_instance(&params.chat_id).await?;
+    
+    // 🔧 关键修复：在发送消息前，确保本地 AI chat 实例存在并同步最新的 RAG IDs
+    // 这对于 RAG 功能和 OpenAI 兼容模式的文档检索都是必需的
+    if self.local_ai.is_enabled() {
+      let uid = self.user_service.user_id()?;
+      let mut conn = self.user_service.sqlite_connection(uid)?;
+      let rag_ids = self.get_rag_ids(&params.chat_id, &mut conn).await?;
+      let workspace_id = self.user_service.workspace_id()?;
+      let model = self.get_active_model(&params.chat_id.to_string()).await;
+      let summary = select_chat_summary(&mut conn, &params.chat_id).unwrap_or_default();
+      
+      info!(
+        "[RAG] 🔄 确保 LLMChat 实例存在: chat_id={}, rag_ids={:?}, model={}",
+        params.chat_id, rag_ids, model.name
+      );
+      
+      // 先确保 LLMChat 实例存在
+      self.local_ai.open_chat(&workspace_id, &params.chat_id, &model.name, rag_ids.clone(), summary).await?;
+      
+      // 然后同步 RAG IDs（此时实例已存在）
+      self.local_ai.set_rag_ids(&params.chat_id, &rag_ids).await;
+      
+      trace!("[RAG] ✅ LLMChat 实例已就绪并同步 RAG IDs");
+    }
+    
     let ai_model = self.get_active_model(&params.chat_id.to_string()).await;
     let question = chat.stream_chat_message(&params, ai_model, agent_config, tool_call_handler, enhanced_prompt, exec_logs, tool_definitions).await?;
     let _ = self
@@ -582,6 +695,30 @@ impl AIManager {
     model: Option<AIModelPB>,
   ) -> FlowyResult<()> {
     let chat = self.get_or_create_chat_instance(chat_id).await?;
+    
+    // 🔧 同样需要在重新生成回答时确保实例存在并同步 RAG IDs
+    if self.local_ai.is_enabled() {
+      let uid = self.user_service.user_id()?;
+      let mut conn = self.user_service.sqlite_connection(uid)?;
+      let rag_ids = self.get_rag_ids(chat_id, &mut conn).await?;
+      let workspace_id = self.user_service.workspace_id()?;
+      let active_model = self.get_active_model(&chat_id.to_string()).await;
+      let summary = select_chat_summary(&mut conn, chat_id).unwrap_or_default();
+      
+      info!(
+        "[RAG] 🔄 重新生成回答前确保实例存在: chat_id={}, rag_ids={:?}",
+        chat_id, rag_ids
+      );
+      
+      // 先确保 LLMChat 实例存在
+      self.local_ai.open_chat(&workspace_id, chat_id, &active_model.name, rag_ids.clone(), summary).await?;
+      
+      // 然后同步 RAG IDs
+      self.local_ai.set_rag_ids(chat_id, &rag_ids).await;
+      
+      trace!("[RAG] ✅ 重新生成：LLMChat 实例已就绪");
+    }
+    
     let question_message_id = chat
       .get_question_id_from_answer_id(chat_id, answer_message_id)
       .await?;
@@ -937,22 +1074,39 @@ impl AIManager {
     chat_id: &Uuid,
     conn: &mut DBConnection,
   ) -> FlowyResult<Vec<String>> {
+    info!(
+      "[RAG] 📥 尝试获取 chat {} 的 RAG IDs",
+      chat_id
+    );
+    
     match select_chat_rag_ids(&mut *conn, &chat_id.to_string()) {
       Ok(ids) => {
+        info!(
+          "[RAG] ✅ 从数据库成功获取 RAG IDs: {:?}",
+          ids
+        );
         return Ok(ids);
       },
-      Err(_) => {
+      Err(err) => {
         // we no long use store_preferences to store chat settings
-        warn!("[Chat] failed to get chat rag ids from sqlite, try to get from store_preferences");
+        warn!(
+          "[RAG] ⚠️ 从数据库获取 RAG IDs 失败: {}，尝试从 store_preferences 获取",
+          err
+        );
         if let Some(settings) = self
           .store_preferences
           .get_object::<ChatSettings>(&setting_store_key(chat_id))
         {
+          info!(
+            "[RAG] 📦 从 store_preferences 获取到 RAG IDs: {:?}",
+            settings.rag_ids
+          );
           return Ok(settings.rag_ids);
         }
       },
     }
 
+    trace!("[RAG] 🔄 从云端刷新 chat settings");
     let settings = refresh_chat_setting(
       &self.user_service,
       &self.cloud_service_wm,
@@ -960,11 +1114,18 @@ impl AIManager {
       chat_id,
     )
     .await?;
+    info!(
+      "[RAG] 🌐 从云端获取到 RAG IDs: {:?}",
+      settings.rag_ids
+    );
     Ok(settings.rag_ids)
   }
 
   pub async fn update_rag_ids(&self, chat_id: &Uuid, rag_ids: Vec<String>) -> FlowyResult<()> {
-    info!("[Chat] update chat:{} rag ids: {:?}", chat_id, rag_ids);
+    info!(
+      "[RAG] 🔄 更新 chat {} 的 RAG IDs: {:?}",
+      chat_id, rag_ids
+    );
     let workspace_id = self.user_service.workspace_id()?;
     let update_setting = UpdateChatParams {
       name: None,
@@ -986,6 +1147,9 @@ impl AIManager {
     let user_service = self.user_service.clone();
     let external_service = self.external_service.clone();
     self.local_ai.set_rag_ids(chat_id, &rag_ids).await;
+    info!(
+      "[RAG] ✅ RAG IDs 已同步到 local_ai，准备同步文档"
+    );
 
     let rag_ids = rag_ids
       .into_iter()
@@ -1439,7 +1603,7 @@ async fn refresh_chat_setting(
   store_preferences: &Arc<KVStorePreferences>,
   chat_id: &Uuid,
 ) -> FlowyResult<ChatSettings> {
-  info!("[Chat] refresh chat:{} setting", chat_id);
+  trace!("[Chat] refresh chat:{} setting", chat_id);
   let workspace_id = user_service.workspace_id()?;
   let settings = cloud_service
     .get_chat_settings(&workspace_id, chat_id)

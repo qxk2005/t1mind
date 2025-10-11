@@ -126,6 +126,12 @@ pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
         .event(AIEvent::ClearWebSearchCache, clear_web_search_cache_handler);
     }
     
+    // 向量索引事件注册
+    plugin = plugin
+      .event(AIEvent::RebuildVectorIndex, rebuild_vector_index_handler)
+      .event(AIEvent::GetVectorIndexStatus, get_vector_index_status_handler)
+      .event(AIEvent::StopVectorIndexing, stop_vector_indexing_handler);
+    
     plugin
 }
 
@@ -343,4 +349,18 @@ pub enum AIEvent {
   /// 清空网络搜索缓存
   #[event()]
   ClearWebSearchCache = 67,
+  
+  // ==================== 向量索引相关事件 ====================
+  
+  /// 重建向量索引
+  #[event(input = "RebuildVectorIndexRequestPB", output = "RebuildVectorIndexResponsePB")]
+  RebuildVectorIndex = 68,
+  
+  /// 获取向量索引状态
+  #[event(output = "VectorIndexStatusPB")]
+  GetVectorIndexStatus = 69,
+  
+  /// 停止向量索引
+  #[event()]
+  StopVectorIndexing = 70,
 }

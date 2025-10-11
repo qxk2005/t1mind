@@ -16,6 +16,7 @@ pub mod agent;
 mod ai_tool;
 pub mod embeddings;
 pub use embeddings::store::SqliteVectorStore;
+pub mod vector_index_manager;
 
 mod middleware;
 mod model_select;

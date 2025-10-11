@@ -8,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Weak};
-use tracing::info;
+use tracing::trace;
 use uuid::Uuid;
 use validator::Validate;
 
@@ -45,7 +45,7 @@ pub(crate) async fn stream_chat_message_handler(
 
   let chat_id = Uuid::from_str(&chat_id)?;
   
-  info!("🔧 [HANDLER] About to call ai_manager.stream_chat_message: chat_id={}, message='{}', agent_id={:?}", 
+  trace!("🔧 [HANDLER] About to call ai_manager.stream_chat_message: chat_id={}, message='{}', agent_id={:?}", 
         chat_id, message, agent_id);
   
   let params = StreamMessageParams {
@@ -65,7 +65,7 @@ pub(crate) async fn stream_chat_message_handler(
   let mut debug_result = ai_manager.stream_chat_message(params).await?;
   debug_result.content = format!("🔧 [DEBUG] Handler called successfully: {}", debug_result.content);
   
-  info!("🔧 [HANDLER] ai_manager.stream_chat_message completed successfully");
+  trace!("🔧 [HANDLER] ai_manager.stream_chat_message completed successfully");
   data_result_ok(debug_result)
 }
 
@@ -407,5 +407,73 @@ pub(crate) async fn set_custom_prompt_database_configuration_handler(
     .set_custom_prompt_database_configuration(config)
     .await?;
 
+  Ok(())
+}
+
+// ==================== 向量索引管理 ====================
+
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub(crate) async fn rebuild_vector_index_handler(
+  data: AFPluginData<RebuildVectorIndexRequestPB>,
+  ai_manager: AFPluginState<Weak<AIManager>>,
+) -> DataResult<RebuildVectorIndexResponsePB, FlowyError> {
+  let data = data.try_into_inner()?;
+  let ai_manager = upgrade_ai_manager(ai_manager)?;
+  
+  let workspace_id = ai_manager.user_service.workspace_id()?;
+  let document_ids = if data.document_ids.is_empty() {
+    None
+  } else {
+    Some(data.document_ids)
+  };
+  
+  match ai_manager
+    .vector_index_manager
+    .rebuild_index(workspace_id, document_ids)
+    .await
+  {
+    Ok(_) => data_result_ok(RebuildVectorIndexResponsePB {
+      success: true,
+      error: None,
+    }),
+    Err(err) => data_result_ok(RebuildVectorIndexResponsePB {
+      success: false,
+      error: Some(err.to_string()),
+    }),
+  }
+}
+
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub(crate) async fn get_vector_index_status_handler(
+  ai_manager: AFPluginState<Weak<AIManager>>,
+) -> DataResult<VectorIndexStatusPB, FlowyError> {
+  let ai_manager = upgrade_ai_manager(ai_manager)?;
+  let manager = &ai_manager.vector_index_manager;
+  
+  let state = match manager.get_state().await {
+    crate::vector_index_manager::VectorIndexState::Idle => VectorIndexStatePB::IndexIdle,
+    crate::vector_index_manager::VectorIndexState::Running => VectorIndexStatePB::IndexRunning,
+    crate::vector_index_manager::VectorIndexState::Completed => VectorIndexStatePB::IndexCompleted,
+    crate::vector_index_manager::VectorIndexState::Failed => VectorIndexStatePB::IndexFailed,
+    crate::vector_index_manager::VectorIndexState::Stopping => VectorIndexStatePB::IndexStopping,
+  };
+  
+  data_result_ok(VectorIndexStatusPB {
+    state,
+    total_documents: manager.get_total_documents(),
+    indexed_documents: manager.get_indexed_documents(),
+    recent_logs: manager.get_recent_logs().await,
+    error: manager.get_error().await,
+    start_time: manager.get_start_time(),
+    last_update_time: manager.get_last_update_time(),
+  })
+}
+
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub(crate) async fn stop_vector_indexing_handler(
+  ai_manager: AFPluginState<Weak<AIManager>>,
+) -> FlowyResult<()> {
+  let ai_manager = upgrade_ai_manager(ai_manager)?;
+  ai_manager.vector_index_manager.stop_indexing().await;
   Ok(())
 }

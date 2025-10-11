@@ -52,7 +52,11 @@ async-trait.workspace = true
 async-stream = "0.3.6"
 flowy-database-pub = { workspace = true }
 flowy-document = { workspace = true }
+flowy-folder-pub = { workspace = true }
 collab-document = { workspace = true }
+collab = { workspace = true }
+collab-entity = { workspace = true }
+collab-integrate = { workspace = true }
 langchain-rust = { version = "4.6.0", features = ["ollama"] }
 text-splitter = "0.28.0"
 url = "2.5.0"

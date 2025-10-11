@@ -2598,3 +2598,54 @@ impl EmptyRequestPB {
     }
   }
 }
+
+// ==================== 向量索引管理 ====================
+
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct RebuildVectorIndexRequestPB {
+  #[pb(index = 1)]
+  pub document_ids: Vec<String>,
+}
+
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct RebuildVectorIndexResponsePB {
+  #[pb(index = 1)]
+  pub success: bool,
+  
+  #[pb(index = 2, one_of)]
+  pub error: Option<String>,
+}
+
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct VectorIndexStatusPB {
+  #[pb(index = 1)]
+  pub state: VectorIndexStatePB,
+  
+  #[pb(index = 2)]
+  pub total_documents: u32,
+  
+  #[pb(index = 3)]
+  pub indexed_documents: u32,
+  
+  #[pb(index = 4)]
+  pub recent_logs: Vec<String>,
+  
+  #[pb(index = 5, one_of)]
+  pub error: Option<String>,
+  
+  #[pb(index = 6)]
+  pub start_time: i64,
+  
+  #[pb(index = 7)]
+  pub last_update_time: i64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ProtoBuf_Enum, Default)]
+pub enum VectorIndexStatePB {
+  #[default]
+  IndexIdle = 0,
+  IndexRunning = 1,
+  IndexCompleted = 2,
+  IndexFailed = 3,
+  IndexStopping = 4,
+}

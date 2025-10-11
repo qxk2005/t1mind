@@ -12,7 +12,6 @@ use futures::stream::{self, StreamExt};
 use langchain_rust::llm::client::OllamaClient;
 use langchain_rust::schemas::Document;
 use langchain_rust::vectorstore::{VecStoreOptions, VectorStore};
-use ollama_rs::generation::embeddings::request::{EmbeddingsInput, GenerateEmbeddingsRequest};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
@@ -107,18 +106,15 @@ impl MultipleSourceRetrieverStore for SqliteVectorStore {
 
     // Create embedder and generate embedding for query
     let embedder = self.create_embedder()?;
-    let request = GenerateEmbeddingsRequest::new(
-      embedder.model().name().to_string(),
-      EmbeddingsInput::Single(query.to_string()),
-    );
-
-    let embedding = embedder.embed(request).await?.embeddings;
-    if embedding.is_empty() {
+    
+    // 使用 embed_texts 来支持 OpenAI 和 Ollama
+    let embeddings = embedder.embed_texts(vec![query.to_string()]).await?;
+    if embeddings.is_empty() {
       return Ok(Vec::new());
     }
 
-    debug_assert!(embedding.len() == 1);
-    let query_embedding = embedding.first().unwrap();
+    debug_assert!(embeddings.len() == 1);
+    let query_embedding = embeddings.first().unwrap();
 
     // Perform similarity search in the database
     let results = vector_db

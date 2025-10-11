@@ -17,6 +17,7 @@ pub enum ChatNotification {
   DidUpdateChatSettings = 7,
   LocalAIResourceUpdated = 8,
   DidUpdateSelectedModel = 9,
+  VectorIndexStatusUpdated = 10,
 }
 
 impl std::convert::From<ChatNotification> for i32 {
@@ -36,6 +37,7 @@ impl std::convert::From<i32> for ChatNotification {
       7 => ChatNotification::DidUpdateChatSettings,
       8 => ChatNotification::LocalAIResourceUpdated,
       9 => ChatNotification::DidUpdateSelectedModel,
+      10 => ChatNotification::VectorIndexStatusUpdated,
       _ => ChatNotification::Unknown,
     }
   }

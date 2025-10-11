@@ -1,5 +1,5 @@
 use crate::local_ai::controller::LocalAIController;
-use flowy_ai_pub::persistence::select_message_content;
+use flowy_ai_pub::persistence::{select_chat_rag_ids, select_message_content};
 use std::collections::HashMap;
 
 use flowy_ai_pub::cloud::{
@@ -97,6 +97,126 @@ impl ChatServiceMiddleware {
     Ok(content)
   }
 
+  /// 从选中的文档中检索相关内容并添加到消息上下文中
+  /// 用于 OpenAI 兼容服务器和云端 AI
+  async fn get_message_content_with_rag(
+    &self,
+    chat_id: &Uuid,
+    question: &str,
+  ) -> FlowyResult<String> {
+    // 获取 rag_ids
+    let uid = self.user_service.user_id()?;
+    let mut conn = self.user_service.sqlite_connection(uid)?;
+    let rag_ids = match select_chat_rag_ids(&mut conn, &chat_id.to_string()) {
+      Ok(ids) => ids,
+      Err(_) => Vec::new(),
+    };
+
+    if rag_ids.is_empty() {
+      trace!("[RAG] 📚 OpenAI 兼容模式：没有选择文档，直接使用用户问题");
+      return Ok(question.to_string());
+    }
+
+    info!(
+      "[RAG] 📚 OpenAI 兼容模式：检索文档 - rag_ids={:?}",
+      rag_ids
+    );
+
+    // 尝试直接使用嵌入调度器进行搜索（不依赖 local_ai.is_ready()）
+    // 这样即使 Ollama 聊天客户端未初始化，只要配置了嵌入服务就能工作
+    match self.try_search_documents_via_embeddings(chat_id, question, &rag_ids).await {
+      Ok(documents) if !documents.is_empty() => {
+        info!(
+          "[RAG] 📖 OpenAI 兼容模式：找到 {} 个相关文档片段",
+          documents.len()
+        );
+        
+        // 构建包含文档上下文的消息
+        let context = documents
+          .iter()
+          .map(|doc| doc.page_content.clone())
+          .collect::<Vec<_>>()
+          .join("\n\n");
+        
+        let enhanced_message = format!(
+          r#"Use the following context to answer the question. Only use information from the context provided.
+
+##Context##
+{}
+
+##Question##
+{}"#,
+          context, question
+        );
+        
+        trace!("[RAG] ✅ OpenAI 兼容模式：已添加文档上下文到消息");
+        return Ok(enhanced_message);
+      }
+      Ok(_) => {
+        warn!(
+          "[RAG] ⚠️ OpenAI 兼容模式：未找到相关文档，使用原始问题"
+        );
+      }
+      Err(err) => {
+        warn!(
+          "[RAG] ⚠️ OpenAI 兼容模式：文档检索失败: {}，使用原始问题",
+          err
+        );
+      }
+    }
+
+    Ok(question.to_string())
+  }
+  
+  /// 直接使用嵌入服务进行文档搜索
+  /// 不依赖 local_ai.is_ready()，因为即使 Ollama 聊天客户端未初始化，
+  /// 嵌入服务（无论是 Ollama 还是 OpenAI 兼容）仍然可能可用
+  async fn try_search_documents_via_embeddings(
+    &self,
+    _chat_id: &Uuid,
+    query: &str,
+    rag_ids: &[String],
+  ) -> FlowyResult<Vec<langchain_rust::schemas::Document>> {
+    use crate::embeddings::context::EmbedContext;
+    use langchain_rust::schemas::Document;
+    use std::collections::HashMap;
+    
+    // 获取嵌入调度器
+    let scheduler = EmbedContext::shared().get_scheduler()?;
+    
+    // 获取 workspace_id
+    let workspace_id = self.user_service.workspace_id()?;
+    
+    trace!("[RAG] 🔍 使用嵌入调度器搜索文档: query='{}', rag_ids={:?}", query, rag_ids);
+    
+    // 使用调度器进行搜索，限制返回 5 个结果
+    let results = scheduler
+      .search_with_filter(&workspace_id, query, 5, Some(rag_ids.to_vec()))
+      .await?;
+    
+    // 转换搜索结果为 Document 格式
+    let documents: Vec<Document> = results
+      .into_iter()
+      .map(|item| {
+        let mut metadata = HashMap::new();
+        metadata.insert(
+          "object_id".to_string(),
+          serde_json::json!(item.object_id.to_string()),
+        );
+        
+        Document {
+          page_content: item.content,
+          metadata,
+          score: item.score,
+        }
+      })
+      .collect();
+    
+    trace!("[RAG] ✅ 嵌入调度器返回 {} 个文档", documents.len());
+    
+    Ok(documents)
+  }
+
   /// 构建包含系统提示词的消息数组
   /// OpenAI API 标准格式：独立的 system 和 user 消息
   fn build_messages_with_system_prompt(
@@ -164,8 +284,9 @@ impl ChatServiceMiddleware {
     system_prompt: Option<String>,
     tools: Option<Vec<ToolDefinitionPB>>,  // 🆕 添加工具参数
   ) -> Result<StreamAnswer, FlowyError> {
-    // 获取原始消息内容
-    let content = self.get_message_content(question_id)?;
+    // 获取消息内容（包含 RAG 文档检索）
+    let question = self.get_message_content(question_id)?;
+    let content = self.get_message_content_with_rag(chat_id, &question).await?;
     
     info!(
       "stream_answer_with_system_prompt use model: {:?}, has_system_prompt: {}, has_tools: {}",
@@ -214,8 +335,10 @@ impl ChatServiceMiddleware {
     } else {
       // 如果配置了 OpenAI 兼容服务器，则优先直接调用（使用标准 system/user 消息格式）
       if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
+        // 🔧 重要修复：添加 RAG 文档检索支持
+        let content_with_rag = self.get_message_content_with_rag(chat_id, &content).await?;
         let (_init_reasoning, stream) = self
-          .openai_chat_stream_with_system(&cfg, Some(&ai_model.name), content, system_prompt, tools.as_deref())
+          .openai_chat_stream_with_system(&cfg, Some(&ai_model.name), content_with_rag, system_prompt, tools.as_deref())
           .await?;
         return Ok(stream);
       }
@@ -1037,7 +1160,9 @@ impl ChatServiceMiddleware {
     } else {
       ai_model.name.clone()
     };
-    let content = self.get_message_content(question_id)?;
+    // 获取消息内容（包含 RAG 文档检索）
+    let question = self.get_message_content(question_id)?;
+    let content = self.get_message_content_with_rag(chat_id, &question).await?;
     let tools_clone = tools.clone();
     let tool_handler = tool_handler.unwrap();
     
@@ -1486,8 +1611,10 @@ impl ChatCloudService for ChatServiceMiddleware {
       // 如果配置了 OpenAI 兼容服务器，则优先直接调用（SSE）
       if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
         let content = self.get_message_content(question_id)?;
+        // 🔧 重要修复：添加 RAG 文档检索支持
+        let content_with_rag = self.get_message_content_with_rag(chat_id, &content).await?;
         let (_init_reasoning, stream) = self
-          .openai_chat_stream(&cfg, Some(&ai_model.name), content)
+          .openai_chat_stream(&cfg, Some(&ai_model.name), content_with_rag)
           .await?;
         return Ok(stream);
       }

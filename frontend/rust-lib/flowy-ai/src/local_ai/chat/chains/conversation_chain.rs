@@ -27,7 +27,7 @@ use serde_json::{Value, json};
 use std::{collections::HashMap, pin::Pin, sync::Arc};
 use tokio::sync::Mutex;
 use tokio_util::either::Either;
-use tracing::{error, trace};
+use tracing::{error, info, trace, warn};
 use uuid::Uuid;
 
 pub const CAN_NOT_ANSWER_WITH_CONTEXT: &str = "I couldn't find any relevant information in the sources you selected. Please try asking a different question or remove selected sources";
@@ -122,7 +122,12 @@ impl ConversationalRetrieverChain {
     question: &str,
   ) -> Result<Either<Vec<Document>, StreamValue>, ChainError> {
     let rag_ids = self.retriever.get_rag_ids();
+    info!(
+      "[RAG] 📚 检查文档检索: question='{}', rag_ids={:?}, is_empty={}",
+      question, rag_ids, rag_ids.is_empty()
+    );
     if rag_ids.is_empty() {
+      trace!("[RAG] ⚠️ RAG IDs 为空，将不会检索任何文档！请检查是否选择了信息源。");
       Ok(Either::Left(vec![]))
     } else {
       let documents = self
@@ -131,9 +136,14 @@ impl ConversationalRetrieverChain {
         .await
         .map_err(|e| ChainError::RetrieverError(e.to_string()))?;
 
+      info!(
+        "[RAG] 📖 文档检索完成: 找到 {} 个相关文档",
+        documents.len()
+      );
+
       if documents.is_empty() {
-        trace!(
-          "[Embedding] No relevant documents for given RAG IDs:{:?}. try generating suggested questions",
+        warn!(
+          "[RAG] ⚠️ 未找到相关文档！RAG IDs: {:?}. 尝试生成建议问题",
           rag_ids
         );
 

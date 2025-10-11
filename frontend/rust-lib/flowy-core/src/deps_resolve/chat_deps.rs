@@ -4,15 +4,17 @@ use collab::preclude::updates::decoder::Decode;
 use collab::preclude::{Collab, StateVector};
 use collab::util::is_change_since_sv;
 use collab_entity::CollabType;
+use collab_integrate::instant_indexed_data_provider::unindexed_data_form_collab;
 use flowy_ai::ai_manager::{AIExternalService, AIManager};
 use flowy_ai::local_ai::chat::retriever::{LangchainDocument, MultipleSourceRetrieverStore};
 use flowy_ai::local_ai::controller::LocalAIController;
 use flowy_ai_pub::cloud::ChatCloudService;
-use flowy_ai_pub::entities::{SOURCE, SOURCE_ID, SOURCE_NAME};
+use flowy_ai_pub::entities::{SOURCE, SOURCE_ID, SOURCE_NAME, UnindexedCollab, UnindexedCollabMetadata};
 use flowy_ai_pub::persistence::AFCollabMetadata;
 use flowy_ai_pub::user_service::AIUserService;
 use flowy_error::{FlowyError, FlowyResult};
 use flowy_folder::ViewLayout;
+use collab::entity::EncodedCollab;
 use flowy_folder_pub::cloud::{FolderCloudService, FullSyncCollabParams};
 use flowy_folder_pub::query::FolderService;
 use flowy_search_pub::tantivy_state::DocumentTantivyState;
@@ -29,7 +31,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 pub struct ChatDepsResolver;
@@ -45,22 +47,24 @@ impl ChatDepsResolver {
     local_ai: Arc<LocalAIController>,
   ) -> Arc<AIManager> {
     let user_service = ChatUserServiceImpl(authenticate_user);
+    let folder_service_arc = Arc::new(folder_service);
     Arc::new(AIManager::new(
       cloud_service,
       user_service,
       store_preferences,
       storage_service,
       ChatQueryServiceImpl {
-        folder_service: Box::new(folder_service),
+        folder_service: folder_service_arc.clone(),
         folder_cloud_service,
       },
       local_ai,
+      folder_service_arc,
     ))
   }
 }
 
 struct ChatQueryServiceImpl {
-  folder_service: Box<dyn FolderService>,
+  folder_service: Arc<dyn FolderService>,
   folder_cloud_service: Arc<dyn FolderCloudService>,
 }
 
@@ -89,6 +93,7 @@ impl AIExternalService for ChatQueryServiceImpl {
     mut rag_metadata_map: HashMap<Uuid, AFCollabMetadata>,
   ) -> Result<Vec<AFCollabMetadata>, FlowyError> {
     let mut result = Vec::new();
+    let mut documents_to_index = Vec::new(); // 收集需要索引的文档
 
     info!("[Embedding] sync rag documents: {:?}", rag_ids);
     for rag_id in rag_ids {
@@ -109,7 +114,7 @@ impl AIExternalService for ChatQueryServiceImpl {
       };
 
       // Check if the state vector exists and detect changes
-      if let Some(metadata) = rag_metadata_map.remove(&rag_id) {
+      let should_sync = if let Some(metadata) = rag_metadata_map.remove(&rag_id) {
         if let Ok(prev_sv) = StateVector::decode_v1(&metadata.prev_sync_state_vector) {
           if let Ok(collab) = Collab::new_with_source(
             CollabOrigin::Empty,
@@ -118,15 +123,23 @@ impl AIExternalService for ChatQueryServiceImpl {
             vec![],
             false,
           ) {
-            if !is_change_since_sv(&collab, &prev_sv) {
-              info!(
-                "[Embedding] skip full sync rag document {}, no changes",
-                rag_id
-              );
-              continue;
-            }
+            is_change_since_sv(&collab, &prev_sv)
+          } else {
+            true
           }
+        } else {
+          true
         }
+      } else {
+        true
+      };
+
+      if !should_sync {
+        info!(
+          "[Embedding] skip full sync rag document {}, no changes",
+          rag_id
+        );
+        continue;
       }
 
       // Perform full sync if changes are detected or no state vector is found
@@ -153,7 +166,19 @@ impl AIExternalService for ChatQueryServiceImpl {
           prev_sync_state_vector: query_collab.encoded_collab.state_vector.to_vec(),
           collab_type: CollabType::Document as i32,
         });
+        
+        // 收集成功同步的文档，稍后触发索引
+        documents_to_index.push((rag_id, query_collab.encoded_collab.clone()));
       }
+    }
+
+    // 🔧 关键修复：同步完成后，触发本地向量索引
+    if !documents_to_index.is_empty() {
+      info!(
+        "[Embedding] 📝 开始为 {} 个文档触发向量索引",
+        documents_to_index.len()
+      );
+      trigger_vector_indexing(*workspace_id, documents_to_index).await;
     }
 
     Ok(result)
@@ -271,4 +296,76 @@ impl MultipleSourceRetrieverStore for MultiSourceVSTanvityImpl {
       ),
     }
   }
+}
+
+/// 触发文档向量索引
+async fn trigger_vector_indexing(workspace_id: Uuid, documents: Vec<(Uuid, EncodedCollab)>) {
+  use flowy_ai::embeddings::context::EmbedContext;
+  
+  // 获取嵌入调度器
+  let scheduler = match EmbedContext::shared().get_scheduler() {
+    Ok(s) => s,
+    Err(err) => {
+      warn!(
+        "[Embedding] ⚠️ 无法获取调度器，跳过索引: {}",
+        err
+      );
+      return;
+    },
+  };
+  
+  for (object_id, encoded_collab) in documents {
+    info!("[Embedding] 🔍 准备索引文档: {}", object_id);
+    
+    // 从 EncodedCollab 重建 Collab 对象
+    let collab = match Collab::new_with_source(
+      CollabOrigin::Empty,
+      &object_id.to_string(),
+      DataSource::DocStateV1(encoded_collab.doc_state.to_vec()),
+      vec![],
+      false,
+    ) {
+      Ok(c) => c,
+      Err(err) => {
+        error!(
+          "[Embedding] ❌ 无法重建 Collab 对象 {}: {}",
+          object_id, err
+        );
+        continue;
+      },
+    };
+    
+    // 从 Collab 提取数据
+    let data = unindexed_data_form_collab(&collab, &CollabType::Document);
+    
+    if data.is_none() {
+      warn!(
+        "[Embedding] ⚠️ 文档 {} 没有可索引的内容",
+        object_id
+      );
+      continue;
+    }
+    
+    let unindexed_collab = UnindexedCollab {
+      workspace_id,
+      object_id,
+      collab_type: CollabType::Document,
+      data,
+      metadata: UnindexedCollabMetadata::default(),
+    };
+    
+    if let Err(err) = scheduler.index_collab(unindexed_collab).await {
+      error!(
+        "[Embedding] ❌ 索引文档 {} 失败: {}",
+        object_id, err
+      );
+    } else {
+      info!(
+        "[Embedding] ✅ 已提交文档 {} 到索引队列",
+        object_id
+      );
+    }
+  }
+  
+  info!("[Embedding] 🎉 所有文档已提交到索引队列");
 }

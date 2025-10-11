@@ -1,4 +1,4 @@
-use crate::embeddings::scheduler::EmbeddingScheduler;
+use crate::embeddings::scheduler::{EmbeddingScheduler, OpenAIEmbeddingConfig};
 use arc_swap::ArcSwapOption;
 use flowy_error::{ErrorCode, FlowyError, FlowyResult};
 use flowy_sqlite_vec::db::VectorSqliteDB;
@@ -6,7 +6,7 @@ use lib_infra::util::get_operating_system;
 use ollama_rs::Ollama;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
-use tracing::{error, info, warn};
+use tracing::{error, trace, warn};
 
 pub struct EmbedContext {
   ollama: ArcSwapOption<Ollama>,
@@ -37,10 +37,10 @@ impl EmbedContext {
       return;
     }
 
-    info!("Initializing vector db");
+    trace!("Initializing vector db");
     match VectorSqliteDB::new(db_path.clone()) {
       Ok(db) => {
-        info!("[Embedding] Vector db created at: {:?}", db_path);
+        trace!("[Embedding] Vector db created at: {:?}", db_path);
         self.vector_db.store(Some(Arc::new(db)));
         self.try_create_scheduler();
       },
@@ -54,7 +54,7 @@ impl EmbedContext {
     if let Some(ollama) = ollama {
       if let Some(o) = self.ollama.load().as_ref() {
         if o.uri() == ollama.uri() {
-          info!("[Embedding] Ollama does not change");
+          trace!("[Embedding] Ollama does not change");
           return;
         }
       }
@@ -64,7 +64,7 @@ impl EmbedContext {
     } else {
       self.ollama.store(None);
       if let Some(s) = self.scheduler.swap(None) {
-        info!("[Embedding] Stopping scheduler");
+        trace!("[Embedding] Stopping scheduler");
         let _ = s.stop_tx.send(());
       }
     }
@@ -79,18 +79,27 @@ impl EmbedContext {
     })
   }
 
+  /// 设置 OpenAI 兼容嵌入服务配置
+  pub fn set_openai_embedding_config(&self, config: Option<OpenAIEmbeddingConfig>) {
+    if let Some(scheduler) = self.scheduler.load_full() {
+      scheduler.set_openai_config(config);
+    } else {
+      warn!("[Embedding] Scheduler not initialized, OpenAI config not set");
+    }
+  }
+
   fn try_create_scheduler(&self) {
     if let (Some(ollama), Some(vector_db)) = (self.ollama.load_full(), self.vector_db.load_full()) {
-      info!("[Embedding] Creating scheduler");
+      trace!("[Embedding] Creating scheduler");
       match EmbeddingScheduler::new(ollama, vector_db) {
         Ok(s) => {
-          info!("[Embedding] create scheduler successfully");
+          trace!("[Embedding] create scheduler successfully");
           self.scheduler.store(Some(s));
         },
         Err(err) => error!("[Embedding] Failed to create scheduler: {}", err),
       }
     } else {
-      info!("[Embedding] Ollama or vector db is not initialized, remove embedding scheduler");
+      trace!("[Embedding] Ollama or vector db is not initialized, remove embedding scheduler");
       self.scheduler.store(None);
     }
   }

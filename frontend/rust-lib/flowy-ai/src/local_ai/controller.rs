@@ -192,6 +192,17 @@ impl LocalAIController {
     self.llm_controller.set_rag_ids(chat_id, rag_ids).await;
   }
 
+  /// 搜索文档（用于 OpenAI 兼容服务器等外部 AI）
+  pub async fn search_documents(
+    &self,
+    chat_id: &Uuid,
+    query: &str,
+    limit: usize,
+    rag_ids: Vec<String>,
+  ) -> FlowyResult<Vec<langchain_rust::schemas::Document>> {
+    self.llm_controller.search_documents(chat_id, query, limit, rag_ids).await
+  }
+
   pub async fn open_chat(
     &self,
     workspace_id: &Uuid,

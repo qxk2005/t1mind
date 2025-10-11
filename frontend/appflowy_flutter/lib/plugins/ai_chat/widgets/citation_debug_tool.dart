@@ -223,11 +223,6 @@ class _CitationDebugToolState extends State<CitationDebugTool> {
             CitationDisplay(
               citations: citations,
               maxVisibleCitations: 2,
-              onCitationTap: (citation) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('点击了引用: ${citation.title}')),
-                );
-              },
             ),
           ] else ...[
             Container(

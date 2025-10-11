@@ -102,7 +102,7 @@ impl Chat {
     // 构建增强的系统提示词（如果有智能体配置）
     let system_prompt = if let Some(custom_prompt) = custom_system_prompt {
       // 🆕 使用自定义提示(已包含工具详情)
-      // info!("[Chat] 🔧 Using custom system prompt (with tool details)");
+      // trace!("[Chat] 🔧 Using custom system prompt (with tool details)");
       Some(custom_prompt)
     } else if let Some(ref config) = agent_config {
       use crate::agent::{build_agent_system_prompt, AgentCapabilityExecutor};
@@ -138,13 +138,13 @@ impl Chat {
       
       // 检查是否需要任务规划
       if capability_executor.should_create_plan(&config.capabilities, &params.message) {
-        info!("[Chat] Complex task detected, task planning recommended");
+        trace!("[Chat] Complex task detected, task planning recommended");
         // TODO: 集成任务规划器
       }
       
       // 检查是否需要工具调用
       if capability_executor.should_use_tools(&config.capabilities, &params.message) {
-        info!("[Chat] Tool usage recommended for this request");
+        trace!("[Chat] Tool usage recommended for this request");
         // TODO: 准备工具调用上下文
       }
       
@@ -347,7 +347,7 @@ impl Chat {
           .await
       } else {
         // 使用普通流式响应（无工具或未启用）
-        info!("🔄 [SIMPLE-STREAM] Using simple stream response (no agent/tools)");
+        trace!("🔄 [SIMPLE-STREAM] Using simple stream response (no agent/tools)");
         cloud_service
           .stream_answer_with_system_prompt(
             &workspace_id, 

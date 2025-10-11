@@ -24,8 +24,8 @@ class ExecutionLogBloc extends Bloc<ExecutionLogEvent, ExecutionLogState> {
 
   @override
   Future<void> close() {
-    print('🔍 [ExecutionLogBloc] ❌ CLOSING BLOC for session: $_sessionId, message: $_messageId');
-    print('🔍 [ExecutionLogBloc] ❌ Stack trace: ${StackTrace.current}');
+// print('🔍 [ExecutionLogBloc] ❌ CLOSING BLOC for session: $_sessionId, message: $_messageId');
+// print('🔍 [ExecutionLogBloc] ❌ Stack trace: ${StackTrace.current}');
     _refreshTimer?.cancel();
     return super.close();
   }
@@ -62,13 +62,13 @@ class ExecutionLogBloc extends Bloc<ExecutionLogEvent, ExecutionLogState> {
     // print('🔍 [ExecutionLogBloc] 🔵 session: $_sessionId, message: $_messageId');
     
     if (emit.isDone) {
-      print('🔍 [ExecutionLogBloc] ⚠️ emit.isDone is true at start, returning');
+// print('🔍 [ExecutionLogBloc] ⚠️ emit.isDone is true at start, returning');
       return;
     }
     
-    print('🔍 [ExecutionLogBloc] Starting to load logs...');
+// print('🔍 [ExecutionLogBloc] Starting to load logs...');
     emit(state.copyWith(isLoading: true));
-    print('🔍 [ExecutionLogBloc] Emitted isLoading: true');
+// print('🔍 [ExecutionLogBloc] Emitted isLoading: true');
 
     final request = GetExecutionLogsRequestPB()
       ..sessionId = _sessionId
@@ -94,17 +94,17 @@ class ExecutionLogBloc extends Bloc<ExecutionLogEvent, ExecutionLogState> {
     
     // 检查emit是否仍然可用
     if (emit.isDone) {
-      print('🔍 [ExecutionLogBloc] ❌ Emit is done, returning early');
-      print('🔍 [ExecutionLogBloc] ❌ This means the Bloc was closed during the async operation!');
+// print('🔍 [ExecutionLogBloc] ❌ Emit is done, returning early');
+// print('🔍 [ExecutionLogBloc] ❌ This means the Bloc was closed during the async operation!');
       return;
     }
     
-    print('🔍 [ExecutionLogBloc] Processing result...');
+// print('🔍 [ExecutionLogBloc] Processing result...');
     result.fold(
       (logs) {
-        print('🔍 [ExecutionLogBloc] Result is success with ${logs.logs.length} logs');
+// print('🔍 [ExecutionLogBloc] Result is success with ${logs.logs.length} logs');
         if (!emit.isDone) {
-          print('🔍 [ExecutionLogBloc] Successfully loaded ${logs.logs.length} logs');
+// print('🔍 [ExecutionLogBloc] Successfully loaded ${logs.logs.length} logs');
           final newState = state.copyWith(
             isLoading: false,
             logs: logs.logs,
@@ -112,7 +112,7 @@ class ExecutionLogBloc extends Bloc<ExecutionLogEvent, ExecutionLogState> {
             totalCount: logs.total.toInt(),
             offset: logs.logs.length,
           );
-          print('🔍 [ExecutionLogBloc] Emitting new state with ${newState.logs.length} logs, isLoading: ${newState.isLoading}');
+// print('🔍 [ExecutionLogBloc] Emitting new state with ${newState.logs.length} logs, isLoading: ${newState.isLoading}');
           emit(newState);
 
           // 如果启用了自动滚动，开始定时刷新
@@ -120,13 +120,13 @@ class ExecutionLogBloc extends Bloc<ExecutionLogEvent, ExecutionLogState> {
             _startAutoRefresh();
           }
         } else {
-          print('🔍 [ExecutionLogBloc] Emit is done, cannot emit new state');
+// print('🔍 [ExecutionLogBloc] Emit is done, cannot emit new state');
         }
       },
       (error) {
-        print('🔍 [ExecutionLogBloc] Result is error: ${error.hasMsg() ? error.msg : 'Unknown error'}');
+// print('🔍 [ExecutionLogBloc] Result is error: ${error.hasMsg() ? error.msg : 'Unknown error'}');
         if (!emit.isDone) {
-          print('🔍 [ExecutionLogBloc] Error loading logs: ${error.hasMsg() ? error.msg : 'Unknown error'}');
+// print('🔍 [ExecutionLogBloc] Error loading logs: ${error.hasMsg() ? error.msg : 'Unknown error'}');
           emit(state.copyWith(
             isLoading: false,
             error: error.hasMsg() ? error.msg : 'Unknown error',

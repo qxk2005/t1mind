@@ -8,7 +8,7 @@ USING vec0(
   metadata        TEXT,
   fragment_index  INTEGER NOT NULL DEFAULT 0,
   embedder_type   INTEGER NOT NULL DEFAULT 0,
-  embedding       float[768] 
+  embedding       float[2560] 
 );
 
 CREATE TABLE af_pending_index_collab
