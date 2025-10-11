@@ -99,11 +99,13 @@ impl ChatServiceMiddleware {
 
   /// 从选中的文档中检索相关内容并添加到消息上下文中
   /// 用于 OpenAI 兼容服务器和云端 AI
+  /// 
+  /// 返回: (增强后的消息内容, 检索到的文档列表)
   async fn get_message_content_with_rag(
     &self,
     chat_id: &Uuid,
     question: &str,
-  ) -> FlowyResult<String> {
+  ) -> FlowyResult<(String, Vec<langchain_rust::schemas::Document>)> {
     // 获取 rag_ids
     let uid = self.user_service.user_id()?;
     let mut conn = self.user_service.sqlite_connection(uid)?;
@@ -114,7 +116,7 @@ impl ChatServiceMiddleware {
 
     if rag_ids.is_empty() {
       trace!("[RAG] 📚 OpenAI 兼容模式：没有选择文档，直接使用用户问题");
-      return Ok(question.to_string());
+      return Ok((question.to_string(), Vec::new()));
     }
 
     info!(
@@ -149,8 +151,8 @@ impl ChatServiceMiddleware {
           context, question
         );
         
-        trace!("[RAG] ✅ OpenAI 兼容模式：已添加文档上下文到消息");
-        return Ok(enhanced_message);
+        trace!("[RAG] ✅ OpenAI 兼容模式：已添加文档上下文到消息，将在stream结束后发送文档来源metadata");
+        return Ok((enhanced_message, documents));
       }
       Ok(_) => {
         warn!(
@@ -165,7 +167,7 @@ impl ChatServiceMiddleware {
       }
     }
 
-    Ok(question.to_string())
+    Ok((question.to_string(), Vec::new()))
   }
   
   /// 直接使用嵌入服务进行文档搜索
@@ -286,7 +288,7 @@ impl ChatServiceMiddleware {
   ) -> Result<StreamAnswer, FlowyError> {
     // 获取消息内容（包含 RAG 文档检索）
     let question = self.get_message_content(question_id)?;
-    let content = self.get_message_content_with_rag(chat_id, &question).await?;
+    let (content, rag_documents) = self.get_message_content_with_rag(chat_id, &question).await?;
     
     info!(
       "stream_answer_with_system_prompt use model: {:?}, has_system_prompt: {}, has_tools: {}",
@@ -319,7 +321,7 @@ impl ChatServiceMiddleware {
             let server_model = AIModel::server(name, String::new());
             if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
               let (_init_reasoning, stream) = self
-                .openai_chat_stream_with_system(&cfg, Some(&server_model.name), content, system_prompt, tools.as_deref())
+                .openai_chat_stream_with_system(&cfg, Some(&server_model.name), content, system_prompt, tools.as_deref(), rag_documents.clone())
                 .await?;
               return Ok(stream);
             }
@@ -336,9 +338,9 @@ impl ChatServiceMiddleware {
       // 如果配置了 OpenAI 兼容服务器，则优先直接调用（使用标准 system/user 消息格式）
       if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
         // 🔧 重要修复：添加 RAG 文档检索支持
-        let content_with_rag = self.get_message_content_with_rag(chat_id, &content).await?;
+        let (content_with_rag, rag_documents) = self.get_message_content_with_rag(chat_id, &content).await?;
         let (_init_reasoning, stream) = self
-          .openai_chat_stream_with_system(&cfg, Some(&ai_model.name), content_with_rag, system_prompt, tools.as_deref())
+          .openai_chat_stream_with_system(&cfg, Some(&ai_model.name), content_with_rag, system_prompt, tools.as_deref(), rag_documents)
           .await?;
         return Ok(stream);
       }
@@ -494,6 +496,7 @@ impl ChatServiceMiddleware {
     content: String,
     system_prompt: Option<String>,
     tools: Option<&[ToolDefinitionPB]>,  // 🆕 添加工具参数
+    rag_documents: Vec<langchain_rust::schemas::Document>,  // 🆕 RAG文档列表（用于发送metadata）
   ) -> Result<(Option<String>, StreamAnswer), FlowyError> {
     let url = Self::join_openai_url(&cfg.base_url, "/v1/chat/completions");
     
@@ -712,14 +715,44 @@ impl ChatServiceMiddleware {
           }
         }
       }
+      
+      // 🔧 发送文档来源 metadata（如果有检索到的文档）
+      if !rag_documents.is_empty() {
+        info!("[RAG] 📤 发送 {} 个文档来源的 metadata", rag_documents.len());
+        
+        // 使用 HashMap 去重（按 object_id）
+        let mut deduplicated_sources: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
+        for doc in &rag_documents {
+          if let Some(object_id) = doc.metadata.get("object_id").and_then(|v| v.as_str()) {
+            // 构建 metadata，格式与前端期望的 SOURCE_ID/SOURCE/SOURCE_NAME 匹配
+            deduplicated_sources.insert(
+              object_id.to_string(),
+              json!({
+                "SOURCE_ID": object_id,
+                "SOURCE": "appflowy",
+                "SOURCE_NAME": "document"
+              })
+            );
+          }
+        }
+        
+        // 发送每个文档来源的 metadata
+        for source_meta in deduplicated_sources.values() {
+          yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+            value: source_meta.clone()
+          };
+        }
+        
+        info!("[RAG] ✅ 已发送 {} 个文档来源 metadata", deduplicated_sources.len());
+      }
     };
     Ok((None, Box::pin(s)))
   }
 
   /// 原有的 openai_chat_stream 方法（向后兼容，不带系统提示词）
   async fn openai_chat_stream(&self, cfg: &OpenAICompatConfig, model_override: Option<&str>, content: String) -> FlowyResult<(Option<String>, StreamAnswer)> {
-    // 调用新方法，不传系统提示词和工具
-    self.openai_chat_stream_with_system(cfg, model_override, content, None, None).await
+    // 调用新方法，不传系统提示词、工具和RAG文档
+    self.openai_chat_stream_with_system(cfg, model_override, content, None, None, Vec::new()).await
   }
 
   /// 废弃的实现（保留用于参考）
@@ -1162,7 +1195,7 @@ impl ChatServiceMiddleware {
     };
     // 获取消息内容（包含 RAG 文档检索）
     let question = self.get_message_content(question_id)?;
-    let content = self.get_message_content_with_rag(chat_id, &question).await?;
+    let (content, rag_documents) = self.get_message_content_with_rag(chat_id, &question).await?;
     let tools_clone = tools.clone();
     let tool_handler = tool_handler.unwrap();
     
@@ -1519,6 +1552,36 @@ impl ChatServiceMiddleware {
           }
         }
       }
+      
+      // 🔧 发送文档来源 metadata（如果有检索到的文档）
+      if !rag_documents.is_empty() {
+        info!("[RAG] 📤 发送 {} 个文档来源的 metadata", rag_documents.len());
+        
+        // 使用 HashMap 去重（按 object_id）
+        let mut deduplicated_sources: HashMap<String, serde_json::Value> = HashMap::new();
+        for doc in &rag_documents {
+          if let Some(object_id) = doc.metadata.get("object_id").and_then(|v| v.as_str()) {
+            // 构建 metadata，格式与前端期望的 SOURCE_ID/SOURCE/SOURCE_NAME 匹配
+            deduplicated_sources.insert(
+              object_id.to_string(),
+              json!({
+                "SOURCE_ID": object_id,
+                "SOURCE": "appflowy",
+                "SOURCE_NAME": "document"
+              })
+            );
+          }
+        }
+        
+        // 发送每个文档来源的 metadata
+        for source_meta in deduplicated_sources.values() {
+          yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+            value: source_meta.clone()
+          };
+        }
+        
+        info!("[RAG] ✅ 已发送 {} 个文档来源 metadata", deduplicated_sources.len());
+      }
     };
     
     Ok(Box::pin(s))
@@ -1612,7 +1675,7 @@ impl ChatCloudService for ChatServiceMiddleware {
       if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
         let content = self.get_message_content(question_id)?;
         // 🔧 重要修复：添加 RAG 文档检索支持
-        let content_with_rag = self.get_message_content_with_rag(chat_id, &content).await?;
+        let (content_with_rag, _rag_documents) = self.get_message_content_with_rag(chat_id, &content).await?;
         let (_init_reasoning, stream) = self
           .openai_chat_stream(&cfg, Some(&ai_model.name), content_with_rag)
           .await?;

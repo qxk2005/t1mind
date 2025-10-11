@@ -8,7 +8,7 @@ import 'package:appflowy/plugins/ai_chat/application/chat_message_stream.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/widgets/message_height_calculator.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/message/tool_call_display.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/message/task_plan_display.dart';
-import 'package:appflowy/plugins/ai_chat/widgets/citation_display.dart';
+import 'package:appflowy/plugins/ai_chat/widgets/unified_reference_display.dart';
 import 'package:string_validator/string_validator.dart';
 import 'package:appflowy_backend/protobuf/flowy-ai/protobuf.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -21,7 +21,6 @@ import 'package:flutter_chat_core/flutter_chat_core.dart';
 import '../layout_define.dart';
 import 'ai_markdown_text.dart';
 import 'ai_message_bubble.dart';
-import 'ai_metadata.dart';
 import 'error_text_message.dart';
 
 /// [ChatAIMessageWidget] includes both the text of the AI response as well as
@@ -337,23 +336,44 @@ class _NonEmptyMessage extends StatelessWidget {
                 ),
               ),
               
-              // 网络搜索结果引用显示
+              // 网络搜索引用显示（统一风格）
               if (_hasWebSearchCitations(state.sources))
                 Padding(
                   padding: const EdgeInsetsDirectional.only(start: 4.0, top: 8.0),
-                  child: CitationDisplay(
-                    citations: _extractWebSearchCitations(state.sources),
-                    maxVisibleCitations: 3,
+                  child: UnifiedReferenceDisplay(
+                    references: state.sources
+                        .where((source) => source.source == 'web' && isURL(source.id))
+                        .toList(),
+                    referenceType: ReferenceType.webSearch,
+                    maxVisibleReferences: 3,
                     showExpandButton: true,
+                    onReferenceSelected: onSelectedMetadata,
                   ),
                 ),
               
-              // 文档来源元数据显示
+              // MCP工具引用显示（统一风格）
+              if (_hasMCPReferences(state.sources))
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(start: 4.0, top: 8.0),
+                  child: UnifiedReferenceDisplay(
+                    references: _extractMCPReferences(state.sources),
+                    referenceType: ReferenceType.mcpTool,
+                    maxVisibleReferences: 3,
+                    showExpandButton: true,
+                    onReferenceSelected: onSelectedMetadata,
+                  ),
+                ),
+              
+              // 文档引用显示（统一风格）
               if (_hasDocumentSources(state.sources))
-                SelectionContainer.disabled(
-                  child: AIMessageMetadata(
-                    sources: _extractDocumentSources(state.sources),
-                    onSelectedMetadata: onSelectedMetadata,
+                Padding(
+                  padding: const EdgeInsetsDirectional.only(start: 4.0, top: 8.0),
+                  child: UnifiedReferenceDisplay(
+                    references: _extractDocumentSources(state.sources),
+                    referenceType: ReferenceType.document,
+                    maxVisibleReferences: 3,
+                    showExpandButton: true,
+                    onReferenceSelected: onSelectedMetadata,
                   ),
                 ),
               
@@ -370,17 +390,21 @@ class _NonEmptyMessage extends StatelessWidget {
     return sources.any((source) => source.source == 'web' && isURL(source.id));
   }
 
+  /// 检查是否有MCP工具引用
+  bool _hasMCPReferences(List<ChatMessageRefSource> sources) {
+    return sources.any((source) => source.source.startsWith('mcp'));
+  }
+
   /// 检查是否有文档来源
   bool _hasDocumentSources(List<ChatMessageRefSource> sources) {
     return sources.any((source) => source.source == 'appflowy' || 
         (source.source == 'web' && !isURL(source.id)));
   }
 
-  /// 提取网络搜索引用
-  List<CitationInfo> _extractWebSearchCitations(List<ChatMessageRefSource> sources) {
+  /// 提取MCP工具引用
+  List<ChatMessageRefSource> _extractMCPReferences(List<ChatMessageRefSource> sources) {
     return sources
-        .where((source) => source.source == 'web' && isURL(source.id))
-        .map((source) => CitationInfo.fromRefSource(source))
+        .where((source) => source.source.startsWith('mcp'))
         .toList();
   }
 

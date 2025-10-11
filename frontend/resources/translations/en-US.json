@@ -273,6 +273,9 @@
     "documentsDescription": "Based on selected document pages",
     "noSource": "No Source",
     "noSourceDescription": "Use only AI knowledge base",
+    "webSearchReferences": "Web Search References",
+    "documentReferences": "Document References",
+    "mcpToolReferences": "MCP Tool Calls",
     "webSearchCitations": {
       "zero": "0 web search results",
       "one": "{count} web search result",

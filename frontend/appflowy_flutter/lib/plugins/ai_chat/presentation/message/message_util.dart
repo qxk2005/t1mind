@@ -30,6 +30,28 @@ void openPageFromMessage(BuildContext context, ViewPB? view) {
   }
 }
 
+/// Opens a document reference in a new tab (desktop) or push the page (mobile)
+/// This is specifically for document references from chat citations
+void openDocumentReferenceInNewTab(BuildContext context, ViewPB? view) {
+  if (view == null) {
+    showToastNotification(
+      message: LocaleKeys.chat_openPagePreviewFailedToast.tr(),
+      type: ToastificationType.error,
+    );
+    return;
+  }
+  if (UniversalPlatform.isDesktop) {
+    // 在新标签页打开文档
+    getIt<TabsBloc>().add(
+      TabsEvent.openPlugin(
+        plugin: view.plugin(),
+      ),
+    );
+  } else {
+    context.pushView(view);
+  }
+}
+
 void showSaveMessageSuccessToast(BuildContext context, ViewPB? view) {
   if (view == null) {
     return;

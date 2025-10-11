@@ -244,7 +244,10 @@
       "other": "{count} 个网络搜索结果"
     },
     "webSearchCitationsExpand": "展开 {count} 个更多结果",
-    "webSearchCitationsCollapse": "收起结果"
+    "webSearchCitationsCollapse": "收起结果",
+    "webSearchReferences": "网络搜索引用",
+    "documentReferences": "文档引用",
+    "mcpToolReferences": "MCP 工具调用"
   },
   "trash": {
     "text": "回收站",

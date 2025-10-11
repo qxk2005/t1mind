@@ -152,10 +152,11 @@ class TextMessageWidget extends StatelessWidget {
   ) async {
     // When the source of metatdata is appflowy, which means it is a appflowy page
     if (metadata.source == "appflowy") {
-      final sidebarView =
+      final documentView =
           await ViewBackendService.getView(metadata.id).toNullable();
       if (context.mounted) {
-        openPageFromMessage(context, sidebarView);
+        // 在新标签页打开文档进行编辑
+        openDocumentReferenceInNewTab(context, documentView);
       }
       return;
     }
@@ -175,6 +176,14 @@ class TextMessageWidget extends StatelessWidget {
           Log.error("failed to open url $err");
         }
       }
+      return;
+    }
+
+    // MCP工具引用点击处理
+    if (metadata.source.startsWith("mcp")) {
+      // MCP工具引用目前只用于显示信息，不需要特殊的点击行为
+      // 未来可以扩展为显示工具执行详情、参数等
+      Log.info("MCP tool reference clicked: ${metadata.name}");
       return;
     }
   }
