@@ -849,29 +849,29 @@ class _ExecutionLogButtonState extends State<ExecutionLogButton> {
       final questionIdRaw = widget.message.metadata?[messageQuestionIdKey];
       final questionId = questionIdRaw?.toString() ?? widget.message.id;
       
-      print('🔍 [ExecutionLogButton] Creating ExecutionLogBloc in didChangeDependencies');
-      print('🔍 [ExecutionLogButton] chatId: $chatId');
-      print('🔍 [ExecutionLogButton] questionId: $questionId');
+      // print('🔍 [ExecutionLogButton] Creating ExecutionLogBloc in didChangeDependencies');
+      // print('🔍 [ExecutionLogButton] chatId: $chatId');
+      // print('🔍 [ExecutionLogButton] questionId: $questionId');
       
       _executionLogBloc = ExecutionLogBloc(
         sessionId: chatId,
         messageId: questionId,
       );
-      print('🔍 [ExecutionLogButton] Created bloc hashCode: ${_executionLogBloc.hashCode}');
+      // print('🔍 [ExecutionLogButton] Created bloc hashCode: ${_executionLogBloc.hashCode}');
     }
   }
 
   @override
   void dispose() {
-    print('🔍 [ExecutionLogButton] 🔴 DISPOSING - state hashCode: ${hashCode}');
-    print('🔍 [ExecutionLogButton] 🔴 Bloc hashCode: ${_executionLogBloc?.hashCode}');
-    print('🔍 [ExecutionLogButton] 🔴 Bloc isClosed: ${_executionLogBloc?.isClosed}');
+    // print('🔍 [ExecutionLogButton] 🔴 DISPOSING - state hashCode: ${hashCode}');
+    // print('🔍 [ExecutionLogButton] 🔴 Bloc hashCode: ${_executionLogBloc?.hashCode}');
+    // print('🔍 [ExecutionLogButton] 🔴 Bloc isClosed: ${_executionLogBloc?.isClosed}');
     _popoverController.close();
     
     // ⚠️ 延迟关闭 Bloc，给异步操作足够时间完成
     // 这样可以避免在等待后端响应时 Bloc 被提前关闭
     Future.delayed(const Duration(milliseconds: 500), () {
-      print('🔍 [ExecutionLogButton] 🔴 Delayed closing bloc');
+      // print('🔍 [ExecutionLogButton] 🔴 Delayed closing bloc');
       _executionLogBloc?.close();
     });
     
@@ -882,20 +882,20 @@ class _ExecutionLogButtonState extends State<ExecutionLogButton> {
   Widget build(BuildContext context) {
     // ✅ 确保 Bloc 已创建
     if (_executionLogBloc == null) {
-      print('🔍 [ExecutionLogButton] build: Bloc not ready yet');
+      // print('🔍 [ExecutionLogButton] build: Bloc not ready yet');
       return const SizedBox.shrink();
     }
     
-    print('🔍 [ExecutionLogButton] build: Bloc ready (hashCode: ${_executionLogBloc.hashCode}, isClosed: ${_executionLogBloc!.isClosed})');
+    // print('🔍 [ExecutionLogButton] build: Bloc ready (hashCode: ${_executionLogBloc.hashCode}, isClosed: ${_executionLogBloc!.isClosed})');
     
     // ✅ 在外层获取真正的屏幕尺寸
     final screenSize = MediaQuery.of(context).size;
-    print('🔍 [ExecutionLogButton] Screen size: ${screenSize.width} x ${screenSize.height}');
+    // print('🔍 [ExecutionLogButton] Screen size: ${screenSize.width} x ${screenSize.height}');
     
     // ✅ 计算 Popover 的约束尺寸
     final popoverWidth = (screenSize.width * 0.50).clamp(700.0, 1000.0);
     final popoverHeight = (screenSize.height * 0.75).clamp(500.0, 700.0);
-    print('🔍 [ExecutionLogButton] Popover constraints: ${popoverWidth} x ${popoverHeight}');
+    // print('🔍 [ExecutionLogButton] Popover constraints: ${popoverWidth} x ${popoverHeight}');
     
     return AppFlowyPopover(
       controller: _popoverController,
@@ -910,39 +910,39 @@ class _ExecutionLogButtonState extends State<ExecutionLogButton> {
         maxHeight: popoverHeight,
       ),
       onOpen: () {
-        print('🔍 [ExecutionLogButton] 🟢 Popover opened');
-        print('🔍 [ExecutionLogButton] 🟢 _isLoadingLogs: $_isLoadingLogs');
-        print('🔍 [ExecutionLogButton] 🟢 Bloc status: ${_executionLogBloc == null ? "NULL" : (_executionLogBloc!.isClosed ? "CLOSED" : "OPEN")}');
-        print('🔍 [ExecutionLogButton] 🟢 Bloc hashCode: ${_executionLogBloc?.hashCode}');
+        // print('🔍 [ExecutionLogButton] 🟢 Popover opened');
+        // print('🔍 [ExecutionLogButton] 🟢 _isLoadingLogs: $_isLoadingLogs');
+        // print('🔍 [ExecutionLogButton] 🟢 Bloc status: ${_executionLogBloc == null ? "NULL" : (_executionLogBloc!.isClosed ? "CLOSED" : "OPEN")}');
+        // print('🔍 [ExecutionLogButton] 🟢 Bloc hashCode: ${_executionLogBloc?.hashCode}');
         
         widget.onOverrideVisibility?.call(true);
         
         // ⚠️ 防止重复加载
         if (_isLoadingLogs) {
-          print('🔍 [ExecutionLogButton] ⚠️ Already loading logs, skipping...');
+          // print('🔍 [ExecutionLogButton] ⚠️ Already loading logs, skipping...');
           return;
         }
         
         // ✅ 加载日志（Bloc 已在 didChangeDependencies 中创建）
         if (_executionLogBloc != null && !_executionLogBloc!.isClosed) {
-          print('🔍 [ExecutionLogButton] 🟢 Adding loadLogs event to bloc');
+          // print('🔍 [ExecutionLogButton] 🟢 Adding loadLogs event to bloc');
           _isLoadingLogs = true;
           _executionLogBloc!.add(const ExecutionLogEvent.loadLogs());
-          print('🔍 [ExecutionLogButton] 🟢 loadLogs event added');
+          // print('🔍 [ExecutionLogButton] 🟢 loadLogs event added');
           
           // 500ms 后重置标志，允许再次加载
           Future.delayed(const Duration(milliseconds: 500), () {
             if (mounted) {
               _isLoadingLogs = false;
-              print('🔍 [ExecutionLogButton] 🟢 Reset _isLoadingLogs flag');
+              // print('🔍 [ExecutionLogButton] 🟢 Reset _isLoadingLogs flag');
             }
           });
         } else {
-          print('🔍 [ExecutionLogButton] ⚠️ Cannot load logs: Bloc is ${_executionLogBloc == null ? "null" : "closed"}!');
+          // print('🔍 [ExecutionLogButton] ⚠️ Cannot load logs: Bloc is ${_executionLogBloc == null ? "null" : "closed"}!');
         }
       },
       onClose: () {
-        print('🔍 [ExecutionLogButton] Popover closed');
+        // print('🔍 [ExecutionLogButton] Popover closed');
         widget.onOverrideVisibility?.call(false);
         // ✅ 不在这里关闭 Bloc，让它继续存活直到 Widget dispose
       },
@@ -970,13 +970,13 @@ class _ExecutionLogButtonState extends State<ExecutionLogButton> {
   Widget _buildExecutionLogPopover(Size screenSize) {
     // ⚠️ 如果 Bloc 还未创建或已关闭，显示错误信息
     if (_executionLogBloc == null || _executionLogBloc!.isClosed) {
-      print('🔍 [ExecutionLogButton] _buildExecutionLogPopover: bloc is ${_executionLogBloc == null ? "null" : "closed"}');
+      // print('🔍 [ExecutionLogButton] _buildExecutionLogPopover: bloc is ${_executionLogBloc == null ? "null" : "closed"}');
       return Center(
         child: Text('日志查看器未初始化或已关闭'),
       );
     }
     
-    print('🔍 [ExecutionLogButton] _buildExecutionLogPopover: bloc is ready (hashCode: ${_executionLogBloc.hashCode})');
+    // print('🔍 [ExecutionLogButton] _buildExecutionLogPopover: bloc is ready (hashCode: ${_executionLogBloc.hashCode})');
     
     // 🔌 从 ChatAIMessageBloc 中获取真实的 chatId
     final chatId = context.read<ChatAIMessageBloc>().chatId;

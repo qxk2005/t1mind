@@ -6,6 +6,7 @@ import 'package:appflowy/generated/flowy_svgs.g.dart';
 import 'package:appflowy/generated/locale_keys.g.dart';
 import 'package:appflowy/mobile/presentation/base/flowy_search_text_field.dart';
 import 'package:appflowy/mobile/presentation/bottom_sheet/bottom_sheet.dart';
+import 'package:appflowy/plugins/ai_chat/widgets/source_selector.dart';
 import 'package:appflowy/plugins/base/drag_handler.dart';
 import 'package:appflowy/plugins/document/application/document_bloc.dart';
 import 'package:appflowy/workspace/application/sidebar/space/space_bloc.dart';
@@ -145,6 +146,8 @@ class _PromptInputMobileSelectSourcesButtonState
                           value: cubit,
                           child: _MobileSelectSourcesSheetBody(
                             scrollController: scrollController,
+                            selectedSourcesNotifier: widget.selectedSourcesNotifier,
+                            onUpdateSelectedSources: widget.onUpdateSelectedSources,
                           ),
                         ),
                       );
@@ -173,9 +176,13 @@ class _PromptInputMobileSelectSourcesButtonState
 class _MobileSelectSourcesSheetBody extends StatelessWidget {
   const _MobileSelectSourcesSheetBody({
     required this.scrollController,
+    required this.selectedSourcesNotifier,
+    required this.onUpdateSelectedSources,
   });
 
   final ScrollController scrollController;
+  final ValueNotifier<List<String>> selectedSourcesNotifier;
+  final void Function(List<String>) onUpdateSelectedSources;
 
   @override
   Widget build(BuildContext context) {
@@ -201,6 +208,20 @@ class _MobileSelectSourcesSheetBody extends StatelessWidget {
                       ),
                     ),
                   ),
+                  // 信息源选择器
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16.0,
+                      vertical: 8.0,
+                    ),
+                    child: SourceSelector(
+                      selectedSourcesNotifier: selectedSourcesNotifier,
+                      onUpdateSelectedSources: onUpdateSelectedSources,
+                      compact: true,
+                    ),
+                  ),
+                  const Divider(height: 0.5, thickness: 0.5),
+                  // 文档搜索
                   Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 16.0,
@@ -312,10 +333,10 @@ class _Header extends SliverPersistentHeaderDelegate {
   }
 
   @override
-  double get maxExtent => 120.5;
+  double get maxExtent => 200.5;
 
   @override
-  double get minExtent => 120.5;
+  double get minExtent => 200.5;
 
   @override
   bool shouldRebuild(covariant SliverPersistentHeaderDelegate oldDelegate) {

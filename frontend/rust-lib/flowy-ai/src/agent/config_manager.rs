@@ -535,11 +535,30 @@ impl AgentConfigManager {
     /// 从 MCP 服务器动态获取默认工具列表
     /// 
     /// 此方法需要访问 MCP 管理器，因此需要异步调用
-    /// 为了保持向后兼容，我们提供同步版本返回空列表
+    /// 为了保持向后兼容，我们提供同步版本返回内置工具
     fn get_default_tools(&self) -> Vec<String> {
-        // 同步版本返回空列表
-        // 实际工具发现应该在 AIManager 中通过异步方法完成
-        Vec::new()
+        // 🆕 返回内置工具列表，包括网络搜索工具
+        let tools = vec![
+            "search_documents".to_string(),
+            "create_document".to_string(),
+            "update_document".to_string(),
+            "delete_document".to_string(),
+        ];
+        
+        // 🆕 添加内置网络搜索工具
+        #[cfg(feature = "web-search")]
+        {
+            let mut tools = tools;
+            tools.extend(vec![
+                "web_search".to_string(),
+                "quick_search".to_string(),
+            ]);
+            tools
+        }
+        #[cfg(not(feature = "web-search"))]
+        {
+            tools
+        }
     }
     
     /// 为现有智能体自动填充工具（如果工具列表为空）

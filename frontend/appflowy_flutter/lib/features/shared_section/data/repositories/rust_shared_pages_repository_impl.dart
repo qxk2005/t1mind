@@ -15,7 +15,7 @@ class RustSharePagesRepositoryImpl implements SharedPagesRepository {
       (success) {
         final sharedPages = success.sharedPages;
 
-        Log.debug('get shared pages success, len: ${sharedPages.length}');
+        // Log.debug('get shared pages success, len: ${sharedPages.length}');
 
         return FlowyResult.success(sharedPages);
       },

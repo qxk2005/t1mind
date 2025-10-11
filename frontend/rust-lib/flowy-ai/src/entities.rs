@@ -2374,6 +2374,12 @@ impl WebSearchProviderConfigPB {
 
   /// 检查供应商是否可用
   pub fn is_available(&self) -> bool {
+    // 对于演示模式的供应商（API密钥为 "demo_key"），即使未测试也认为可用
+    if self.api_key == "demo_key" {
+      return self.is_enabled && self.is_active;
+    }
+    
+    // 对于真实API密钥的供应商，需要测试通过
     self.is_enabled && self.is_active && self.test_status == ProviderTestStatusPB::TestPassed
   }
 

@@ -1091,6 +1091,7 @@ class _ConfigureWebSearchProviderDialogState extends State<_ConfigureWebSearchPr
               label: "供应商名称",
               placeholder: "输入供应商名称",
               textController: _nameController,
+              hideActions: true, // 隐藏多余的保存/取消按钮
             ),
             const VSpace(16),
             SettingsInputField(
@@ -1098,6 +1099,7 @@ class _ConfigureWebSearchProviderDialogState extends State<_ConfigureWebSearchPr
               placeholder: _getApiKeyPlaceholder(),
               textController: _apiKeyController,
               obscureText: true,
+              hideActions: true, // 隐藏多余的保存/取消按钮
             ),
             if (_testResult != null) ...[
               const VSpace(16),

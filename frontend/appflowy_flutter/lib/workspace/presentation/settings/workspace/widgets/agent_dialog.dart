@@ -27,6 +27,7 @@ class _AgentDialogState extends State<AgentDialog> {
   bool _enableToolCalling = true;
   bool _enableReflection = false;
   bool _enableMemory = true;
+  bool _enableWebSearch = true; // 🆕 网络搜索工具开关
   
   // 🆕 选中的 MCP 服务器 ID 列表
   final Set<String> _selectedMCPServerIds = {};
@@ -55,6 +56,12 @@ class _AgentDialogState extends State<AgentDialog> {
       if (cap.maxReflectionIterations > 0) {
         defaultReflectionIterations = cap.maxReflectionIterations;
       }
+    }
+    
+    // 🆕 检查现有智能体是否已启用网络搜索工具
+    if (widget.existingAgent != null) {
+      _enableWebSearch = widget.existingAgent!.availableTools.contains('web_search') || 
+                        widget.existingAgent!.availableTools.contains('quick_search');
     }
     _maxToolResultLengthController = TextEditingController(text: defaultLength.toString());
     _maxReflectionIterationsController = TextEditingController(text: defaultReflectionIterations.toString());
@@ -227,6 +234,13 @@ class _AgentDialogState extends State<AgentDialog> {
                         Switch(value: _enableMemory, onChanged: (v) => setState(() => _enableMemory = v)),
                       ],
                     ),
+                    const VSpace(8),
+                    Row(
+                      children: [
+                        Expanded(child: FlowyText.regular("网络搜索", fontSize: 14)),
+                        Switch(value: _enableWebSearch, onChanged: (v) => setState(() => _enableWebSearch = v)),
+                      ],
+                    ),
                     // 🆕 MCP 服务器选择（仅在启用工具调用时显示）
                     if (_enableToolCalling) ...[
                       const VSpace(20),
@@ -297,6 +311,12 @@ class _AgentDialogState extends State<AgentDialog> {
       return;
     }
 
+    // 🆕 构建可用工具列表
+    final availableTools = <String>[];
+    if (_enableWebSearch) {
+      availableTools.addAll(['web_search', 'quick_search']);
+    }
+
     final capabilities = AgentCapabilitiesPB()
       ..enablePlanning = _enablePlanning
       ..enableToolCalling = _enableToolCalling
@@ -316,6 +336,7 @@ class _AgentDialogState extends State<AgentDialog> {
         ..personality = _personalityController.text.trim()
         ..avatar = _avatarController.text.trim()
         ..capabilities = capabilities
+        ..availableTools.addAll(availableTools)  // 🆕 添加可用工具列表
         ..selectedMcpServers.addAll(_selectedMCPServerIds);  // 🆕 传递选中的服务器列表
 
       context.read<AgentSettingsBloc>().add(
@@ -328,6 +349,7 @@ class _AgentDialogState extends State<AgentDialog> {
         ..personality = _personalityController.text.trim()
         ..avatar = _avatarController.text.trim()
         ..capabilities = capabilities
+        ..availableTools.addAll(availableTools)  // 🆕 添加可用工具列表
         ..selectedMcpServers.addAll(_selectedMCPServerIds);  // 🆕 传递选中的服务器列表
 
       context.read<AgentSettingsBloc>().add(

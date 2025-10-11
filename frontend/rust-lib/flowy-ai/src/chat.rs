@@ -102,7 +102,7 @@ impl Chat {
     // 构建增强的系统提示词（如果有智能体配置）
     let system_prompt = if let Some(custom_prompt) = custom_system_prompt {
       // 🆕 使用自定义提示(已包含工具详情)
-      info!("[Chat] 🔧 Using custom system prompt (with tool details)");
+      // info!("[Chat] 🔧 Using custom system prompt (with tool details)");
       Some(custom_prompt)
     } else if let Some(ref config) = agent_config {
       use crate::agent::{build_agent_system_prompt, AgentCapabilityExecutor};

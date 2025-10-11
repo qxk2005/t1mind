@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:appflowy/generated/flowy_svgs.g.dart';
 import 'package:appflowy/generated/locale_keys.g.dart';
+import 'package:appflowy/plugins/ai_chat/widgets/source_selector.dart';
 import 'package:appflowy/plugins/document/application/document_bloc.dart';
 import 'package:appflowy/workspace/application/sidebar/space/space_bloc.dart';
 import 'package:appflowy/workspace/application/view/view_ext.dart';
@@ -102,7 +103,10 @@ class _PromptInputDesktopSelectSourcesButtonState
             popupBuilder: (_) {
               return BlocProvider.value(
                 value: context.read<ViewSelectorCubit>(),
-                child: const _PopoverContent(),
+                child: _PopoverContent(
+                  selectedSourcesNotifier: widget.selectedSourcesNotifier,
+                  onUpdateSelectedSources: widget.onUpdateSelectedSources,
+                ),
               );
             },
             child: _IndicatorButton(
@@ -186,7 +190,13 @@ class _IndicatorButton extends StatelessWidget {
 }
 
 class _PopoverContent extends StatelessWidget {
-  const _PopoverContent();
+  const _PopoverContent({
+    required this.selectedSourcesNotifier,
+    required this.onUpdateSelectedSources,
+  });
+
+  final ValueNotifier<List<String>> selectedSourcesNotifier;
+  final void Function(List<String>) onUpdateSelectedSources;
 
   @override
   Widget build(BuildContext context) {
@@ -197,8 +207,22 @@ class _PopoverContent extends StatelessWidget {
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // 信息源选择器
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
+              child: SourceSelector(
+                selectedSourcesNotifier: selectedSourcesNotifier,
+                onUpdateSelectedSources: onUpdateSelectedSources,
+                compact: true,
+              ),
+            ),
+            AFDivider(
+              startIndent: theme.spacing.l,
+              endIndent: theme.spacing.l,
+            ),
+            // 文档搜索
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
               child: AFTextField(
                 size: AFTextFieldSize.m,
                 controller:

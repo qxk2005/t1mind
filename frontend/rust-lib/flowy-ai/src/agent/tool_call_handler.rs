@@ -9,6 +9,8 @@ use tracing::{debug, error, info, warn};
 
 use crate::ai_manager::AIManager;
 use crate::entities::AgentConfigPB;
+#[cfg(feature = "web-search")]
+use crate::web_search::WebSearchToolManager;
 
 /// 工具调用请求（从AI响应中解析）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,17 +222,26 @@ impl ToolCallProtocol {
 pub struct ToolCallHandler {
     #[cfg(feature = "mcp")]
     mcp_manager: Arc<crate::mcp::MCPClientManager>,
+    #[cfg(feature = "web-search")]
+    web_search_tools: Option<Arc<WebSearchToolManager>>,
 }
 
 impl ToolCallHandler {
     #[cfg(feature = "mcp")]
     pub fn new(mcp_manager: Arc<crate::mcp::MCPClientManager>) -> Self {
-        Self { mcp_manager }
+        Self { 
+            mcp_manager,
+            #[cfg(feature = "web-search")]
+            web_search_tools: None,
+        }
     }
     
     #[cfg(not(feature = "mcp"))]
     pub fn new() -> Self {
-        Self {}
+        Self {
+            #[cfg(feature = "web-search")]
+            web_search_tools: None,
+        }
     }
     
     /// 从 AIManager 创建（便捷方法）
@@ -238,12 +249,24 @@ impl ToolCallHandler {
     pub fn from_ai_manager(ai_manager: &AIManager) -> Self {
         Self {
             mcp_manager: ai_manager.mcp_manager.clone(),
+            #[cfg(feature = "web-search")]
+            web_search_tools: None,
         }
     }
     
     #[cfg(not(feature = "mcp"))]
     pub fn from_ai_manager(_ai_manager: &AIManager) -> Self {
-        Self {}
+        Self {
+            #[cfg(feature = "web-search")]
+            web_search_tools: None,
+        }
+    }
+    
+    /// 设置网络搜索工具管理器
+    #[cfg(feature = "web-search")]
+    pub fn with_web_search_tools(mut self, web_search_tools: Arc<WebSearchToolManager>) -> Self {
+        self.web_search_tools = Some(web_search_tools);
+        self
     }
     
     /// 执行工具调用
@@ -388,7 +411,7 @@ impl ToolCallHandler {
         
         match result {
             Ok(content) => {
-                info!("🔧 [TOOL EXEC] ✅ Tool call SUCCEEDED");
+                // info!("🔧 [TOOL EXEC] ✅ Tool call SUCCEEDED");
                 info!("🔧 [TOOL EXEC]   Duration: {}ms", duration_ms);
                 info!("🔧 [TOOL EXEC]   Original result size: {} chars", content.len());
                 
@@ -427,7 +450,7 @@ impl ToolCallHandler {
                         max_result_length
                     )
                 } else {
-                    info!("🔧 [TOOL EXEC]   Result within limit (max: {} chars)", max_result_length);
+                    // info!("🔧 [TOOL EXEC]   Result within limit (max: {} chars)", max_result_length);
                     content
                 };
                 
@@ -558,7 +581,20 @@ impl ToolCallHandler {
     ) -> FlowyResult<String> {
         debug!("Calling native tool: {}", request.tool_name);
         
-        // TODO: 实现原生工具调用
+        // 🆕 首先检查是否是网络搜索工具
+        #[cfg(feature = "web-search")]
+        {
+            if let Some(web_search_tools) = &self.web_search_tools {
+                // 检查是否是网络搜索工具
+                let web_search_tool_names = vec!["web_search", "quick_search"];
+                if web_search_tool_names.contains(&request.tool_name.as_str()) {
+                    info!("🔧 [NATIVE TOOL] Executing web search tool: {}", request.tool_name);
+                    return web_search_tools.execute_tool(&request.tool_name, &request.arguments, true).await;
+                }
+            }
+        }
+        
+        // TODO: 实现其他原生工具调用
         // 这里需要根据实际的原生工具实现来调用
         
         Err(FlowyError::not_support()
@@ -572,6 +608,18 @@ impl ToolCallHandler {
         request: &ToolCallRequest,
     ) -> FlowyResult<String> {
         info!("🔍 [TOOL AUTO] Auto-detecting tool: {}", request.tool_name);
+        
+        // 🆕 首先检查是否是网络搜索工具
+        #[cfg(feature = "web-search")]
+        {
+            if let Some(web_search_tools) = &self.web_search_tools {
+                let web_search_tool_names = vec!["web_search", "quick_search"];
+                if web_search_tool_names.contains(&request.tool_name.as_str()) {
+                    info!("✅ [TOOL AUTO] Tool '{}' identified as web search tool", request.tool_name);
+                    return web_search_tools.execute_tool(&request.tool_name, &request.arguments, true).await;
+                }
+            }
+        }
         
         // 使用 find_tool_by_name 从所有配置的 MCP 服务器中查找工具
         match self.mcp_manager.find_tool_by_name(&request.tool_name).await {

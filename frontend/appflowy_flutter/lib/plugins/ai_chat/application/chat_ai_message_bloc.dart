@@ -303,7 +303,7 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
             : null,
       );
 
-      Log.debug("🔧 [TOOL] Tool call ${toolCall.status.name}: ${toolCall.toolName} (id: $callId)");
+      // Log.debug("🔧 [TOOL] Tool call ${toolCall.status.name}: ${toolCall.toolName} (id: $callId)");
 
       // 更新或添加工具调用
       if (existingIndex != -1) {

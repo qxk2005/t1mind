@@ -120,7 +120,7 @@ impl WebSearchHub {
                     }
                 }
                 
-                info!("WebSearchHub: Search completed successfully for query: {}", request.query);
+                // info!("WebSearchHub: Search completed successfully for query: {}", request.query);
                 Ok(response)
             }
             Err(e) => {

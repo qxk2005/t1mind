@@ -43,6 +43,17 @@ impl WebSearchToolManager {
         }
     }
 
+    /// 使用现有的网络搜索中心实例创建工具管理器
+    pub fn with_hub(
+        web_search_hub: Arc<WebSearchHub>,
+        store_preferences: Arc<KVStorePreferences>,
+    ) -> Self {
+        Self {
+            web_search_hub,
+            store_preferences,
+        }
+    }
+
     /// 获取所有可用的网络搜索工具定义
     pub fn get_tool_definitions(&self) -> Vec<ToolDefinitionPB> {
         let mut tools = Vec::new();

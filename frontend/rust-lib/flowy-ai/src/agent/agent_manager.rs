@@ -10,8 +10,11 @@ use crate::ai_manager::AIManager;
 use crate::agent::planner::{AITaskPlanner, TaskPlan, PlanStatus, PersonalizationFeatures};
 use crate::agent::executor::{ExecutionContext, ExecutionResult};
 use crate::agent::tool_registry::{ToolRegistry, ToolRegistryStatistics, ToolSearchFilter, RegisteredTool};
+use crate::agent::native_tools::NativeToolsManager;
 #[cfg(feature = "mcp")]
 use crate::mcp::tool_security::ToolSecurityManager;
+#[cfg(feature = "web-search")]
+use crate::web_search::WebSearchToolManager;
 use crate::entities::{ToolDefinitionPB, ToolTypePB};
 
 /// 智能体管理器 - 集成规划器、执行器和工具注册表
@@ -24,6 +27,11 @@ pub struct AgentManager {
     active_plans: HashMap<String, TaskPlan>,
     /// 工具注册表
     tool_registry: Arc<ToolRegistry>,
+    /// 原生工具管理器
+    native_tools: Option<Arc<NativeToolsManager>>,
+    /// 网络搜索工具管理器
+    #[cfg(feature = "web-search")]
+    web_search_tools: Option<Arc<WebSearchToolManager>>,
 }
 
 impl AgentManager {
@@ -35,18 +43,44 @@ impl AgentManager {
         #[cfg(feature = "mcp")]
         let security_manager = Arc::new(ToolSecurityManager::new(ai_manager.store_preferences.clone()));
         
+        // 创建原生工具管理器 - 暂时不创建，因为需要 DocumentManager
+        // TODO: 需要从外部传入 DocumentManager 或修改 NativeToolsManager 的构造函数
+        let native_tools: Option<Arc<NativeToolsManager>> = None;
+        
+        // 创建网络搜索工具管理器
+        #[cfg(feature = "web-search")]
+        let web_search_tools = Some(Arc::new(WebSearchToolManager::new(ai_manager.store_preferences.clone())));
+        
         // 创建工具注册表
-        let tool_registry = Arc::new(ToolRegistry::new(
+        let mut tool_registry = ToolRegistry::new(
             #[cfg(feature = "mcp")]
             security_manager,
             ai_manager.store_preferences.clone(),
-        ));
+        );
+        
+        // 设置原生工具管理器（如果有的话）
+        if let Some(native_tools) = &native_tools {
+            tool_registry = tool_registry.with_native_tools(native_tools.clone());
+        }
+        
+        // 设置网络搜索工具管理器
+        #[cfg(feature = "web-search")]
+        {
+            if let Some(web_search_tools) = &web_search_tools {
+                tool_registry = tool_registry.with_web_search_tools(web_search_tools.clone());
+            }
+        }
+        
+        let tool_registry = Arc::new(tool_registry);
         
         Self {
             ai_manager,
             planner,
             active_plans: HashMap::new(),
             tool_registry,
+            native_tools,
+            #[cfg(feature = "web-search")]
+            web_search_tools,
         }
     }
 
@@ -56,6 +90,9 @@ impl AgentManager {
         
         // 初始化工具注册表
         self.tool_registry.initialize().await?;
+        
+        // 初始化网络搜索供应商
+        self.initialize_web_search_providers().await?;
         
         // 发现并注册MCP工具
         self.discover_and_register_mcp_tools().await?;
@@ -87,7 +124,7 @@ impl AgentManager {
         self.active_plans.insert(plan.id.clone(), plan.clone());
 
         // 3. 创建执行器并执行计划
-        let mut executor = self.planner.create_executor();
+        let mut executor = self.create_executor();
         let results = executor.execute_plan(&mut plan, &context).await?;
 
         // 4. 更新存储的计划
@@ -126,7 +163,7 @@ impl AgentManager {
                 .with_context(format!("找不到任务计划: {}", plan_id)))?
             .clone();
 
-        let mut executor = self.planner.create_executor();
+        let mut executor = self.create_executor();
         let results = executor.execute_plan(&mut plan, &context).await?;
 
         // 更新存储的计划
@@ -235,6 +272,26 @@ impl AgentManager {
         })
     }
 
+    /// 创建任务执行器
+    pub fn create_executor(&self) -> crate::agent::executor::AITaskExecutor {
+        let mut executor = crate::agent::executor::AITaskExecutor::new(self.ai_manager.clone());
+        
+        // 设置原生工具管理器
+        if let Some(native_tools) = &self.native_tools {
+            executor = executor.with_native_tools(native_tools.clone());
+        }
+        
+        // 设置网络搜索工具管理器
+        #[cfg(feature = "web-search")]
+        {
+            if let Some(web_search_tools) = &self.web_search_tools {
+                executor = executor.with_web_search_tools(web_search_tools.clone());
+            }
+        }
+        
+        executor
+    }
+
     /// 暂停任务计划执行
     pub async fn pause_plan(&mut self, plan_id: &str) -> FlowyResult<()> {
         // 注意：这里只是更新状态，实际的暂停逻辑需要在执行器中实现
@@ -272,6 +329,133 @@ impl AgentManager {
     }
 
     // ==================== 工具注册表相关方法 ====================
+
+    /// 初始化网络搜索供应商
+    #[cfg(feature = "web-search")]
+    async fn initialize_web_search_providers(&self) -> FlowyResult<()> {
+        info!("初始化网络搜索供应商");
+        
+        if let Some(web_search_tools) = &self.web_search_tools {
+            // 获取网络搜索中心
+            let web_search_hub = self.ai_manager.get_web_search_hub().await?;
+            
+            // 检查是否已有活跃的供应商
+            let status = web_search_hub.get_status();
+            if status.active_providers > 0 {
+                info!("网络搜索供应商已存在，跳过初始化");
+                return Ok(());
+            }
+            
+            // 检查是否有已配置但未激活的供应商
+            let all_providers = web_search_hub.provider_manager.get_all_providers()?;
+            let inactive_providers: Vec<_> = all_providers.providers.iter()
+                .filter(|p| p.is_enabled && !p.is_active)
+                .collect();
+            
+            if !inactive_providers.is_empty() {
+                info!("发现 {} 个已配置但未激活的供应商，尝试激活第一个", inactive_providers.len());
+                
+                // 激活第一个已配置的供应商
+                let provider_to_activate = &inactive_providers[0];
+                let update_request = crate::web_search::entities::UpdateWebSearchProviderRequestPB {
+                    id: provider_to_activate.id.clone(),
+                    name: Some(provider_to_activate.name.clone()),
+                    description: Some(provider_to_activate.description.clone()),
+                    icon: Some(provider_to_activate.icon.clone()),
+                    api_key: Some(provider_to_activate.api_key.clone()),
+                    base_url: Some(provider_to_activate.base_url.clone()),
+                    is_active: Some(true), // 激活供应商
+                    is_enabled: Some(true),
+                    max_results: Some(provider_to_activate.max_results),
+                    timeout_seconds: Some(provider_to_activate.timeout_seconds),
+                    metadata: provider_to_activate.metadata.clone(),
+                };
+                
+                match web_search_hub.provider_manager.update_provider(update_request) {
+                    Ok(_) => {
+                        info!("已激活供应商: {}", provider_to_activate.name);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        warn!("激活供应商 {} 失败: {}", provider_to_activate.name, e);
+                    }
+                }
+            }
+            
+            // 如果没有已配置的供应商，创建默认的 Tavily 供应商
+            info!("没有找到已配置的供应商，创建默认供应商");
+            
+            // 尝试从环境变量获取 Tavily API 密钥
+            let tavily_api_key = std::env::var("TAVILY_API_KEY")
+                .unwrap_or_else(|_| "demo_key".to_string());
+            
+            // 创建默认的 Tavily 供应商
+            let tavily_request = crate::web_search::entities::CreateWebSearchProviderRequestPB {
+                name: "Tavily Search".to_string(),
+                provider_type: crate::entities::WebSearchProviderTypePB::Tavily,
+                description: "Tavily 搜索引擎 - 默认供应商".to_string(),
+                icon: "🔍".to_string(),
+                api_key: tavily_api_key.clone(),
+                base_url: "https://api.tavily.com".to_string(),
+                max_results: 10,
+                timeout_seconds: 30,
+                metadata: std::collections::HashMap::new(),
+            };
+            
+            match web_search_hub.provider_manager.create_provider(tavily_request) {
+                Ok(provider) => {
+                    info!("创建默认 Tavily 供应商: {}", provider.name);
+                    
+                    // 激活供应商
+                    let update_request = crate::web_search::entities::UpdateWebSearchProviderRequestPB {
+                        id: provider.id.clone(),
+                        name: Some(provider.name.clone()),
+                        description: Some(provider.description.clone()),
+                        icon: Some(provider.icon.clone()),
+                        api_key: Some(provider.api_key.clone()),
+                        base_url: Some(provider.base_url.clone()),
+                        is_active: Some(true), // 激活供应商
+                        is_enabled: Some(true),
+                        max_results: Some(provider.max_results),
+                        timeout_seconds: Some(provider.timeout_seconds),
+                        metadata: provider.metadata.clone(),
+                    };
+                    
+                    match web_search_hub.provider_manager.update_provider(update_request) {
+                        Ok(_) => {
+                            info!("默认网络搜索供应商已激活");
+                            
+                            // 如果使用的是演示密钥，尝试测试供应商
+                            if tavily_api_key == "demo_key" {
+                                info!("使用演示密钥，跳过供应商测试");
+                                // 对于演示模式，我们直接标记为测试通过
+                                // 注意：这里我们需要通过 update_provider 来更新测试状态
+                                // 但是由于 UpdateWebSearchProviderRequestPB 没有测试状态字段
+                                // 我们需要通过其他方式来标记测试通过
+                                info!("演示模式供应商已创建，建议手动测试或配置真实 API 密钥");
+                            } else {
+                                info!("使用真实 API 密钥，建议手动测试供应商");
+                            }
+                        }
+                        Err(e) => {
+                            warn!("激活默认网络搜索供应商失败: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("创建默认网络搜索供应商失败: {}", e);
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    #[cfg(not(feature = "web-search"))]
+    async fn initialize_web_search_providers(&self) -> FlowyResult<()> {
+        info!("网络搜索功能未启用，跳过供应商初始化");
+        Ok(())
+    }
 
     /// 发现并注册MCP工具
     async fn discover_and_register_mcp_tools(&self) -> FlowyResult<()> {

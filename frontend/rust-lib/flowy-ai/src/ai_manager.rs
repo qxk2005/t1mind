@@ -366,7 +366,7 @@ impl AIManager {
           // 打印每个发现的工具及其来源服务器
           #[cfg(feature = "mcp")]
           for (server_id, tool) in &tool_details {
-            info!("[Chat] 🔍   - Tool '{}' from server '{}'", tool.name, server_id);
+            // info!("[Chat] 🔍   - Tool '{}' from server '{}'", tool.name, server_id);
           }
           
           // 收集工具名称（去重）
@@ -387,14 +387,53 @@ impl AIManager {
           
           info!("[Chat] 🔍 Collected {} unique tool names", discovered_tool_names.len());
           
-          // 自动填充工具列表（如果为空）
-          if config.available_tools.is_empty() && config.capabilities.enable_tool_calling {
-            info!("[Chat] 智能体工具列表为空，开始自动发现 MCP 工具...");
+          // 🆕 确保内置工具总是被包含（无论工具列表是否为空）
+          if config.capabilities.enable_tool_calling {
+            let mut needs_update = false;
+            let mut all_tools = config.available_tools.clone();
             
-            if !discovered_tool_names.is_empty() {
-              config.available_tools = discovered_tool_names.clone();
+            // 添加内置网络搜索工具（如果不存在）
+            #[cfg(feature = "web-search")]
+            {
+              let web_search_tools = vec![
+                "web_search".to_string(),
+                "quick_search".to_string(),
+              ];
+              for tool in web_search_tools {
+                if !all_tools.contains(&tool) {
+                  all_tools.push(tool.clone());
+                  needs_update = true;
+                  info!("[Chat] ✅ 添加内置网络搜索工具: {}", tool);
+                }
+              }
+            }
+            
+            // 添加其他内置工具（如果不存在）
+            let other_builtin_tools = vec![
+              "search_documents".to_string(),
+              "create_document".to_string(),
+              "update_document".to_string(),
+              "delete_document".to_string(),
+            ];
+            for tool in other_builtin_tools {
+              if !all_tools.contains(&tool) {
+                all_tools.push(tool.clone());
+                needs_update = true;
+                info!("[Chat] ✅ 添加内置工具: {}", tool);
+              }
+            }
+            
+            // 如果工具列表为空，添加发现的 MCP 工具
+            if config.available_tools.is_empty() {
+              info!("[Chat] 智能体工具列表为空，开始自动发现工具...");
+              all_tools.extend(discovered_tool_names.clone());
+              needs_update = true;
+            }
+            
+            if needs_update {
+              config.available_tools = all_tools;
               config.updated_at = chrono::Utc::now().timestamp();
-              info!("[Chat] ✅ 已将 {} 个工具添加到智能体配置", config.available_tools.len());
+              info!("[Chat] ✅ 已将 {} 个工具添加到智能体配置（包含内置工具）", config.available_tools.len());
               
               // 使用更新方法保存配置
               let update_request = crate::entities::UpdateAgentRequestPB {
@@ -407,7 +446,7 @@ impl AIManager {
                 available_tools: config.available_tools.clone(),
                 status: None,
                 metadata: std::collections::HashMap::new(),
-                selected_mcp_servers: config.selected_mcp_servers.clone(),  // 🆕 添加字段
+                selected_mcp_servers: config.selected_mcp_servers.clone(),
               };
               
               if let Err(e) = self.agent_manager.update_agent(update_request) {
@@ -416,8 +455,6 @@ impl AIManager {
                 info!("为智能体 {} 自动发现并填充了 {} 个工具", 
                       config.name, config.available_tools.len());
               }
-            } else {
-              warn!("未发现任何可用的 MCP 工具，智能体 {} 将无法使用工具调用功能", config.name);
             }
           }
           
@@ -431,7 +468,7 @@ impl AIManager {
                 .map(|(_server_id, tool)| (tool.name.clone(), tool.clone()))
                 .collect();
               let prompt = build_agent_system_prompt_with_tools(&config, &tool_map);
-              info!("[Chat] 🔧 Using enhanced system prompt with {} tool details", tool_map.len());
+              // info!("[Chat] 🔧 Using enhanced system prompt with {} tool details", tool_map.len());
               Some(prompt)
             }
             #[cfg(not(feature = "mcp"))]
@@ -469,7 +506,27 @@ impl AIManager {
       #[cfg(feature = "mcp")]
       {
         use crate::agent::ToolCallHandler;
-        Some(Arc::new(ToolCallHandler::from_ai_manager(self)))
+        #[cfg(feature = "web-search")]
+        {
+          // 创建 WebSearchToolManager 并传递给 ToolCallHandler
+          if let Ok(web_search_hub) = self.get_web_search_hub().await {
+            let web_search_tool_manager = crate::web_search::WebSearchToolManager::with_hub(
+              web_search_hub.clone(),
+              self.store_preferences.clone(),
+            );
+            Some(Arc::new(
+              ToolCallHandler::from_ai_manager(self)
+                .with_web_search_tools(Arc::new(web_search_tool_manager))
+            ))
+          } else {
+            warn!("[Chat] Failed to get web search hub, creating ToolCallHandler without web search tools");
+            Some(Arc::new(ToolCallHandler::from_ai_manager(self)))
+          }
+        }
+        #[cfg(not(feature = "web-search"))]
+        {
+          Some(Arc::new(ToolCallHandler::from_ai_manager(self)))
+        }
       }
       #[cfg(not(feature = "mcp"))]
       {
@@ -484,16 +541,16 @@ impl AIManager {
 
     // 🆕 获取工具定义列表（用于 OpenAI Function Call API）
     let tool_definitions = if let Some(ref config) = agent_config {
-      info!("[Chat] 🔧 Agent config found: {} ({}), enable_tool_calling: {}, available_tools count: {}", 
-            config.name, config.id, config.capabilities.enable_tool_calling, config.available_tools.len());
-      info!("[Chat] 🔧 Available tools list: {:?}", config.available_tools);
+      // info!("[Chat] 🔧 Agent config found: {} ({}), enable_tool_calling: {}, available_tools count: {}", 
+      //       config.name, config.id, config.capabilities.enable_tool_calling, config.available_tools.len());
+      // info!("[Chat] 🔧 Available tools list: {:?}", config.available_tools);
       
       if config.capabilities.enable_tool_calling && !config.available_tools.is_empty() {
         let tools = self.get_tool_definitions_by_names(&config.available_tools).await;
-        info!("[Chat] 🔧 Got {} tool definitions for OpenAI Function Call", tools.len());
+        // info!("[Chat] 🔧 Got {} tool definitions for OpenAI Function Call", tools.len());
         for tool in &tools {
-          info!("[Chat] 🔧   - Tool '{}' from server '{}': {}", 
-                tool.name, tool.source, tool.description);
+          // info!("[Chat] 🔧   - Tool '{}' from server '{}': {}", 
+          //       tool.name, tool.source, tool.description);
         }
         Some(tools)
       } else {
@@ -1008,11 +1065,34 @@ impl AIManager {
       #[cfg(not(feature = "mcp"))]
       let discovered_tool_names: Vec<String> = vec![];
       
-      if !discovered_tool_names.is_empty() {
-        info!("为新智能体 '{}' 自动发现了 {} 个工具", request.name, discovered_tool_names.len());
-        request.available_tools = discovered_tool_names;
+      // 🆕 首先添加内置工具（包括网络搜索工具）
+      let mut all_tools = Vec::new();
+      
+      // 添加内置网络搜索工具
+      #[cfg(feature = "web-search")]
+      {
+        all_tools.extend(vec![
+          "web_search".to_string(),
+          "quick_search".to_string(),
+        ]);
+      }
+      
+      // 添加其他内置工具
+      all_tools.extend(vec![
+        "search_documents".to_string(),
+        "create_document".to_string(),
+        "update_document".to_string(),
+        "delete_document".to_string(),
+      ]);
+      
+      // 添加发现的 MCP 工具
+      all_tools.extend(discovered_tool_names);
+      
+      if !all_tools.is_empty() {
+        info!("为新智能体 '{}' 自动发现了 {} 个工具（包含内置工具）", request.name, all_tools.len());
+        request.available_tools = all_tools;
       } else {
-        warn!("未发现任何可用的 MCP 工具，智能体 '{}' 将以空工具列表创建", request.name);
+        warn!("未发现任何可用的工具，智能体 '{}' 将以空工具列表创建", request.name);
       }
     }
     
@@ -1105,12 +1185,35 @@ impl AIManager {
             #[cfg(not(feature = "mcp"))]
             let discovered_tool_names: Vec<String> = vec![];
             
-            if !discovered_tool_names.is_empty() {
-              info!("✅ [Agent Update] 为智能体 '{}' 自动发现了 {} 个工具", 
-                    existing.name, discovered_tool_names.len());
-              request.available_tools = discovered_tool_names;
+            // 🆕 首先添加内置工具（包括网络搜索工具）
+            let mut all_tools = Vec::new();
+            
+            // 添加内置网络搜索工具
+            #[cfg(feature = "web-search")]
+            {
+              all_tools.extend(vec![
+                "web_search".to_string(),
+                "quick_search".to_string(),
+              ]);
+            }
+            
+            // 添加其他内置工具
+            all_tools.extend(vec![
+              "search_documents".to_string(),
+              "create_document".to_string(),
+              "update_document".to_string(),
+              "delete_document".to_string(),
+            ]);
+            
+            // 添加发现的 MCP 工具
+            all_tools.extend(discovered_tool_names);
+            
+            if !all_tools.is_empty() {
+              info!("✅ [Agent Update] 为智能体 '{}' 自动发现了 {} 个工具（包含内置工具）", 
+                    existing.name, all_tools.len());
+              request.available_tools = all_tools;
             } else {
-              warn!("⚠️  [Agent Update] 未发现任何可用的 MCP 工具");
+              warn!("⚠️  [Agent Update] 未发现任何可用的工具");
             }
           } else {
             info!("ℹ️  [Agent Update] 智能体已有工具且能力未变更，跳过工具发现");
@@ -1363,16 +1466,67 @@ const CUSTOM_PROMPT_DATABASE_CONFIGURATION_KEY: &str = "custom_prompt_database_c
 
 impl AIManager {
   /// 根据工具名称列表获取工具定义
-  pub async fn get_tool_definitions_by_names(&self, tool_names: &[String]) -> Vec<ToolDefinitionPB> {
+  pub async fn get_tool_definitions_by_names(&self, _tool_names: &[String]) -> Vec<ToolDefinitionPB> {
     let mut result: Vec<ToolDefinitionPB> = Vec::new();
     
-    // Get tools from MCP servers using discover_available_tools
-    // 修复：使用新的返回格式，包含服务器ID信息，支持同名工具
-    let tool_details = self.discover_available_tools().await;
+    // 🆕 首先从内置工具管理器获取工具定义（包括网络搜索工具）
+    #[cfg(feature = "web-search")]
+    {
+      // 使用现有的网络搜索中心实例
+      if let Ok(web_search_hub) = self.get_web_search_hub().await {
+        let web_search_tool_manager = crate::web_search::WebSearchToolManager::with_hub(
+          web_search_hub.clone(),
+          self.store_preferences.clone(),
+        );
+        let web_search_tools = web_search_tool_manager.get_tool_definitions();
+        info!("[Tool Def] WebSearchToolManager returned {} tool definitions", web_search_tools.len());
+        for tool_def in &web_search_tools {
+          info!("[Tool Def] Web search tool: '{}' (available: {})", tool_def.name, tool_def.is_available);
+        }
+        
+        for tool_name in _tool_names {
+          let mut found = false;
+          
+          // 在网络搜索工具中查找
+          for tool_def in &web_search_tools {
+            if tool_def.name == *tool_name {
+              if tool_def.is_available {
+                result.push(tool_def.clone());
+                found = true;
+                info!("[Tool Def] ✅ Added web search tool '{}' to definitions", tool_name);
+              } else {
+                info!("[Tool Def] ⚠️ Web search tool '{}' found but not available", tool_name);
+              }
+              break;
+            }
+          }
+          
+          if !found {
+            // info!("[Tool Def] ❌ Tool '{}' not found in web search tools, checking MCP servers", tool_name);
+          }
+        }
+      } else {
+        warn!("[Tool Def] Failed to get web search hub, skipping web search tools");
+      }
+    }
     
+    #[cfg(not(feature = "web-search"))]
+    {
+      info!("[Tool Def] Web search feature not enabled, skipping web search tools");
+    }
+    
+    // 然后从 MCP 服务器获取工具
     #[cfg(feature = "mcp")]
     {
-      for tool_name in tool_names {
+      let tool_details = self.discover_available_tools().await;
+      
+      for tool_name in _tool_names {
+        // 检查是否已经在结果中
+        let already_added = result.iter().any(|def| def.name == *tool_name);
+        if already_added {
+          continue;
+        }
+        
         // 查找所有匹配的工具（可能来自不同服务器）
         let mut found = false;
         for (server_id, mcp_tool) in &tool_details {
@@ -1402,6 +1556,7 @@ impl AIManager {
       }
     }
     
+    info!("[Tool Def] Got {} tool definitions for OpenAI Function Call", result.len());
     result
   }
 
@@ -1439,7 +1594,7 @@ impl AIManager {
         info!("[Tool Discovery] 从服务器 '{}' 的缓存中发现 {} 个工具", config.name, tool_count);
         
         for tool in cached_tools {
-          info!("[Tool Discovery]   - 工具: {} (服务器: {})", tool.name, config.id);
+          // info!("[Tool Discovery]   - 工具: {} (服务器: {})", tool.name, config.id);
           tool_details.push((config.id.clone(), tool.clone()));
         }
         continue;
@@ -1453,7 +1608,7 @@ impl AIManager {
           if tool_count > 0 {
             info!("[Tool Discovery] 从服务器 '{}' 的客户端获取到 {} 个工具", config.name, tool_count);
             for tool in tools_list.tools {
-              info!("[Tool Discovery]   - 工具: {} (服务器: {})", tool.name, config.id);
+              // info!("[Tool Discovery]   - 工具: {} (服务器: {})", tool.name, config.id);
               tool_details.push((config.id.clone(), tool));
             }
           } else {
@@ -1471,7 +1626,7 @@ impl AIManager {
     
     // 打印所有发现的工具及其来源服务器
     for (server_id, tool) in &tool_details {
-      info!("  📦 工具 '{}' 来自服务器 '{}'", tool.name, server_id);
+      // info!("  📦 工具 '{}' 来自服务器 '{}'", tool.name, server_id);
     }
     
     tool_details

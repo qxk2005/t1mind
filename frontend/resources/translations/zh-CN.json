@@ -227,7 +227,17 @@
     },
     "referenceSource": "找到 {} 个来源",
     "referenceSources": "找到 {} 个来源",
-    "questionTitle": "想法"
+    "questionTitle": "想法",
+    "selectSources": "选择信息源",
+    "currentPage": "当前页面",
+    "sourcesLimitReached": "已达到信息源限制",
+    "webSearch": "网络搜索",
+    "documents": "文档",
+    "selectSource": "选择信息源",
+    "webSearchDescription": "使用网络搜索获取最新信息",
+    "documentsDescription": "基于选中的文档页面",
+    "noSource": "无信息源",
+    "noSourceDescription": "仅使用AI知识库回答"
   },
   "trash": {
     "text": "回收站",

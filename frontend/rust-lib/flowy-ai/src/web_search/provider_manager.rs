@@ -4,7 +4,7 @@ use std::time::SystemTime;
 use flowy_error::{FlowyError, FlowyResult};
 use flowy_sqlite::kv::KVStorePreferences;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::web_search::entities::{
@@ -181,6 +181,15 @@ impl WebSearchProviderManager {
         // 保存配置
         self.save_provider_config(&provider_config)?;
         
+        // 如果是第一个供应商，自动激活它
+        let all_providers = self.get_all_providers().unwrap_or_default();
+        if all_providers.providers.len() == 1 {
+            info!("Auto-activating first web search provider: {} ({})", provider_config.name, provider_config.id);
+            if let Err(e) = self.update_provider_active_status(&provider_config.id, true) {
+                warn!("Failed to auto-activate first provider: {}", e);
+            }
+        }
+        
         info!("Web search provider created successfully: {} ({})", provider_config.name, provider_config.id);
         Ok(provider_config)
     }
@@ -312,7 +321,7 @@ impl WebSearchProviderManager {
                         warn!("Provider {} has invalid data, will clean up", provider_id);
                         orphaned_ids.push(provider_id.clone());
                     } else {
-                        info!("Successfully loaded provider: {} ({})", provider.name, provider.id);
+                        // info!("Successfully loaded provider: {} ({})", provider.name, provider.id);
                         providers.push(provider);
                     }
                 }
@@ -458,6 +467,13 @@ impl WebSearchProviderManager {
         };
         
         provider_config.update_test_status(test_status);
+        
+        // 如果测试通过，自动激活供应商
+        if test_status == ProviderTestStatusPB::TestPassed && !provider_config.is_active {
+            info!("Auto-activating provider {} after successful test", provider_config.name);
+            provider_config.is_active = true;
+        }
+        
         self.save_provider_config(&provider_config)?;
         
         Ok(TestWebSearchProviderResponsePB {

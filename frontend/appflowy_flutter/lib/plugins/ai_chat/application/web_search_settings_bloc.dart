@@ -231,22 +231,15 @@ class WebSearchSettingsBloc extends Bloc<WebSearchSettingsEvent, WebSearchSettin
       result.fold(
         (response) {
           Log.info('网络搜索供应商测试完成: $providerId, 成功: ${response.success}');
-          // 更新供应商列表
-          final updatedProviders = state.providers.map((p) {
-            if (p.id == providerId) {
-              final updatedProvider = p.clone();
-              updatedProvider.testStatus = response.success ? ProviderTestStatusPB.TestPassed : ProviderTestStatusPB.TestFailed;
-              return updatedProvider;
-            }
-            return p;
-          }).toList();
-          
+          // 测试完成后重新加载供应商列表以获取最新状态（包括自动激活状态）
           final testingProviders = Set<String>.from(state.testingProviders);
           testingProviders.remove(providerId);
           emit(state.copyWith(
-            providers: updatedProviders,
             testingProviders: testingProviders,
           ));
+          
+          // 重新加载供应商列表以获取最新的激活状态
+          add(const WebSearchSettingsEvent.loadProviderList());
         },
         (error) {
           Log.error('测试网络搜索供应商失败: $error');
