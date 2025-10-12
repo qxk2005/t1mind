@@ -335,7 +335,7 @@ impl AgentManager {
     async fn initialize_web_search_providers(&self) -> FlowyResult<()> {
         info!("初始化网络搜索供应商");
         
-        if let Some(web_search_tools) = &self.web_search_tools {
+        if let Some(_web_search_tools) = &self.web_search_tools {
             // 获取网络搜索中心
             let web_search_hub = self.ai_manager.get_web_search_hub().await?;
             

@@ -96,8 +96,6 @@ MetadataCollection parseMetadata(String? s) {
       return MetadataCollection(sources: []);
     }
     
-    // 🔍 调试日志：查看收到的原始metadata
-    Log.info("📊 [METADATA] Parsing metadata: ${jsonEncode(decodedJson)}");
 
 
     // 🔧 保存原始 Metadata
@@ -145,15 +143,13 @@ MetadataCollection parseMetadata(String? s) {
           
           if (status == "success" && result != null && toolName != null) {
             // 网络搜索：从result字符串中提取URL引用
+            // 只有 AppFlowy 的 web_search 才会提取引用，其他都是 MCP 工具
             if (toolName == "web_search") {
-              Log.info("🔍 [WEB_SEARCH] Parsing web search result from tool_call");
               final citations = _extractCitationsFromSearchResult(result);
               metadata.addAll(citations);
-              Log.info("🔍 [WEB_SEARCH] Extracted ${citations.length} citations");
             } 
-            // MCP工具：创建MCP引用
+            // MCP工具：创建MCP引用（包括 web_baidu_search 等）
             else {
-              Log.info("🔧 [MCP] Creating reference for MCP tool: $toolName");
               
               // 提取server信息（如果tool_name包含server前缀）
               // 格式: "server_name.tool_name" 或 直接 "tool_name"
@@ -175,7 +171,6 @@ MetadataCollection parseMetadata(String? s) {
                 source: 'mcp:${serverId ?? "unknown"}', // 使用 "mcp:server_id" 格式存储来源信息
               );
               metadata.add(mcpReference);
-              Log.info("🔧 [MCP] Added MCP tool reference: $displayName (server: ${serverId ?? "unknown"})");
             }
           }
         }
@@ -202,8 +197,6 @@ MetadataCollection parseMetadata(String? s) {
     Log.debug(stacktrace.toString());
   }
 
-  // 🔍 调试日志：查看解析结果
-  Log.info("📊 [METADATA] Parsed ${metadata.length} sources: ${metadata.map((m) => '${m.source}:${m.name}').join(', ')}");
 
   return MetadataCollection(
     sources: metadata, 
@@ -247,7 +240,6 @@ List<ChatMessageRefSource> _extractCitationsFromSearchResult(String result) {
           name: title,
           source: 'web', // 标记为网络来源
         ));
-        Log.debug("🔍 [WEB_SEARCH] Extracted citation $index: $title -> $url");
       }
     }
   } catch (e) {

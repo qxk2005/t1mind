@@ -245,7 +245,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // 清理之前的推理状态，为新的对话做准备
     final reasoningManager = ReasoningManager();
     reasoningManager.clearReasoning(chatId);
-    Log.debug("🧹 [CLEANUP] Cleared reasoning state for new message");
     
     _startStreamingMessage(message, format, metadata, promptId);
     lastSentMessage = null;

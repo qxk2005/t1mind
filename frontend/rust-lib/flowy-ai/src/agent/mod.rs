@@ -72,3 +72,11 @@ pub use plan_integration::{
 };
 
 pub use stream_tool_handler::StreamToolWrapper;
+
+pub mod task_decomposer;
+pub mod parallel_dispatcher;
+pub mod result_synthesizer;
+
+pub use task_decomposer::*;
+pub use parallel_dispatcher::*;
+pub use result_synthesizer::*;

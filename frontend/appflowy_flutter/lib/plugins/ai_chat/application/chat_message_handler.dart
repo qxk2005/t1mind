@@ -1,6 +1,8 @@
 import 'dart:collection';
+import 'dart:convert';
 
 import 'package:appflowy/util/int64_extension.dart';
+import 'package:appflowy_backend/log.dart';
 import 'package:appflowy_backend/protobuf/flowy-ai/entities.pb.dart';
 import 'package:collection/collection.dart';
 import 'package:fixnum/fixnum.dart';
@@ -8,6 +10,7 @@ import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:nanoid/nanoid.dart';
 
 import 'chat_entity.dart';
+import 'sources_manager.dart';
 import 'chat_message_stream.dart';
 
 /// Returns current Unix timestamp (seconds since epoch)
@@ -48,11 +51,48 @@ class ChatMessageHandler {
     if (_temporaryMessageIDMap.containsKey(messageId)) {
       messageId = _temporaryMessageIDMap[messageId]!;
     }
-    final metadata = message.metadata == 'null' ? '[]' : message.metadata;
+    
+    String finalMetadata = message.metadata == 'null' ? '[]' : message.metadata;
+    
+    
+    // 🔧 修复：从全局管理器恢复完整的 sources，避免后端 metadata 不完整导致引用丢失
+    bool shouldRestoreFromGlobal = false;
+    String? questionIdForRestore;
+    
+    if (message.hasReplyMessageId()) {
+      // 情况1：有明确的 reply_message_id
+      questionIdForRestore = message.replyMessageId.toString();
+      shouldRestoreFromGlobal = true;
+    } else if (message.metadata.isNotEmpty && message.metadata != 'null') {
+      // 情况2：有metadata但没有reply_message_id，可能是最终回答消息
+      // 尝试从全局管理器找到最近的问题ID
+      final sourcesManager = SourcesManager();
+      final recentQuestionId = sourcesManager.getMostRecentQuestionId(chatId);
+      if (recentQuestionId != null) {
+        questionIdForRestore = recentQuestionId;
+        shouldRestoreFromGlobal = true;
+      } else {
+      }
+    }
+    
+    if (shouldRestoreFromGlobal && questionIdForRestore != null) {
+      final sourcesManager = SourcesManager();
+      final globalSources = sourcesManager.getSources(chatId, questionIdForRestore);
+      
+      
+      if (globalSources != null && globalSources.isNotEmpty) {
+        
+        // 有完整的 sources，序列化并使用
+        final sourcesJson = globalSources.map((s) => s.toJson()).toList();
+        finalMetadata = jsonEncode(sourcesJson);
+      } else {
+      }
+    } else {
+    }
 
     // ✅ 构建 metadata，包含 question_id（来自 reply_message_id）
     final messageMetadata = <String, dynamic>{
-      messageRefSourceJsonStringKey: metadata,
+      messageRefSourceJsonStringKey: finalMetadata,
     };
     
     // ✅ 如果有 reply_message_id，将其作为 question_id 添加到 metadata（保持 Int64 类型）

@@ -23,6 +23,9 @@ use async_stream::try_stream;
 use serde_json::json;
 use crate::entities::ToolDefinitionPB;
 use serde::{Deserialize, Serialize};
+use crate::agent::{
+  TaskDecomposer, ParallelDispatcher, ResultSynthesizer, AvailableTools,
+};
 
 #[derive(Clone, Debug)]
 struct OpenAICompatConfig {
@@ -1584,6 +1587,202 @@ impl ChatServiceMiddleware {
       }
     };
     
+    Ok(Box::pin(s))
+  }
+
+  /// 🌟 多路召回：使用任务分解和并行执行
+  /// 
+  /// 此方法实现了完整的多路召回流程：
+  /// 1. 任务分解：将用户问题分解为多个子任务
+  /// 2. 并行执行：同时调用多个工具（RAG、Web Search、MCP等）
+  /// 3. 结果综合：将所有结果综合成最终答案
+  /// 
+  /// 适用场景：
+  /// - 需要多个信息源的复杂问题
+  /// - 需要对比内外部信息
+  /// - 需要综合多个工具的能力
+  pub async fn stream_answer_with_multi_retrieval(
+    &self,
+    workspace_id: &Uuid,
+    chat_id: &Uuid,
+    question_id: i64,
+    format: ResponseFormat,
+    ai_model: AIModel,
+    system_prompt: Option<String>,
+    tool_handler: Arc<crate::agent::ToolCallHandler>,
+    agent_config: Option<Arc<crate::entities::AgentConfigPB>>,
+    available_tools: AvailableTools,
+  ) -> Result<StreamAnswer, FlowyError> {
+    info!("🌟 [MULTI-RETRIEVAL] Starting multi-retrieval flow");
+
+    // 获取 OpenAI 配置
+    let cfg = self.read_openai_compat_chat_config(workspace_id)
+      .ok_or_else(|| FlowyError::internal().with_context("No OpenAI config for multi-retrieval"))?;
+
+    // 规范化模型名称
+    let model_name = if ai_model.name.is_empty() || ai_model.name == DEFAULT_AI_MODEL_NAME {
+      cfg.model.clone()
+    } else {
+      ai_model.name.clone()
+    };
+
+    // 获取用户问题
+    let question = self.get_message_content(question_id)?;
+
+    // 1. 任务分解
+    info!("🔀 [MULTI-RETRIEVAL] Step 1: Task decomposition");
+    let decomposer = TaskDecomposer::new(
+      cfg.base_url.clone(),
+      cfg.api_key.clone(),
+      model_name.clone(),
+    );
+
+    let decomposition = decomposer
+      .decompose(&question, &available_tools, None)
+      .await?;
+
+    info!(
+      "🔀 [MULTI-RETRIEVAL] Decomposition result: needs_decomposition={}, {} sub-tasks",
+      decomposition.needs_decomposition,
+      decomposition.sub_tasks.len()
+    );
+
+    // 如果不需要分解，使用原有流程
+    if !decomposition.needs_decomposition || decomposition.sub_tasks.is_empty() {
+      info!("🔀 [MULTI-RETRIEVAL] Simple question, using standard flow");
+      return self.stream_answer_with_auto_multi_turn(
+        workspace_id,
+        chat_id,
+        question_id,
+        format,
+        ai_model,
+        system_prompt,
+        None, // 不使用工具
+        None, // 不使用工具处理器
+        None, // 不使用智能体配置
+        5,    // 最大迭代次数
+      )
+      .await;
+    }
+
+    // 2. 并行执行
+    info!("🚀 [MULTI-RETRIEVAL] Step 2: Parallel execution");
+    let dispatcher = ParallelDispatcher::new(tool_handler.clone())
+      .with_rag_context(chat_id.clone(), workspace_id.clone());
+
+    // 保存sub_tasks信息，因为后面要用
+    let sub_tasks_info = (decomposition.sub_tasks.len(), decomposition.reasoning.clone());
+    
+    let dispatch_result = dispatcher
+      .dispatch_parallel(decomposition.sub_tasks, agent_config.as_ref().map(|c| c.as_ref()))
+      .await?;
+
+    info!(
+      "🚀 [MULTI-RETRIEVAL] Parallel execution complete: {}/{} success",
+      dispatch_result.success_count,
+      dispatch_result.results.len()
+    );
+
+    // 3. 结果综合（流式）
+    info!("🔄 [MULTI-RETRIEVAL] Step 3: Result synthesis (streaming)");
+    let synthesizer = ResultSynthesizer::new(
+      cfg.base_url.clone(),
+      cfg.api_key.clone(),
+      model_name.clone(),
+    );
+
+    // 创建流式响应
+    let s = try_stream! {
+      // 发送任务分解元数据
+      yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+        value: json!({
+          "multi_retrieval": {
+            "phase": "decomposition",
+            "needs_decomposition": decomposition.needs_decomposition,
+            "sub_tasks_count": sub_tasks_info.0,
+            "reasoning": sub_tasks_info.1
+          }
+        })
+      };
+
+      // 发送并行执行元数据
+      yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+        value: json!({
+          "multi_retrieval": {
+            "phase": "execution",
+            "total_tasks": dispatch_result.results.len(),
+            "success_count": dispatch_result.success_count,
+            "failure_count": dispatch_result.failure_count,
+            "duration_ms": dispatch_result.total_duration_ms
+          }
+        })
+      };
+
+      // 发送每个子任务的结果（用于前端展示）
+      for result in &dispatch_result.results {
+        yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+          value: json!({
+            "sub_task_result": {
+              "task_id": result.task_id,
+              "task_description": result.task_description,
+              "tool_used": result.tool_used,
+              "success": result.success,
+              "source": result.source,
+              "duration_ms": result.duration_ms,
+              "error": result.error
+            }
+          })
+        };
+      }
+
+      // 开始综合阶段
+      yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+        value: json!({
+          "multi_retrieval": {
+            "phase": "synthesis",
+            "status": "starting"
+          }
+        })
+      };
+
+      yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
+        value: "\n\n🔄 **正在综合多个信息源的结果...**\n\n".to_string()
+      };
+
+      // 流式输出综合结果
+      use futures_util::pin_mut;
+      let synthesis_stream = synthesizer
+        .synthesize_stream(question.clone(), dispatch_result.clone(), system_prompt.clone())
+        .await?;
+      
+      pin_mut!(synthesis_stream);
+
+      while let Some(chunk_result) = synthesis_stream.next().await {
+        match chunk_result {
+          Ok(chunk) => {
+            yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
+              value: chunk
+            };
+          }
+          Err(e) => {
+            warn!("❌ [MULTI-RETRIEVAL] Synthesis stream error: {}", e);
+            Err(e)?;
+          }
+        }
+      }
+
+      // 综合完成
+      yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+        value: json!({
+          "multi_retrieval": {
+            "phase": "completed"
+          }
+        })
+      };
+
+      info!("✅ [MULTI-RETRIEVAL] Multi-retrieval flow completed");
+    };
+
     Ok(Box::pin(s))
   }
 }

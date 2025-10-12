@@ -1,6 +1,7 @@
 import 'package:appflowy/plugins/ai_chat/application/chat_entity.dart';
 import 'package:appflowy/plugins/ai_chat/application/chat_message_stream.dart';
 import 'package:appflowy/plugins/ai_chat/application/reasoning_manager.dart';
+import 'package:appflowy/plugins/ai_chat/application/sources_manager.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/message/tool_call_display.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/message/task_plan_display.dart';
 import 'package:appflowy_backend/dispatch/dispatch.dart';
@@ -30,11 +31,13 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
     _initializeStreamListener();
     _checkInitialStreamState();
     _initializeReasoningFromGlobal();
+    _initializeSourcesFromGlobal();
   }
 
   final String chatId;
   final Int64? questionId;
   final ReasoningManager _reasoningManager = ReasoningManager();
+  final SourcesManager _sourcesManager = SourcesManager();
 
   /// 从全局管理器初始化推理文本
   void _initializeReasoningFromGlobal() {
@@ -45,6 +48,16 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
       // Log.debug("🌐 [GLOBAL] Initializing with existing reasoning text length: ${globalReasoningText.length}");
       // 使用add方法而不是直接emit
       add(ChatAIMessageEvent.initializeReasoning(globalReasoningText, isComplete));
+    }
+  }
+
+  /// 从全局管理器初始化引用来源
+  void _initializeSourcesFromGlobal() {
+    if (questionId == null) return;
+    
+    final globalSources = _sourcesManager.getSources(chatId, questionId.toString());
+    if (globalSources != null && globalSources.isNotEmpty) {
+      add(ChatAIMessageEvent.initializeSources(globalSources));
     }
   }
 
@@ -172,9 +185,22 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
         updatedTaskPlan = _handleTaskPlanMetadata(event.metadata.rawMetadata!, state.taskPlan);
       }
       
+      // 🔧 累积引用来源（修复多路召回时只显示一种工具结果的问题）
+      // 将新的 sources 与现有的 sources 合并，而不是直接替换
+      
+      List<ChatMessageRefSource> updatedSources = _mergeSources(state.sources, event.metadata.sources);
+      
+      
+      // 💾 同时保存到全局管理器，确保消息重新加载时不丢失
+      if (questionId != null) {
+        _sourcesManager.setSources(chatId, questionId.toString(), updatedSources);
+      } else {
+        Log.warn("⚠️ [SOURCES] questionId is null, cannot save to global manager!");
+      }
+      
       emit(
         state.copyWith(
-          sources: event.metadata.sources,
+          sources: updatedSources,
           progress: event.metadata.progress,
           reasoningText: updatedReasoningText,
           isReasoningComplete: isReasoningActive ? false : state.isReasoningComplete, // 保持推理状态
@@ -200,6 +226,17 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
           isReasoningComplete: event.isComplete,
         ),
       );
+    });
+
+    on<_InitializeSources>((event, emit) {
+      if (event.sources.isNotEmpty) {
+        Log.info("💾 [SOURCES] Initializing with ${event.sources.length} sources from global manager");
+        emit(
+          state.copyWith(
+            sources: event.sources,
+          ),
+        );
+      }
     });
   }
 
@@ -230,6 +267,14 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
           final finalReasoningText = _reasoningManager.getReasoningText(chatId);
           if (finalReasoningText != null && finalReasoningText.isNotEmpty) {
             _safeAdd(ChatAIMessageEvent.initializeReasoning(finalReasoningText, true));
+          }
+          
+          // 💾 流结束时，确保累积的 sources 被保存到全局管理器
+          
+          if (questionId != null) {
+            if (state.sources.isNotEmpty) {
+              _sourcesManager.setSources(chatId, questionId.toString(), state.sources);
+            }
           }
         },
         onAIResponseLimit: () =>
@@ -265,6 +310,41 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
     if (!isClosed) {
       add(event);
     }
+  }
+
+  /// 🔧 合并引用来源列表（修复多路召回时只显示一种工具结果的问题）
+  /// 
+  /// 该方法将新的 sources 累积到现有的 sources 中，而不是替换它们。
+  /// 使用唯一标识（source + id）进行去重，避免重复添加相同的引用。
+  List<ChatMessageRefSource> _mergeSources(
+    List<ChatMessageRefSource> existingSources,
+    List<ChatMessageRefSource> newSources,
+  ) {
+    if (newSources.isEmpty) {
+      return existingSources;
+    }
+
+    // 创建一个副本，避免修改原列表
+    final List<ChatMessageRefSource> mergedSources = List.from(existingSources);
+    
+    // 为了去重，使用 source + id 作为唯一标识
+    final Set<String> existingKeys = existingSources
+        .map((source) => '${source.source}:${source.id}')
+        .toSet();
+    
+    // 添加新的 sources（跳过重复的）
+    for (final newSource in newSources) {
+      final key = '${newSource.source}:${newSource.id}';
+      if (!existingKeys.contains(key)) {
+        mergedSources.add(newSource);
+        existingKeys.add(key);
+        Log.debug("📊 [SOURCES] Added new source: ${newSource.source}:${newSource.name}");
+      } else {
+        Log.debug("📊 [SOURCES] Skipped duplicate source: ${newSource.source}:${newSource.name}");
+      }
+    }
+    
+    return mergedSources;
   }
 
   // 🔧 处理工具调用 Metadata
@@ -440,6 +520,9 @@ class ChatAIMessageEvent with _$ChatAIMessageEvent {
     String reasoningText,
     bool isComplete,
   ) = _InitializeReasoning;
+  const factory ChatAIMessageEvent.initializeSources(
+    List<ChatMessageRefSource> sources,
+  ) = _InitializeSources;
 }
 
 @freezed

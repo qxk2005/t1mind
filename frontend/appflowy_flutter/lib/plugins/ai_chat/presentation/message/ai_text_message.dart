@@ -10,6 +10,7 @@ import 'package:appflowy/plugins/ai_chat/presentation/message/tool_call_display.
 import 'package:appflowy/plugins/ai_chat/presentation/message/task_plan_display.dart';
 import 'package:appflowy/plugins/ai_chat/widgets/unified_reference_display.dart';
 import 'package:string_validator/string_validator.dart';
+import 'package:appflowy_backend/log.dart';
 import 'package:appflowy_backend/protobuf/flowy-ai/protobuf.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:fixnum/fixnum.dart';
@@ -387,12 +388,22 @@ class _NonEmptyMessage extends StatelessWidget {
 
   /// 检查是否有网络搜索引用
   bool _hasWebSearchCitations(List<ChatMessageRefSource> sources) {
-    return sources.any((source) => source.source == 'web' && isURL(source.id));
+    final hasWeb = sources.any((source) => source.source == 'web' && isURL(source.id));
+    if (hasWeb) {
+      final webCount = sources.where((source) => source.source == 'web' && isURL(source.id)).length;
+    }
+    return hasWeb;
   }
 
   /// 检查是否有MCP工具引用
   bool _hasMCPReferences(List<ChatMessageRefSource> sources) {
-    return sources.any((source) => source.source.startsWith('mcp'));
+    final hasMCP = sources.any((source) => source.source.startsWith('mcp'));
+    if (hasMCP) {
+      final mcpSources = sources.where((source) => source.source.startsWith('mcp')).toList();
+    } else {
+      final allSources = sources.map((s) => '${s.source}:${s.name}').join(', ');
+    }
+    return hasMCP;
   }
 
   /// 检查是否有文档来源
