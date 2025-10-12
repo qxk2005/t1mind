@@ -71,7 +71,7 @@ pub fn create_log_filter(
   // filters.push(format!("flowy_sqlite={}", "info"));
   // filters.push(format!("lib_dispatch={}", level));
 
-  filters.push(format!("client_api={}", level));
+  filters.push(format!("client_api={}", "warn")); // 过滤掉 websocket 连接等信息日志
   filters.push(format!("infra={}", level));
   #[cfg(feature = "profiling")]
   filters.push(format!("tokio={}", level));
