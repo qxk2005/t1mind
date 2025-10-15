@@ -199,6 +199,24 @@ pub fn select_chat_rag_ids(
   Ok(deserialize_rag_ids(&chat.rag_ids))
 }
 
+/// 获取所有聊天的所有 rag_ids（去重）
+pub fn select_all_chat_rag_ids(
+  conn: &mut SqliteConnection,
+) -> FlowyResult<Vec<String>> {
+  let chats = dsl::chat_table
+    .load::<ChatTable>(conn)?;
+
+  let mut all_rag_ids = std::collections::HashSet::new();
+  for chat in chats {
+    let rag_ids = deserialize_rag_ids(&chat.rag_ids);
+    for rag_id in rag_ids {
+      all_rag_ids.insert(rag_id);
+    }
+  }
+
+  Ok(all_rag_ids.into_iter().collect())
+}
+
 pub fn select_chat_metadata(
   conn: &mut SqliteConnection,
   chat_id_val: &str,

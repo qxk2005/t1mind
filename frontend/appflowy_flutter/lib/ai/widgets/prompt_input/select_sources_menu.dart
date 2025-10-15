@@ -2,10 +2,11 @@ import 'dart:math';
 
 import 'package:appflowy/generated/flowy_svgs.g.dart';
 import 'package:appflowy/generated/locale_keys.g.dart';
-import 'package:appflowy/plugins/ai_chat/widgets/source_selector.dart';
 import 'package:appflowy/plugins/document/application/document_bloc.dart';
 import 'package:appflowy/workspace/application/sidebar/space/space_bloc.dart';
+import 'package:appflowy/workspace/application/user/user_workspace_bloc.dart';
 import 'package:appflowy/workspace/application/view/view_ext.dart';
+import 'package:appflowy/workspace/application/workspace/workspace_service.dart';
 import 'package:appflowy/workspace/presentation/home/menu/view/view_item.dart';
 import 'package:appflowy_backend/protobuf/flowy-folder/protobuf.dart';
 import 'package:appflowy_backend/protobuf/flowy-folder/view.pb.dart';
@@ -89,24 +90,63 @@ class _PromptInputDesktopSelectSourcesButtonState
             direction: PopoverDirection.topWithCenterAligned,
             margin: EdgeInsets.zero,
             controller: popoverController,
-            onOpen: () {
-              context
-                  .read<ViewSelectorCubit>()
-                  .refreshSources(state.spaces, state.currentSpace);
+            onOpen: () async {
+              // 🔧 修复：如果没有 spaces，则直接获取所有文档
+              List<ViewPB> views = state.spaces;
+              if (views.isEmpty) {
+                final workspaceBloc = context.read<UserWorkspaceBloc>();
+                final workspace = workspaceBloc.state.currentWorkspace;
+                if (workspace != null) {
+                  final workspaceService = WorkspaceService(
+                    workspaceId: workspace.workspaceId,
+                    userId: workspaceBloc.userProfile.id,
+                  );
+                  // 获取所有公开和私有视图
+                  final publicViews = await workspaceService.getPublicViews();
+                  final privateViews = await workspaceService.getPrivateViews();
+                  views = [
+                    ...publicViews.toNullable() ?? [],
+                    ...privateViews.toNullable() ?? [],
+                  ];
+                }
+              }
+              if (context.mounted) {
+                context
+                    .read<ViewSelectorCubit>()
+                    .refreshSources(views, state.currentSpace);
+              }
             },
-            onClose: () {
+            onClose: () async {
               widget.onUpdateSelectedSources(cubit.selectedSourceIds);
-              context
-                  .read<ViewSelectorCubit>()
-                  .refreshSources(state.spaces, state.currentSpace);
+              // 🔧 修复：如果没有 spaces，则直接获取所有文档
+              List<ViewPB> views = state.spaces;
+              if (views.isEmpty) {
+                final workspaceBloc = context.read<UserWorkspaceBloc>();
+                final workspace = workspaceBloc.state.currentWorkspace;
+                if (workspace != null) {
+                  final workspaceService = WorkspaceService(
+                    workspaceId: workspace.workspaceId,
+                    userId: workspaceBloc.userProfile.id,
+                  );
+                  // 获取所有公开和私有视图
+                  final publicViews = await workspaceService.getPublicViews();
+                  final privateViews = await workspaceService.getPrivateViews();
+                  views = [
+                    ...publicViews.toNullable() ?? [],
+                    ...privateViews.toNullable() ?? [],
+                  ];
+                }
+              }
+              if (context.mounted) {
+                context
+                    .read<ViewSelectorCubit>()
+                    .refreshSources(views, state.currentSpace);
+              }
             },
             popupBuilder: (_) {
               return BlocProvider.value(
                 value: context.read<ViewSelectorCubit>(),
-                child: _PopoverContent(
-                  selectedSourcesNotifier: widget.selectedSourcesNotifier,
-                  onUpdateSelectedSources: widget.onUpdateSelectedSources,
-                ),
+                child: const _PopoverContent(),
               );
             },
             child: _IndicatorButton(
@@ -190,13 +230,7 @@ class _IndicatorButton extends StatelessWidget {
 }
 
 class _PopoverContent extends StatelessWidget {
-  const _PopoverContent({
-    required this.selectedSourcesNotifier,
-    required this.onUpdateSelectedSources,
-  });
-
-  final ValueNotifier<List<String>> selectedSourcesNotifier;
-  final void Function(List<String>) onUpdateSelectedSources;
+  const _PopoverContent();
 
   @override
   Widget build(BuildContext context) {
@@ -207,22 +241,8 @@ class _PopoverContent extends StatelessWidget {
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 信息源选择器
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
-              child: SourceSelector(
-                selectedSourcesNotifier: selectedSourcesNotifier,
-                onUpdateSelectedSources: onUpdateSelectedSources,
-                compact: true,
-              ),
-            ),
-            AFDivider(
-              startIndent: theme.spacing.l,
-              endIndent: theme.spacing.l,
-            ),
-            // 文档搜索
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
               child: AFTextField(
                 size: AFTextFieldSize.m,
                 controller:

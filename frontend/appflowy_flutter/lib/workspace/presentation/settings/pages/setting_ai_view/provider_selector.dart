@@ -1,6 +1,7 @@
 import 'package:appflowy/workspace/application/settings/ai/ai_provider_cubit.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/local_ai_setting.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/openai_compat_setting.dart';
+import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/vector_index_setting.dart';
 import 'package:appflowy/workspace/presentation/settings/shared/af_dropdown_menu_entry.dart';
 import 'package:appflowy/workspace/presentation/settings/shared/settings_dropdown.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -72,12 +73,19 @@ class ProviderTabSwitcher extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocBuilder<AiProviderCubit, AiProviderState>(
       builder: (context, state) {
-        switch (state.provider) {
-          case AiProviderType.local:
-            return const LocalAISetting();
-          case AiProviderType.openaiCompatible:
-            return OpenAICompatSetting(workspaceId: workspaceId);
-        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 提供商特定设置
+            switch (state.provider) {
+              AiProviderType.local => const LocalAISetting(),
+              AiProviderType.openaiCompatible => OpenAICompatSetting(workspaceId: workspaceId),
+            },
+            const Divider(),
+            // 向量索引管理（所有提供商都可用）
+            const VectorIndexSetting(),
+          ],
+        );
       },
     );
   }

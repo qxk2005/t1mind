@@ -91,6 +91,11 @@ impl ChatServiceMiddleware {
     }
   }
 
+  /// 🔧 获取底层的 ChatCloudService
+  pub fn cloud_service(&self) -> &Arc<dyn ChatCloudService> {
+    &self.cloud_service
+  }
+  
   fn get_message_content(&self, message_id: i64) -> FlowyResult<String> {
     let uid = self.user_service.user_id()?;
     let conn = self.user_service.sqlite_connection(uid)?;
@@ -136,30 +141,28 @@ impl ChatServiceMiddleware {
           documents.len()
         );
         
-        // 构建包含文档上下文的消息
-        let context = documents
-          .iter()
-          .map(|doc| doc.page_content.clone())
-          .collect::<Vec<_>>()
-          .join("\n\n");
+        // 输出每个文档片段的详细信息
+        for (idx, doc) in documents.iter().enumerate() {
+          let score = doc.score;
+          let preview = doc.page_content.chars().take(80).collect::<String>();
+          trace!(
+            "[RAG] 📄 片段 #{}: score={:.4}, preview='{}'...",
+            idx + 1, score, preview
+          );
+        }
         
-        let enhanced_message = format!(
-          r#"Use the following context to answer the question. Only use information from the context provided.
-
-##Context##
-{}
-
-##Question##
-{}"#,
-          context, question
+        info!(
+          "[RAG] ✅ OpenAI 兼容模式：找到 {} 个文档片段，将添加到 system prompt",
+          documents.len()
         );
         
-        trace!("[RAG] ✅ OpenAI 兼容模式：已添加文档上下文到消息，将在stream结束后发送文档来源metadata");
-        return Ok((enhanced_message, documents));
+        // ⚠️ 关键修改：返回原始问题，不在用户消息中添加上下文
+        // RAG 上下文将在调用处添加到 system prompt 中
+        return Ok((question.to_string(), documents));
       }
       Ok(_) => {
         warn!(
-          "[RAG] ⚠️ OpenAI 兼容模式：未找到相关文档，使用原始问题"
+          "[RAG] ⚠️ OpenAI 兼容模式：未找到相关文档（可能相似度分数低于阈值），使用原始问题"
         );
       }
       Err(err) => {
@@ -224,18 +227,71 @@ impl ChatServiceMiddleware {
 
   /// 构建包含系统提示词的消息数组
   /// OpenAI API 标准格式：独立的 system 和 user 消息
+  /// 
+  /// ⚠️ 关键优化：将 RAG 文档上下文添加到 system prompt 中，
+  /// 并明确指示 AI 优先使用文档内容，其次才考虑工具调用
   fn build_messages_with_system_prompt(
     &self,
     content: String,
     system_prompt: Option<String>,
+    rag_documents: &[langchain_rust::schemas::Document],
   ) -> Vec<serde_json::Value> {
     let mut messages = Vec::new();
     
-    // 如果有系统提示词，作为独立的系统消息添加
-    if let Some(prompt) = system_prompt {
+    // 构建增强的 system prompt
+    let enhanced_system_prompt = if !rag_documents.is_empty() {
+      // 提取文档内容
+      let context = rag_documents
+        .iter()
+        .map(|doc| doc.page_content.clone())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+      
+      let rag_instruction = format!(
+        r#"# 📚 IMPORTANT: Document Context Available
+
+You have access to relevant documents that contain information to answer the user's question.
+
+## Priority Guidelines (READ CAREFULLY):
+1. **FIRST PRIORITY**: Use the information from the provided documents below to answer questions
+2. **SECOND PRIORITY**: Only use tools (web search, MCP tools, etc.) if:
+   - The documents do NOT contain relevant information
+   - Additional real-time or external data is needed
+   - The user explicitly asks to use a specific tool
+
+## Document Context:
+{}
+
+## Instructions:
+- Analyze the document context carefully before deciding to use any tools
+- If the answer is in the documents, provide it directly without using tools
+- Cite the documents when answering based on their content
+- Be explicit about whether you're using document knowledge or tool results
+"#,
+        context
+      );
+      
+      info!(
+        "[RAG] 📋 已将 {} 个文档片段添加到 system prompt ({}字符)",
+        rag_documents.len(),
+        rag_instruction.len()
+      );
+      
+      // 合并原有 system prompt 和 RAG 指令
+      match system_prompt {
+        Some(original_prompt) => format!("{}\n\n{}", rag_instruction, original_prompt),
+        None => rag_instruction,
+      }
+    } else {
+      // 没有 RAG 文档，使用原始 system prompt
+      system_prompt.unwrap_or_default()
+    };
+    
+    // 添加 system 消息（如果有内容）
+    if !enhanced_system_prompt.is_empty() {
       messages.push(json!({
         "role": "system",
-        "content": prompt
+        "content": enhanced_system_prompt
       }));
     }
     
@@ -348,11 +404,9 @@ impl ChatServiceMiddleware {
         return Ok(stream);
       }
 
-      // 默认：走现有 cloud_service（不支持系统提示词）
-      warn!("System prompt not supported for AppFlowy Cloud, falling back to standard stream_answer");
-      self.cloud_service
-        .stream_answer(workspace_id, chat_id, question_id, format, ai_model)
-        .await
+      // 🚫 AppFlowy Cloud AI 已禁用：只使用全局 AI 配置
+      Err(FlowyError::internal()
+        .with_context("未配置 OpenAI 兼容服务器。请在全局 AI 设置中配置 AI 供应商。"))
     }
   }
 
@@ -517,7 +571,8 @@ impl ChatServiceMiddleware {
     );
     
     // 构建包含系统提示词的消息数组（使用标准 OpenAI 格式）
-    let messages = self.build_messages_with_system_prompt(content, system_prompt);
+    // ⚠️ 传入 rag_documents，将 RAG 上下文添加到 system prompt
+    let messages = self.build_messages_with_system_prompt(content, system_prompt, &rag_documents);
     let mut payload = Self::openai_chat_payload(model_name, messages);
     
     // 🆕 添加工具定义（使用 OpenAI Function Call API）
@@ -1221,17 +1276,12 @@ impl ChatServiceMiddleware {
       .unwrap_or(max_iterations);
     
     // 构建初始消息
-    let mut messages = Vec::new();
-    if let Some(ref prompt) = system_prompt {
-      messages.push(json!({
-        "role": "system",
-        "content": prompt
-      }));
-    }
-    messages.push(json!({
-      "role": "user",
-      "content": content
-    }));
+    // ⚠️ 使用 build_messages_with_system_prompt 来正确处理 RAG 上下文
+    let messages = self.build_messages_with_system_prompt(
+      content.clone(),  // 使用原始问题（已通过 get_message_content_with_rag 获取）
+      system_prompt.clone(),
+      &rag_documents
+    );
     
     // 创建多轮对话流
     let s = try_stream! {
@@ -1826,10 +1876,20 @@ impl ChatCloudService for ChatServiceMiddleware {
     question_id: i64,
     metadata: Option<serde_json::Value>,
   ) -> Result<ChatMessage, FlowyError> {
-    self
+    let mut chat_message = self
       .cloud_service
       .create_answer(workspace_id, chat_id, message, question_id, metadata)
-      .await
+      .await?;
+    
+    // 🔧 关键修复：确保 reply_message_id 被正确设置
+    chat_message.reply_message_id = Some(question_id);
+    
+    tracing::info!(
+      "🔍 [CHAT-SERVICE-MW-CREATE-ANSWER] message_id: {}, question_id: {}, reply_message_id: {:?}",
+      chat_message.message_id, question_id, chat_message.reply_message_id
+    );
+    
+    Ok(chat_message)
   }
 
   async fn stream_answer(
@@ -1881,25 +1941,9 @@ impl ChatCloudService for ChatServiceMiddleware {
         return Ok(stream);
       }
 
-      // 默认：走现有 cloud_service（AppFlowy Cloud 或本地服务封装）
-      match self
-        .cloud_service
-        .stream_answer(workspace_id, chat_id, question_id, format.clone(), ai_model)
-        .await
-      {
-        Ok(ok) => Ok(ok),
-        Err(err) => {
-          if self.local_ai.is_ready().await {
-            let content = self.get_message_content(question_id)?;
-            return self
-              .local_ai
-              .stream_question(chat_id, &content, format.clone(), &self.local_ai.get_local_ai_setting().chat_model_name)
-              .await
-              .map_err(|e| e.with_context("云端 AI 不可用，已回退到本地 / Remote AI unavailable, fallback to local"));
-          }
-          Err(err)
-        },
-      }
+      // 🚫 AppFlowy Cloud AI 已禁用：只使用全局 AI 配置
+      Err(FlowyError::internal()
+        .with_context("未配置 OpenAI 兼容服务器。请在全局 AI 设置中配置 AI 供应商。"))
     }
   }
 
@@ -1909,8 +1953,9 @@ impl ChatCloudService for ChatServiceMiddleware {
     chat_id: &Uuid,
     question_id: i64,
   ) -> Result<ChatMessage, FlowyError> {
-    let prefer_local = self.user_service.is_local_model().await.unwrap_or(false);
-    if prefer_local && self.local_ai.is_ready().await {
+    // 🚫 AppFlowy Cloud AI 已禁用：只使用本地 AI 或 OpenAI 兼容服务器
+    // 注意：此方法不支持 OpenAI 兼容服务器（需要流式 API）
+    if self.local_ai.is_ready().await {
       let content = self.get_message_content(question_id)?;
       let answer = self.local_ai.ask_question(chat_id, &content).await?;
 
@@ -1920,26 +1965,8 @@ impl ChatCloudService for ChatServiceMiddleware {
         .await?;
       Ok(message)
     } else {
-      match self
-        .cloud_service
-        .get_answer(workspace_id, chat_id, question_id)
-        .await
-      {
-        Ok(ok) => Ok(ok),
-        Err(err) => {
-          if self.local_ai.is_ready().await {
-            let content = self.get_message_content(question_id)?;
-            let answer = self.local_ai.ask_question(chat_id, &content).await?;
-            let message = self
-              .cloud_service
-              .create_answer(workspace_id, chat_id, &answer, question_id, None)
-              .await?;
-            Ok(message)
-          } else {
-            Err(err)
-          }
-        },
-      }
+      Err(FlowyError::internal()
+        .with_context("本地 AI 未就绪。此方法不支持 OpenAI 兼容服务器，请使用流式 AI 接口。"))
     }
   }
 
@@ -2083,23 +2110,9 @@ impl ChatCloudService for ChatServiceMiddleware {
         return Ok(Box::pin(mapped));
       }
 
-      match self
-        .cloud_service
-        .stream_complete(workspace_id, params.clone(), ai_model)
-        .await
-      {
-        Ok(ok) => Ok(ok),
-        Err(err) => {
-          if self.local_ai.is_ready().await {
-            return self
-              .local_ai
-              .complete_text(&self.local_ai.get_local_ai_setting().chat_model_name, params)
-              .await
-              .map_err(|e| e.with_context("云端 AI 不可用，已回退到本地 / Remote AI unavailable, fallback to local"));
-          }
-          Err(err)
-        },
-      }
+      // 🚫 AppFlowy Cloud AI 已禁用：只使用全局 AI 配置
+      Err(FlowyError::internal()
+        .with_context("未配置 OpenAI 兼容服务器。请在全局 AI 设置中配置 AI 供应商。"))
     }
   }
 

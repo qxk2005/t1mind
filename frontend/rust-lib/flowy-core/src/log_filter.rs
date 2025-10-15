@@ -73,6 +73,14 @@ pub fn create_log_filter(
 
   filters.push(format!("client_api={}", "warn")); // 过滤掉 websocket 连接等信息日志
   filters.push(format!("infra={}", level));
+  
+  // 过滤掉特定的调试日志，但保留执行日志相关的重要信息
+  filters.push(format!("flowy_user::event_handler={}", "warn")); // 过滤掉 workspace 相关的 span 日志
+  filters.push(format!("flowy_core::module={}", "warn")); // 过滤掉插件初始化日志
+  
+  // 保留AI执行日志的重要信息
+  filters.push(format!("flowy_ai::agent::event_handler={}", level)); // 保留执行日志处理器日志
+  filters.push(format!("flowy_ai::chat={}", level)); // 保留聊天执行日志
   #[cfg(feature = "profiling")]
   filters.push(format!("tokio={}", level));
   #[cfg(feature = "profiling")]

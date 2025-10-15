@@ -294,14 +294,14 @@ pub(crate) async fn get_execution_logs_handler(
   let data = data.try_into_inner()?;
   data.validate()?;
   
-  info!("📋 Processing get execution logs request for session: {}", data.session_id);
+  info!("📋 [EXECUTION-LOG-API] Processing get execution logs request for session: {}", data.session_id);
   
   let ai_manager = upgrade_ai_manager(ai_manager)?;
   
   // 从AI管理器获取执行日志
   match ai_manager.get_execution_logs(&data).await {
     Ok(logs) => {
-      info!("✅ Successfully retrieved {} execution logs", logs.logs.len());
+      info!("✅ [EXECUTION-LOG-API] Successfully retrieved {} execution logs", logs.logs.len());
       log_operation_duration("get_execution_logs", start_time);
       data_result_ok(logs)
     }
@@ -323,14 +323,14 @@ pub(crate) async fn add_execution_log_handler(
   let start_time = Instant::now();
   let data = data.try_into_inner()?;
   
-  info!("📝 Adding execution log for session: {}, phase: {:?}", data.session_id, data.phase);
+  info!("📝 [EXECUTION-LOG-API] Adding execution log for session: {}, phase: {:?}", data.session_id, data.phase);
   
   let ai_manager = upgrade_ai_manager(ai_manager)?;
   
   // 添加执行日志到AI管理器
   match ai_manager.add_execution_log(data).await {
     Ok(_) => {
-      info!("✅ Successfully added execution log");
+      info!("✅ [EXECUTION-LOG-API] Successfully added execution log");
       log_operation_duration("add_execution_log", start_time);
       Ok(())
     }

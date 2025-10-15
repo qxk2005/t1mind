@@ -16,18 +16,12 @@ use crate::agent::event_handler::*;
 use crate::web_search::event_handler::*;
 
 pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
-  // 使用tracing而不是println!，因为Android上println!可能不会显示
-  tracing::info!("🚨 [AI-PLUGIN] AI plugin init called - This MUST appear in logs!");
-  tracing::error!("🚨 [AI-PLUGIN] AI plugin init called - This MUST appear in logs!");
-  info!("🔧 [PLUGIN] Initializing AI plugin with ai_manager: {:?}", ai_manager.strong_count());
   
   let strong_ai_manager = match ai_manager.upgrade() {
     Some(manager) => {
-      info!("🔧 [PLUGIN] Successfully upgraded ai_manager");
       manager
     },
     None => {
-      error!("🔧 [PLUGIN] Failed to upgrade ai_manager - it has been dropped!");
       panic!("AIManager has been dropped before plugin initialization");
     }
   };

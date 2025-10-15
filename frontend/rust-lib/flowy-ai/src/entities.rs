@@ -324,11 +324,20 @@ pub struct ChatMessageErrorPB {
 
 impl From<ChatMessage> for ChatMessagePB {
   fn from(chat_message: ChatMessage) -> Self {
+    // 🔍 调试：先提取author_type避免移动问题
+    let author_type = chat_message.author.author_type as i64;
+    
+    // 🔍 调试：打印转换信息
+    tracing::info!(
+      "🔍 [CHATMESSAGE->PB] message_id: {}, author_type: {}, reply_message_id: {:?}",
+      chat_message.message_id, author_type, chat_message.reply_message_id
+    );
+    
     ChatMessagePB {
       message_id: chat_message.message_id,
       content: chat_message.content,
       created_at: chat_message.created_at.timestamp(),
-      author_type: chat_message.author.author_type as i64,
+      author_type,
       author_id: chat_message.author.author_id.to_string(),
       reply_message_id: chat_message.reply_message_id,  // ✅ 使用实际的 reply_message_id
       metadata: Some(serde_json::to_string(&chat_message.metadata).unwrap_or_default()),

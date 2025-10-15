@@ -29,6 +29,7 @@ class OpenAICompatSetting extends StatelessWidget {
             );
           }
           return Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
@@ -46,19 +47,21 @@ class OpenAICompatSetting extends StatelessWidget {
               const VSpace(10),
               _Form(state: state),
               const VSpace(10),
-          _Actions(state: state),
+              _Actions(state: state),
               if (state.testResult != null) ...[
                 const VSpace(10),
                 _TestResultView(result: state.testResult!),
               ],
-          const VSpace(10),
-          _EmbedForm(state: state),
-          const VSpace(10),
-          _EmbedActions(state: state),
-          if (state.embedTestResult != null) ...[
-            const VSpace(10),
-            _EmbedTestResultView(result: state.embedTestResult!),
-          ],
+              const VSpace(10),
+              _EmbedForm(state: state),
+              const VSpace(10),
+              _EmbedActions(state: state),
+              if (state.embedTestResult != null) ...[
+                const VSpace(10),
+                _EmbedTestResultView(result: state.embedTestResult!),
+              ],
+              const VSpace(10),
+              _RagConfigForm(state: state),
             ],
           );
         },
@@ -160,7 +163,7 @@ class _Form extends StatelessWidget {
             child: TextFormField(
               initialValue: state.timeoutMs.toString(),
               keyboardType: TextInputType.number,
-              onChanged: (v) => bloc.updateTimeoutMs(int.tryParse(v) ?? 20000),
+              onChanged: (v) => bloc.updateTimeoutMs(int.tryParse(v) ?? 60000),
             ),
           ),
         ],
@@ -394,4 +397,72 @@ class _EmbedTestResultView extends StatelessWidget {
   }
 }
 
+class _RagConfigForm extends StatelessWidget {
+  const _RagConfigForm({required this.state});
+  final OpenAICompatSettingState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final bloc = context.read<OpenAICompatSettingBloc>();
+    final theme = AppFlowyTheme.of(context);
+    
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          "RAG 文档检索配置",
+          style: theme.textStyle.body.enhanced(
+            color: theme.textColorScheme.primary,
+          ),
+        ),
+        const VSpace(4),
+        FlowyText(
+          "配置文档检索的相似度阈值。较低的值会检索更多文档，但可能包含不相关的内容。",
+          maxLines: 3,
+          fontSize: 12,
+        ),
+        const VSpace(8),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            border: Border.all(color: Theme.of(context).colorScheme.outline),
+            borderRadius: Corners.s8Border,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FlowyText.medium('相似度阈值 (Similarity Threshold)'),
+              const VSpace(6),
+              TextFormField(
+                initialValue: state.ragScoreThreshold.toString(),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (v) => bloc.updateRagScoreThreshold(double.tryParse(v) ?? 0.25),
+                decoration: const InputDecoration(
+                  hintText: '0.25',
+                  helperText: '推荐范围: 0.2 - 0.4，默认: 0.25',
+                  helperMaxLines: 2,
+                ),
+              ),
+              const VSpace(4),
+              FlowyText(
+                '当前值: ${state.ragScoreThreshold.toStringAsFixed(2)} (${_getThresholdDescription(state.ragScoreThreshold)})',
+                fontSize: 12,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _getThresholdDescription(double threshold) {
+    if (threshold < 0.2) return '极低 - 会检索大量可能不相关的文档';
+    if (threshold < 0.3) return '较低 - 检索范围广泛';
+    if (threshold < 0.4) return '适中 - 推荐设置';
+    if (threshold < 0.5) return '较高 - 只检索高度相关的文档';
+    return '很高 - 可能漏检相关文档';
+  }
+}
 

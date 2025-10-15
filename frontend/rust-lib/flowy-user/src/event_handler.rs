@@ -407,7 +407,6 @@ pub async fn set_cloud_config_handler(
   Ok(())
 }
 
-#[tracing::instrument(level = "info", skip_all, err)]
 pub async fn get_cloud_config_handler(
   manager: AFPluginState<Weak<UserManager>>,
   store_preferences: AFPluginState<Weak<KVStorePreferences>>,
@@ -739,7 +738,6 @@ pub async fn subscribe_workspace_handler(
   data_result_ok(PaymentLinkPB { payment_link })
 }
 
-#[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn get_workspace_subscription_info_handler(
   params: AFPluginData<UserWorkspaceIdPB>,
   manager: AFPluginState<Weak<UserManager>>,
@@ -765,7 +763,6 @@ pub async fn cancel_workspace_subscription_handler(
   Ok(())
 }
 
-#[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn get_workspace_usage_handler(
   param: AFPluginData<UserWorkspaceIdPB>,
   manager: AFPluginState<Weak<UserManager>>,

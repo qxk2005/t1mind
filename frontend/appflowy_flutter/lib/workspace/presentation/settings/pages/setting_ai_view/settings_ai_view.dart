@@ -2,7 +2,6 @@ import 'package:appflowy/generated/locale_keys.g.dart';
 import 'package:appflowy/workspace/application/settings/ai/settings_ai_bloc.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/model_selection.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/provider_selector.dart';
-import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/vector_index_setting.dart';
 import 'package:appflowy/workspace/application/settings/ai/ai_provider_cubit.dart';
 import 'package:appflowy/workspace/presentation/settings/shared/settings_body.dart';
 import 'package:appflowy/workspace/presentation/widgets/toggle/toggle.dart';
@@ -39,10 +38,6 @@ class SettingsAIView extends StatelessWidget {
             const AIModelSelection(),
             const _AISearchToggle(value: false),
             ProviderTabSwitcher(workspaceId: workspaceId),
-            const SizedBox(height: 24),
-            const Divider(),
-            const SizedBox(height: 24),
-            const VectorIndexSetting(),
           ],
         ),
       ),

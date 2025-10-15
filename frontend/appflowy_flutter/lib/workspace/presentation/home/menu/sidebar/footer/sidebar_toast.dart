@@ -46,12 +46,7 @@ class SidebarToast extends StatelessWidget {
             onTap: () => _handleOnTap(context, SubscriptionPlanPB.Pro),
             reason: LocaleKeys.sideBar_storageLimitDialogTitle.tr(),
           ),
-          aiMaxiLimitHit: () => PlanIndicator(
-            planName: SubscriptionPlanPB.AiMax.label,
-            text: LocaleKeys.sideBar_upgradeToAIMax.tr(),
-            onTap: () => _handleOnTap(context, SubscriptionPlanPB.AiMax),
-            reason: LocaleKeys.sideBar_aiResponseLimitTitle.tr(),
-          ),
+          aiMaxiLimitHit: () => const SizedBox.shrink(),
           singleFileLimitHit: () => const SizedBox.shrink(),
         );
       },

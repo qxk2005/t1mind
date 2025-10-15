@@ -25,7 +25,8 @@ class OpenAICompatSettingState extends Equatable {
     this.embeddingModel = 'text-embedding-3-small',
     this.temperature = 0.7,
     this.maxTokens = 1024,
-    this.timeoutMs = 20000,
+    this.timeoutMs = 60000, // 增加到60秒，嵌入服务通常需要更长时间
+    this.ragScoreThreshold = 0.25,
     this.error,
     this.testResult,
     this.embedTestResult,
@@ -44,6 +45,7 @@ class OpenAICompatSettingState extends Equatable {
   final double temperature; // 0..2
   final int maxTokens;
   final int timeoutMs;
+  final double ragScoreThreshold; // RAG文档检索相似度阈值 (0..1)
   final String? error;
   final OpenAITestResult? testResult;
   final OpenAIEmbedTestResult? embedTestResult;
@@ -62,6 +64,7 @@ class OpenAICompatSettingState extends Equatable {
     double? temperature,
     int? maxTokens,
     int? timeoutMs,
+    double? ragScoreThreshold,
     String? error,
     OpenAITestResult? testResult,
     OpenAIEmbedTestResult? embedTestResult,
@@ -80,6 +83,7 @@ class OpenAICompatSettingState extends Equatable {
       temperature: temperature ?? this.temperature,
       maxTokens: maxTokens ?? this.maxTokens,
       timeoutMs: timeoutMs ?? this.timeoutMs,
+      ragScoreThreshold: ragScoreThreshold ?? this.ragScoreThreshold,
       error: error,
       testResult: testResult,
       embedTestResult: embedTestResult,
@@ -101,6 +105,7 @@ class OpenAICompatSettingState extends Equatable {
         temperature,
         maxTokens,
         timeoutMs,
+        ragScoreThreshold,
         error,
         testResult,
         embedTestResult,
@@ -165,6 +170,7 @@ class OpenAICompatSettingBloc extends Cubit<OpenAICompatSettingState> {
   static const String _kTemperature = 'ai.openai.temperature';
   static const String _kMaxTokens = 'ai.openai.maxTokens';
   static const String _kTimeoutMs = 'ai.openai.timeoutMs';
+  static const String _kRagScoreThreshold = 'ai.openai.ragScoreThreshold';
 
   final user_settings.UserSettingsBackendService _service;
   userpb.AppearanceSettingsPB? _appearance;
@@ -189,7 +195,8 @@ class OpenAICompatSettingBloc extends Cubit<OpenAICompatSettingState> {
         embeddingModel: getKV(_kEmbeddingModel, fallback: 'text-embedding-3-small'),
         temperature: double.tryParse(getKV(_kTemperature)) ?? 0.7,
         maxTokens: int.tryParse(getKV(_kMaxTokens)) ?? 1024,
-        timeoutMs: int.tryParse(getKV(_kTimeoutMs)) ?? 20000,
+        timeoutMs: int.tryParse(getKV(_kTimeoutMs)) ?? 60000, // 增加到60秒
+        ragScoreThreshold: double.tryParse(getKV(_kRagScoreThreshold)) ?? 0.25,
       ));
     } catch (e) {
       Log.warn('Failed to load OpenAI compat settings');
@@ -206,6 +213,7 @@ class OpenAICompatSettingBloc extends Cubit<OpenAICompatSettingState> {
   void updateTemperature(double v) => emit(state.copyWith(temperature: v));
   void updateMaxTokens(int v) => emit(state.copyWith(maxTokens: v));
   void updateTimeoutMs(int v) => emit(state.copyWith(timeoutMs: v));
+  void updateRagScoreThreshold(double v) => emit(state.copyWith(ragScoreThreshold: v.clamp(0.0, 1.0)));
 
   Future<void> save() async {
     emit(state.copyWith(isSaving: true));
@@ -230,6 +238,7 @@ class OpenAICompatSettingBloc extends Cubit<OpenAICompatSettingState> {
       a.settingKeyValue[scoped(_kTemperature)] = state.temperature.toString();
       a.settingKeyValue[scoped(_kMaxTokens)] = state.maxTokens.toString();
       a.settingKeyValue[scoped(_kTimeoutMs)] = state.timeoutMs.toString();
+      a.settingKeyValue[scoped(_kRagScoreThreshold)] = state.ragScoreThreshold.toString();
       await _service.setAppearanceSetting(a);
       emit(state.copyWith(isSaving: false));
     } catch (e) {
@@ -469,7 +478,7 @@ class OpenAICompatSettingBloc extends Cubit<OpenAICompatSettingState> {
           success: false,
           latencyMs: latency,
           vectorDim: 0,
-          error: 'timeout: ${e.message ?? ''}'.trim(),
+          error: 'timeout: ${e.message ?? 'Request timed out after ${state.timeoutMs}ms'}',
           debug: _buildEmbedDebug(_joinUrl(state.baseUrl.trim(), '/v1/embeddings'), state.embeddingModel, input.length, -1, ''),
         ),
       ));
@@ -509,6 +518,8 @@ class OpenAICompatSettingBloc extends Cubit<OpenAICompatSettingState> {
       'input_length': inputLength,
       'status': status,
       'response_preview': preview,
+      'timeout_ms': state.timeoutMs,
+      'timestamp': DateTime.now().toIso8601String(),
     };
     return const JsonEncoder.withIndent('  ').convert(debug);
   }

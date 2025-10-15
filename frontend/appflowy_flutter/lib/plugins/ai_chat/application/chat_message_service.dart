@@ -180,7 +180,18 @@ MetadataCollection parseMetadata(String? s) {
     }
 
     if (decodedJson is Map<String, dynamic>) {
-      processMap(decodedJson);
+      // 🔧 处理新格式：检查是否有嵌套的 sources 数组
+      if (decodedJson.containsKey('sources') && decodedJson['sources'] is List) {
+        final sourcesList = decodedJson['sources'] as List;
+        for (final element in sourcesList) {
+          if (element is Map<String, dynamic>) {
+            processMap(element);
+          }
+        }
+      } else {
+        // 旧格式：直接处理 Map
+        processMap(decodedJson);
+      }
     } else if (decodedJson is List) {
       for (final element in decodedJson) {
         if (element is Map<String, dynamic>) {

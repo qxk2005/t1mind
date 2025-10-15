@@ -100,10 +100,31 @@ impl ChatCloudService for LocalChatServiceImpl {
   ) -> Result<ChatMessage, FlowyError> {
     let message_id = ID_GEN.lock().await.next_id();
     let mut message = ChatMessage::new_ai(message_id, message.to_string(), Some(question_id));
+    
+    // 🔍 调试：检查创建后的reply_message_id
+    tracing::info!(
+      "🔍 [CREATE-ANSWER] After new_ai - message_id: {}, question_id: {}, reply_message_id: {:?}",
+      message_id, question_id, message.reply_message_id
+    );
+    
     if let Some(metadata) = metadata {
       message.metadata = metadata;
     }
+    
+    // 🔍 调试：打印创建的消息信息（保存前）
+    tracing::info!(
+      "🔍 [CREATE-ANSWER] Before upsert - message_id: {}, question_id: {}, reply_message_id: {:?}",
+      message_id, question_id, message.reply_message_id
+    );
+    
     self.upsert_message(chat_id, message.clone()).await?;
+    
+    // 🔍 调试：打印创建的消息信息（保存后）
+    tracing::info!(
+      "🔍 [CREATE-ANSWER] After upsert - message_id: {}, question_id: {}, reply_message_id: {:?}",
+      message_id, question_id, message.reply_message_id
+    );
+    
     Ok(message)
   }
 

@@ -25,6 +25,7 @@ pub struct OpenAIEmbeddingConfig {
   pub base_url: String,
   pub api_key: String,
   pub model: String,
+  pub rag_score_threshold: f32,  // RAG 文档检索相似度阈值 (0.0-1.0)
 }
 
 pub struct EmbeddingScheduler {
@@ -52,7 +53,7 @@ impl EmbeddingScheduler {
       write_embedding_tx,
       generate_embedding_tx,
       ollama,
-      openai_config: ArcSwapOption::empty(),
+      openai_config: ArcSwapOption::new(None),
       vector_db,
       stop_tx,
     });
@@ -156,6 +157,23 @@ impl EmbeddingScheduler {
       None => Ok(vec![]),
       Some(query_embed) => {
         let object_ids_slice = object_ids.as_deref().unwrap_or(&[]);
+        
+        // 从配置中读取相似度阈值，如果未配置则使用默认值 0.25
+        let score_threshold = self.openai_config
+          .load()
+          .as_ref()
+          .map(|cfg| cfg.rag_score_threshold)
+          .unwrap_or(0.25);
+        
+        trace!(
+          "[Embedding] 🔍 执行向量搜索: query='{}', limit={}, score_threshold={:.2} (来源: {}), object_ids={:?}",
+          query, 
+          limit, 
+          score_threshold, 
+          if self.openai_config.load().is_some() { "配置" } else { "默认" },
+          object_ids
+        );
+        
         let result = self
           .vector_db
           .search_with_score(
@@ -163,13 +181,29 @@ impl EmbeddingScheduler {
             object_ids_slice,
             query_embed,
             limit as i32,
-            0.4,
+            score_threshold,
           )
           .await
           .map_err(|err| {
             error!("[Embedding] Failed to search: {}", err);
             FlowyError::new(ErrorCode::LocalEmbeddingNotReady, "Failed to search")
           })?;
+
+        info!(
+          "[Embedding] 🎯 搜索完成: 找到 {} 个结果",
+          result.len()
+        );
+        
+        // 输出每个结果的分数，帮助调试
+        for (idx, item) in result.iter().enumerate() {
+          trace!(
+            "[Embedding] 📄 结果 #{}: object_id={}, score={:.4}, content_preview='{}'",
+            idx + 1,
+            item.oid,
+            item.score,
+            item.content.chars().take(100).collect::<String>()
+          );
+        }
 
         let rows = result
           .into_iter()

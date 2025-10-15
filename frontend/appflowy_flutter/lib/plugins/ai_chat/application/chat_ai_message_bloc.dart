@@ -16,6 +16,8 @@ import 'chat_message_service.dart';
 part 'chat_ai_message_bloc.freezed.dart';
 
 class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
+  late final MetadataCollection _initialMetadata;
+
   ChatAIMessageBloc({
     dynamic message,
     String? refSourceJsonString,
@@ -27,11 +29,13 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
             parseMetadata(refSourceJsonString),
           ),
         ) {
+    _initialMetadata = parseMetadata(refSourceJsonString);
     _registerEventHandlers();
     _initializeStreamListener();
     _checkInitialStreamState();
     _initializeReasoningFromGlobal();
     _initializeSourcesFromGlobal();
+    _initializeToolCallsAndTaskPlanFromMetadata();
   }
 
   final String chatId;
@@ -58,6 +62,40 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
     final globalSources = _sourcesManager.getSources(chatId, questionId.toString());
     if (globalSources != null && globalSources.isNotEmpty) {
       add(ChatAIMessageEvent.initializeSources(globalSources));
+    }
+  }
+
+  /// 🔧 从数据库 metadata 初始化工具调用和任务规划
+  void _initializeToolCallsAndTaskPlanFromMetadata() {
+    if (_initialMetadata.rawMetadata == null) return;
+    
+    final metadata = _initialMetadata.rawMetadata!;
+    
+    // 恢复 tool_calls
+    if (metadata.containsKey('tool_calls') && metadata['tool_calls'] is List) {
+      final toolCallsData = metadata['tool_calls'] as List;
+      for (final callData in toolCallsData) {
+        if (callData is Map<String, dynamic>) {
+          add(ChatAIMessageEvent.receiveMetadata(
+            MetadataCollection(
+              sources: [],
+              rawMetadata: {'tool_call': callData},
+            ),
+          ));
+        }
+      }
+      Log.info("📥 [RESTORE] 从数据库恢复 ${toolCallsData.length} 个工具调用");
+    }
+    
+    // 恢复 task_plan
+    if (metadata.containsKey('task_plan')) {
+      add(ChatAIMessageEvent.receiveMetadata(
+        MetadataCollection(
+          sources: [],
+          rawMetadata: {'task_plan': metadata['task_plan']},
+        ),
+      ));
+      Log.info("📥 [RESTORE] 从数据库恢复任务规划");
     }
   }
 

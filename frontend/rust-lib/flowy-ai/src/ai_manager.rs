@@ -118,7 +118,10 @@ impl AIManager {
     let web_search_hub = Arc::new(WebSearchHub::new(store_preferences.clone()));
     
     // 初始化向量索引管理器
-    let vector_index_manager = Arc::new(VectorIndexManager::new(folder_service));
+    let vector_index_manager = Arc::new(VectorIndexManager::new(
+      folder_service,
+      user_service.clone(),
+    ));
 
     Self {
       cloud_service_wm,
@@ -261,20 +264,43 @@ impl AIManager {
             let model = get("ai.openai.embeddingModel")
               .unwrap_or_else(|| "text-embedding-3-small".to_string());
             
+            // 读取 RAG 相似度阈值配置，默认 0.25
+            let rag_score_threshold = get("ai.openai.ragScoreThreshold")
+              .and_then(|s| s.parse::<f32>().ok())
+              .unwrap_or(0.25)
+              .clamp(0.0, 1.0);  // 确保在 0-1 范围内
+            
             if !embedding_base_url.is_empty() && !api_key.is_empty() {
               info!(
-                "[Embedding] 🔧 检测到 OpenAI 兼容嵌入服务配置: {} (模型: {})",
-                embedding_base_url, model
+                "[Embedding] 🔧 检测到 OpenAI 兼容嵌入服务配置: {} (模型: {}, RAG阈值: {:.2})",
+                embedding_base_url, model, rag_score_threshold
               );
               
               let config = OpenAIEmbeddingConfig {
                 base_url: embedding_base_url,
                 api_key,
                 model,
+                rag_score_threshold,
               };
               
-              EmbedContext::shared().set_openai_embedding_config(Some(config));
-              return;
+              EmbedContext::shared().set_openai_embedding_config(Some(config.clone()));
+              
+              // 🔧 如果 scheduler 已经创建，立即设置配置
+              // 添加重试机制，因为 scheduler 可能还在初始化中
+              for attempt in 1..=10 {
+                if let Ok(scheduler) = EmbedContext::shared().get_scheduler() {
+                  scheduler.set_openai_config(Some(config));
+                  info!("[Embedding] ✅ OpenAI 嵌入服务配置已直接设置到 scheduler (尝试 {})", attempt);
+                  return;
+                } else {
+                  if attempt < 10 {
+                    info!("[Embedding] ⏳ Scheduler 尚未就绪，等待重试 ({}/10)", attempt);
+                    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                  } else {
+                    warn!("[Embedding] ⚠️ 经过 10 次重试，scheduler 仍未就绪，配置将在 scheduler 创建后自动应用");
+                  }
+                }
+              }
             } else {
               warn!("[Embedding] ⚠️ OpenAI 嵌入服务配置不完整: base_url={}, api_key_len={}", 
                     embedding_base_url, api_key.len());
@@ -1470,27 +1496,58 @@ impl AIManager {
     let stored_keys: Vec<String> = self.execution_logs.iter()
       .map(|entry| entry.key().clone())
       .collect();
-    info!("📋 [QUERY] Stored execution log keys: {:?}", stored_keys);
-    info!("📋 [QUERY] Query session_id: {}, message_id: {:?}", 
+    info!("📋 [EXECUTION-LOG-QUERY] Stored execution log keys: {:?}", stored_keys);
+    info!("📋 [EXECUTION-LOG-QUERY] Query session_id: {}, message_id: {:?}", 
           request.session_id, request.message_id);
     
     let logs = if let Some(message_id) = &request.message_id {
-      // 查询特定消息的日志
+      // 首先尝试精确匹配
       let session_key = format!("{}_{}", request.session_id, message_id);
-      info!("📋 [QUERY] Looking for exact key: {}", session_key);
-      self.execution_logs
-        .get(&session_key)
-        .map(|entry| entry.value().clone())
-        .unwrap_or_default()
+      info!("📋 [EXECUTION-LOG-QUERY] Looking for exact key: {}", session_key);
+      
+      if let Some(entry) = self.execution_logs.get(&session_key) {
+        info!("📋 [EXECUTION-LOG-QUERY] ✅ Found exact match in memory");
+        entry.value().clone()
+      } else {
+        // 🔧 如果内存中没有，尝试从数据库恢复
+        info!("📋 [EXECUTION-LOG-QUERY] ⚠️ Not found in memory, trying to restore from database...");
+        
+        if let Ok(chat_id) = Uuid::parse_str(&request.session_id) {
+          if let Ok(msg_id) = message_id.parse::<i64>() {
+            match self.restore_execution_logs_from_db(&chat_id, msg_id).await {
+              Ok(Some(logs)) if !logs.is_empty() => {
+                info!("📋 [EXECUTION-LOG-RESTORE] ✅ Successfully restored {} logs from database", logs.len());
+                // 缓存到内存中
+                self.execution_logs.insert(session_key.clone(), logs.clone());
+                logs
+              }
+              Ok(_) => {
+                info!("📋 [EXECUTION-LOG-RESTORE] ⚠️ No logs found in database");
+                Vec::new()
+              }
+              Err(e) => {
+                error!("📋 [EXECUTION-LOG-RESTORE] ❌ Failed to restore from database: {}", e);
+                Vec::new()
+              }
+            }
+          } else {
+            error!("📋 [EXECUTION-LOG-RESTORE] ❌ Invalid message_id format: {}", message_id);
+            Vec::new()
+          }
+        } else {
+          error!("📋 [EXECUTION-LOG-RESTORE] ❌ Invalid session_id UUID: {}", request.session_id);
+          Vec::new()
+        }
+      }
     } else {
       // 查询会话中所有消息的日志
       let session_prefix = format!("{}_", request.session_id);
-      info!("📋 [QUERY] Looking for keys with prefix: {}", session_prefix);
+      info!("📋 [EXECUTION-LOG-QUERY] Looking for keys with prefix: {}", session_prefix);
       let mut all_logs = Vec::new();
       
       for entry in self.execution_logs.iter() {
         if entry.key().starts_with(&session_prefix) {
-          info!("📋 [QUERY] Found matching key: {}", entry.key());
+          info!("📋 [EXECUTION-LOG-QUERY] Found matching key: {}", entry.key());
           all_logs.extend(entry.value().clone());
         }
       }
@@ -1525,6 +1582,68 @@ impl AIManager {
       has_more,
       total: total as i64,
     })
+  }
+  
+  /// 🔧 从本地数据库恢复执行日志
+  async fn restore_execution_logs_from_db(
+    &self,
+    chat_id: &Uuid,
+    message_id: i64,
+  ) -> FlowyResult<Option<Vec<AgentExecutionLogPB>>> {
+    info!("📋 [EXECUTION-LOG-RESTORE] Querying LOCAL database for chat_id: {}, message_id: {}", 
+          chat_id, message_id);
+    
+    // 🔧 关键修复：使用 UserService 获取 SQLite 连接，直接查询本地数据库
+    // 避免调用 AppFlowy Cloud API（会触发配额限制）
+    let uid = self.user_service.user_id()?;
+    let conn = self.user_service.sqlite_connection(uid)?;
+    
+    // 从本地 SQLite 数据库查询消息
+    use flowy_ai_pub::persistence::select_message;
+    match select_message(conn, message_id) {
+      Ok(Some(message_table)) => {
+        info!("📋 [EXECUTION-LOG-RESTORE] ✅ Successfully retrieved message from LOCAL database");
+        
+        // 解析 metadata
+        if let Some(metadata_str) = message_table.metadata {
+          match serde_json::from_str::<serde_json::Value>(&metadata_str) {
+            Ok(metadata_value) => {
+              info!("📋 [EXECUTION-LOG-RESTORE] Found metadata, attempting to parse execution_logs");
+              
+              // 尝试从 metadata 中提取 execution_logs
+              if let Some(execution_logs_value) = metadata_value.get("execution_logs") {
+                match serde_json::from_value::<Vec<AgentExecutionLogPB>>(execution_logs_value.clone()) {
+                  Ok(logs) => {
+                    info!("📋 [EXECUTION-LOG-RESTORE] ✅ Successfully parsed {} execution logs from LOCAL DB", logs.len());
+                    return Ok(Some(logs));
+                  }
+                  Err(e) => {
+                    error!("📋 [EXECUTION-LOG-RESTORE] ❌ Failed to deserialize execution_logs: {}", e);
+                    return Ok(None);
+                  }
+                }
+              } else {
+                info!("📋 [EXECUTION-LOG-RESTORE] ⚠️ No execution_logs field found in metadata");
+              }
+            }
+            Err(e) => {
+              error!("📋 [EXECUTION-LOG-RESTORE] ❌ Failed to parse metadata JSON: {}", e);
+            }
+          }
+        } else {
+          info!("📋 [EXECUTION-LOG-RESTORE] Message has no metadata.");
+        }
+        Ok(None)
+      }
+      Ok(None) => {
+        warn!("📋 [EXECUTION-LOG-RESTORE] ⚠️ Message {} not found in LOCAL database", message_id);
+        Ok(None)
+      }
+      Err(e) => {
+        error!("📋 [EXECUTION-LOG-RESTORE] ❌ Failed to query LOCAL database: {}", e);
+        Err(FlowyError::from(e))
+      }
+    }
   }
 
   /// 添加执行日志

@@ -242,14 +242,12 @@ class AppLauncher {
 
   void addTask(LaunchTask task) {
     lock.synchronized(() {
-      Log.info('AppLauncher: adding task: $task');
       tasks.add(task);
     });
   }
 
   void addTasks(Iterable<LaunchTask> tasks) {
     lock.synchronized(() {
-      Log.info('AppLauncher: adding tasks: ${tasks.map((e) => e.runtimeType)}');
       this.tasks.addAll(tasks);
     });
   }
@@ -257,25 +255,23 @@ class AppLauncher {
   Future<void> launch() async {
     await lock.synchronized(() async {
       final startTime = Stopwatch()..start();
-      Log.info('AppLauncher: start initializing tasks');
 
       for (final task in tasks) {
         final startTaskTime = Stopwatch()..start();
         await task.initialize(context);
         final endTaskTime = startTaskTime.elapsed.inMilliseconds;
         Log.info(
-          'AppLauncher: task ${task.runtimeType} initialized in $endTaskTime ms',
+          'LaunchTask: ${task.runtimeType} took ${endTaskTime}ms',
         );
       }
 
       final endTime = startTime.elapsed.inMilliseconds;
-      Log.info('AppLauncher: tasks initialized in $endTime ms');
+      Log.info('AppLauncher: all tasks took ${endTime}ms');
     });
   }
 
   Future<void> dispose() async {
     await lock.synchronized(() async {
-      Log.info('AppLauncher: start clearing tasks');
 
       for (final task in tasks) {
         await task.dispose();
@@ -283,7 +279,6 @@ class AppLauncher {
 
       tasks.clear();
 
-      Log.info('AppLauncher: tasks cleared');
     });
   }
 }

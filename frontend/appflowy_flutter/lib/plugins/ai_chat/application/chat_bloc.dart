@@ -179,8 +179,16 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     List<Message> messages,
     Emitter<ChatState> emit,
   ) async {
+    // 🔧 去重：避免添加已存在的消息（特别是刚发送的用户消息）
     for (final message in messages) {
-      await chatController.insert(message, index: 0);
+      // 检查消息是否已存在
+      final existingMessage = chatController.messages.firstWhereOrNull(
+        (m) => m.id == message.id,
+      );
+      
+      if (existingMessage == null) {
+        await chatController.insert(message, index: 0);
+      }
     }
 
     // Check if emit is still valid after async operations
@@ -202,8 +210,16 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   }
 
   void _handlePreviousMessages(List<Message> messages, bool hasMore) {
+    // 🔧 去重：避免添加已存在的消息
     for (final message in messages) {
-      chatController.insert(message, index: 0);
+      // 检查消息是否已存在
+      final existingMessage = chatController.messages.firstWhereOrNull(
+        (m) => m.id == message.id,
+      );
+      
+      if (existingMessage == null) {
+        chatController.insert(message, index: 0);
+      }
     }
 
     isLoadingPreviousMessages = false;
@@ -356,9 +372,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
           return;
         }
 
+        // 🔧 总是调用 processReceivedMessage 建立临时ID映射
         _messageHandler.processReceivedMessage(pb);
         
-        // 只处理AI消息，用户消息已经在_startStreamingMessage中处理了
+        // 🔧 只处理AI消息，用户消息已经在_startStreamingMessage中添加了
+        // 这样避免用户消息重复显示，同时保证ID映射正确
         if (pb.authorType == 3) { // 3 means AI message
           final message = _messageHandler.createTextMessage(pb);
           add(ChatEvent.receiveMessage(message));
@@ -372,17 +390,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       },
       latestMessageCallback: (list) {
         if (!isClosed) {
-          // 只处理AI消息，过滤掉用户消息
-          final aiMessages = list.messages.where((pb) => pb.authorType == 3).toList();
-          final messages = aiMessages.map(_messageHandler.createTextMessage).toList();
+          // 加载所有消息（包括用户消息和AI消息）
+          final messages = list.messages.map(_messageHandler.createTextMessage).toList();
           add(ChatEvent.didLoadLatestMessages(messages));
         }
       },
       prevMessageCallback: (list) {
         if (!isClosed) {
-          // 只处理AI消息，过滤掉用户消息
-          final aiMessages = list.messages.where((pb) => pb.authorType == 3).toList();
-          final messages = aiMessages.map(_messageHandler.createTextMessage).toList();
+          // 加载所有消息（包括用户消息和AI消息）
+          final messages = list.messages.map(_messageHandler.createTextMessage).toList();
           add(ChatEvent.didLoadPreviousMessages(messages, list.hasMore));
         }
       },
@@ -461,9 +477,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     await AIEventLoadNextMessage(loadMessagesPayload).send().fold(
       (list) {
         if (!isClosed) {
-          // 只处理AI消息，过滤掉用户消息
-          final aiMessages = list.messages.where((pb) => pb.authorType == 3).toList();
-          final messages = aiMessages.map(_messageHandler.createTextMessage).toList();
+          // 加载所有消息（包括用户消息和AI消息）
+          final messages = list.messages.map(_messageHandler.createTextMessage).toList();
           add(ChatEvent.didLoadLatestMessages(messages));
         }
       },

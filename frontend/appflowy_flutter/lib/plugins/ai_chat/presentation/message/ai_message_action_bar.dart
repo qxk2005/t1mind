@@ -846,18 +846,28 @@ class _ExecutionLogButtonState extends State<ExecutionLogButton> {
     // ✅ 在这里创建 Bloc（只创建一次）
     if (_executionLogBloc == null) {
       final chatId = context.read<ChatAIMessageBloc>().chatId;
-      final questionIdRaw = widget.message.metadata?[messageQuestionIdKey];
-      final questionId = questionIdRaw?.toString() ?? widget.message.id;
       
-      // print('🔍 [ExecutionLogButton] Creating ExecutionLogBloc in didChangeDependencies');
-      // print('🔍 [ExecutionLogButton] chatId: $chatId');
-      // print('🔍 [ExecutionLogButton] questionId: $questionId');
+      // 🔧 关键修复：使用AI消息的 metadata 中存储的 question_id (真实的用户问题ID)
+      // 而不是AI消息自己的临时ID
+      final questionIdRaw = widget.message.metadata?[messageQuestionIdKey];
+      final questionId = questionIdRaw?.toString();
+      
+      print('🔍 [ExecutionLogButton] Creating ExecutionLogBloc in didChangeDependencies');
+      print('🔍 [ExecutionLogButton] chatId: $chatId');
+      print('🔍 [ExecutionLogButton] questionId from metadata: $questionId');
+      print('🔍 [ExecutionLogButton] AI message id (not used): ${widget.message.id}');
+      
+      // 🔧 如果metadata中没有question_id，说明这是旧消息，无法查询执行日志
+      if (questionId == null) {
+        print('⚠️ [ExecutionLogButton] No questionId found in metadata, cannot load execution logs');
+        return; // 不创建bloc，按钮将不显示
+      }
       
       _executionLogBloc = ExecutionLogBloc(
         sessionId: chatId,
         messageId: questionId,
       );
-      // print('🔍 [ExecutionLogButton] Created bloc hashCode: ${_executionLogBloc.hashCode}');
+      print('🔍 [ExecutionLogButton] Created bloc hashCode: ${_executionLogBloc.hashCode}');
     }
   }
 

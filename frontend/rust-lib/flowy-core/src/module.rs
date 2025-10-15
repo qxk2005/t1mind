@@ -18,7 +18,6 @@ pub fn make_plugins(
   ai_manager: Weak<AIManager>,
   file_storage_manager: Weak<StorageManager>,
 ) -> Vec<AFPlugin> {
-  tracing::info!("🔧 [PLUGINS] Creating plugins with ai_manager strong_count: {:?}", ai_manager.strong_count());
   
   let user_plugin = flowy_user::event_map::init(user_session);
   let folder_plugin = flowy_folder::event_map::init(folder_manager);
@@ -27,9 +26,7 @@ pub fn make_plugins(
   let date_plugin = flowy_date::event_map::init();
   let search_plugin = flowy_search::event_map::init(search_manager);
   
-  tracing::info!("🔧 [PLUGINS] About to initialize AI plugin");
   let ai_plugin = flowy_ai::event_map::init(ai_manager);
-  tracing::info!("🔧 [PLUGINS] AI plugin initialized successfully");
   
   let file_storage_plugin = flowy_storage::event_map::init(file_storage_manager);
   vec![

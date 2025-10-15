@@ -13,7 +13,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use tracing::{trace, warn};
 use uuid::Uuid;
-use zerocopy::IntoBytes;
 
 pub struct VectorSqliteDB {
   pool: Pool<SqliteConnectionManager>,
@@ -23,12 +22,15 @@ impl VectorSqliteDB {
   pub fn new(root: PathBuf) -> Result<Self> {
     let db_path = root.join("vector.db");
 
+    // 🔧 重要：必须在创建任何连接之前注册向量扩展
+    init_sqlite_vector_extension();
+
     // Setup the connection manager with the database path
-    let manager = SqliteConnectionManager::file(db_path);
+    let manager = SqliteConnectionManager::file(&db_path);
 
     // Initialize SQLite extensions and settings in each new connection
-    let manager = manager.with_init(|_| {
-      init_sqlite_vector_extension();
+    let manager = manager.with_init(|_conn| {
+      // 向量扩展已经通过 sqlite3_auto_extension 注册，会自动加载到每个新连接
       Ok(())
     });
 
@@ -42,7 +44,50 @@ impl VectorSqliteDB {
     let mut conn = pool
       .get()
       .context("Failed to get connection for migration")?;
-    init_sqlite_with_migrations(&mut conn)?;
+    
+    // 🔧 修复：如果迁移失败（例如 DatabaseTooFarAhead），尝试重建数据库
+    if let Err(err) = init_sqlite_with_migrations(&mut conn) {
+      warn!(
+        "[Vector DB] Migration failed: {}. Will reset the database.",
+        err
+      );
+      
+      // 关闭连接
+      drop(conn);
+      drop(pool);
+      
+      // 删除旧数据库文件
+      if db_path.exists() {
+        std::fs::remove_file(&db_path)
+          .context("Failed to remove old vector database file")?;
+        warn!("[Vector DB] Removed old database file");
+      }
+      
+      // 重新创建连接池和数据库
+      // 向量扩展已经在函数开始时注册，不需要再次注册
+      let manager = SqliteConnectionManager::file(&db_path);
+      let manager = manager.with_init(|_conn| {
+        // 向量扩展已经通过 sqlite3_auto_extension 注册
+        Ok(())
+      });
+      
+      let pool = Pool::builder()
+        .max_size(10)
+        .build(manager)
+        .context("Failed to create connection pool after reset")?;
+      
+      let mut conn = pool
+        .get()
+        .context("Failed to get connection after reset")?;
+      
+      // 重新初始化
+      init_sqlite_with_migrations(&mut conn)
+        .context("Failed to migrate database after reset")?;
+      
+      warn!("[Vector DB] Database reset successfully");
+      
+      return Ok(Self { pool });
+    }
 
     Ok(Self { pool })
   }
@@ -352,6 +397,16 @@ impl VectorSqliteDB {
         if frag.content.is_none() {
           continue;
         }
+        // 将 Vec<f32> 转换为字节
+        let embedding_bytes: Vec<u8> = if let Some(ref embeddings) = frag.embeddings {
+          embeddings
+            .iter()
+            .flat_map(|&f| f.to_le_bytes())
+            .collect()
+        } else {
+          Vec::new()
+        };
+        
         insert
           .execute(rusqlite::params![
             workspace_id,
@@ -362,11 +417,7 @@ impl VectorSqliteDB {
             frag.metadata,
             frag.fragment_index,
             frag.embedder_type,
-            frag
-              .embeddings
-              .as_ref()
-              .map(|b| b.as_bytes())
-              .unwrap_or(&[]),
+            &embedding_bytes[..],
           ])
           .context("Inserting new fragment")?;
       }
@@ -422,7 +473,11 @@ impl VectorSqliteDB {
     );
     // distance = 1 - score, so we only want distance <= max_distance
     let max_distance = 1.0 - min_score;
-    let query_blob = query.as_bytes();
+    // 将 &[f32] 转换为字节
+    let query_blob: Vec<u8> = query
+      .iter()
+      .flat_map(|&f| f.to_le_bytes())
+      .collect();
 
     let conn = self
       .pool
@@ -470,7 +525,11 @@ impl VectorSqliteDB {
     );
     // distance = 1 - score, so we only want distance <= max_distance
     let max_distance = 1.0 - min_score;
-    let query_blob = query.as_bytes();
+    // 将 &[f32] 转换为字节
+    let query_blob: Vec<u8> = query
+      .iter()
+      .flat_map(|&f| f.to_le_bytes())
+      .collect();
 
     let conn = self
       .pool

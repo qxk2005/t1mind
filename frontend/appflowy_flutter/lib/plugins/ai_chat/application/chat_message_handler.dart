@@ -11,6 +11,7 @@ import 'package:nanoid/nanoid.dart';
 
 import 'chat_entity.dart';
 import 'sources_manager.dart';
+import 'reasoning_manager.dart';
 import 'chat_message_stream.dart';
 
 /// Returns current Unix timestamp (seconds since epoch)
@@ -46,6 +47,9 @@ class ChatMessageHandler {
   /// Create a message from ChatMessagePB object
   Message createTextMessage(ChatMessagePB message) {
     String messageId = message.messageId.toString();
+    
+    // 🔍 调试：打印消息信息
+    print('🔍 [CREATE-MESSAGE] messageId: $messageId, authorType: ${message.authorType}, hasReplyMessageId: ${message.hasReplyMessageId()}, replyMessageId: ${message.hasReplyMessageId() ? message.replyMessageId.toString() : "null"}');
 
     /// If the message id is in the temporary map, we will use the previous fake message id
     if (_temporaryMessageIDMap.containsKey(messageId)) {
@@ -54,24 +58,89 @@ class ChatMessageHandler {
     
     String finalMetadata = message.metadata == 'null' ? '[]' : message.metadata;
     
+    // 🔧 关键修复：从数据库 metadata 恢复完整的执行日志信息
+    // 包括: sources, reasoning_text, tool_calls, task_plan
+    if (message.hasReplyMessageId() && finalMetadata.isNotEmpty && finalMetadata != '[]') {
+      try {
+        final sourcesManager = SourcesManager();
+        final reasoningManager = ReasoningManager();
+        final questionId = message.replyMessageId.toString();
+        
+        // 从 metadata 解析
+        final metadataJson = jsonDecode(finalMetadata);
+        
+        // 🔹 情况1: metadata 是 Map（完整的结构化数据）
+        if (metadataJson is Map<String, dynamic>) {
+          // 恢复 sources
+          if (metadataJson.containsKey('sources') && metadataJson['sources'] is List) {
+            final sourcesData = metadataJson['sources'] as List;
+            final sources = sourcesData
+                .where((json) => json != null && json is Map)
+                .map((json) => ChatMessageRefSource.fromJson(json as Map<String, dynamic>))
+                .toList();
+            
+            if (sources.isNotEmpty) {
+              sourcesManager.setSources(chatId, questionId, sources);
+              Log.info(
+                "📥 [RESTORE] 从数据库恢复 ${sources.length} 个 sources"
+                " (chatId: $chatId, questionId: $questionId)"
+              );
+            }
+          }
+          
+          // 🔹 恢复 reasoning_text（推理文本）
+          if (metadataJson.containsKey('reasoning_text') && metadataJson['reasoning_text'] is String) {
+            final reasoningText = metadataJson['reasoning_text'] as String;
+            if (reasoningText.isNotEmpty) {
+              reasoningManager.setReasoningText(chatId, reasoningText);
+              reasoningManager.setReasoningComplete(chatId, true);
+              Log.info(
+                "📥 [RESTORE] 从数据库恢复推理文本"
+                " (长度: ${reasoningText.length})"
+              );
+            }
+          }
+          
+          // 🔹 恢复 tool_calls（工具调用信息）
+          // 注意：tool_calls 和 task_plan 的恢复需要通过 ChatAIMessageBloc 的 state
+          // 因为它们不是全局管理器管理的，而是消息级别的状态
+          // 这部分会在 chat_ai_message_bloc 初始化时自动从 rawMetadata 恢复
+          
+          Log.info("📥 [RESTORE] 元数据恢复完成 (chatId: $chatId, questionId: $questionId)");
+        } 
+        // 🔹 情况2: metadata 是 List（旧格式，仅 sources）
+        else if (metadataJson is List) {
+          final sources = metadataJson
+              .where((json) => json != null && json is Map)
+              .map((json) => ChatMessageRefSource.fromJson(json as Map<String, dynamic>))
+              .toList();
+          
+          if (sources.isNotEmpty) {
+            sourcesManager.setSources(chatId, questionId, sources);
+            Log.info(
+              "📥 [RESTORE] 从数据库恢复 ${sources.length} 个 sources（旧格式）"
+              " (chatId: $chatId, questionId: $questionId)"
+            );
+          }
+        }
+      } catch (e) {
+        Log.warn("⚠️ [RESTORE] 解析 metadata 失败: $e");
+      }
+    }
     
-    // 🔧 修复：从全局管理器恢复完整的 sources，避免后端 metadata 不完整导致引用丢失
+    // 尝试从 SourcesManager 获取 sources（用于没有保存到数据库的情况）
     bool shouldRestoreFromGlobal = false;
     String? questionIdForRestore;
     
     if (message.hasReplyMessageId()) {
-      // 情况1：有明确的 reply_message_id
       questionIdForRestore = message.replyMessageId.toString();
       shouldRestoreFromGlobal = true;
     } else if (message.metadata.isNotEmpty && message.metadata != 'null') {
-      // 情况2：有metadata但没有reply_message_id，可能是最终回答消息
-      // 尝试从全局管理器找到最近的问题ID
       final sourcesManager = SourcesManager();
       final recentQuestionId = sourcesManager.getMostRecentQuestionId(chatId);
       if (recentQuestionId != null) {
         questionIdForRestore = recentQuestionId;
         shouldRestoreFromGlobal = true;
-      } else {
       }
     }
     
@@ -79,15 +148,10 @@ class ChatMessageHandler {
       final sourcesManager = SourcesManager();
       final globalSources = sourcesManager.getSources(chatId, questionIdForRestore);
       
-      
       if (globalSources != null && globalSources.isNotEmpty) {
-        
-        // 有完整的 sources，序列化并使用
         final sourcesJson = globalSources.map((s) => s.toJson()).toList();
         finalMetadata = jsonEncode(sourcesJson);
-      } else {
       }
-    } else {
     }
 
     // ✅ 构建 metadata，包含 question_id（来自 reply_message_id）

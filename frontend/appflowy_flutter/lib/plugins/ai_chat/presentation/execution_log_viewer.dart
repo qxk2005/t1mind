@@ -63,6 +63,10 @@ class _ExecutionLogViewerState extends State<ExecutionLogViewer> {
     // 🔧 在这里缓存 bloc 引用，避免在 Timer 回调中访问 context
     if (_bloc == null) {
       _bloc = context.read<ExecutionLogBloc>();
+      // 🔧 关键修复：初始化后立即加载日志
+      // 这确保了即使外部没有主动触发loadLogs，查看器也会自动加载
+      print('🔍 [ExecutionLogViewer] Bloc initialized, triggering initial load');
+      _bloc!.add(const ExecutionLogEvent.loadLogs());
     }
   }
 

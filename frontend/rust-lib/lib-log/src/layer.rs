@@ -135,11 +135,7 @@ fn format_span_context<'b, S: Subscriber + for<'a> tracing_subscriber::registry:
   ty: Type,
   _: &Context<'_, S>,
 ) -> String {
-  if matches!(ty, Type::EnterSpan) {
-    format!("[🟢 {} - {}]", span.metadata().name().to_uppercase(), ty)
-  } else {
-    format!("[{} - {}]", span.metadata().name().to_uppercase(), ty)
-  }
+  format!("[{} - {}]", span.metadata().name().to_uppercase(), ty)
 }
 
 fn format_event_message<S: Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>>(

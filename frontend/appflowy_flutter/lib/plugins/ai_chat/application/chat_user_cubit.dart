@@ -26,7 +26,10 @@ class ChatUserCubit extends Cubit<ChatUserState> {
   bool supportSelectSource() {
     if (state is ChatUserSuccessState) {
       final userProfile = (state as ChatUserSuccessState).userProfile;
-      if (userProfile.userAuthType == AuthTypePB.Server) {
+      // 支持本地模式和服务器模式的文档选择
+      // 本地模式也可以使用 RAG 功能
+      if (userProfile.userAuthType == AuthTypePB.Server ||
+          userProfile.userAuthType == AuthTypePB.Local) {
         return true;
       }
     }

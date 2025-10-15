@@ -90,10 +90,19 @@ where
       metadata,
       question_message_id: question_id,
     };
-    let message = try_get_client?
+    let mut message = try_get_client?
       .save_answer(workspace_id, chat_id.to_string().as_str(), params)
       .await
       .map_err(FlowyError::from)?;
+    
+    // 🔧 关键修复：确保 reply_message_id 被正确设置
+    message.reply_message_id = Some(question_id);
+    
+    tracing::info!(
+      "🔍 [AF-CLOUD-CREATE-ANSWER] message_id: {}, question_id: {}, reply_message_id: {:?}",
+      message.message_id, question_id, message.reply_message_id
+    );
+    
     Ok(message)
   }
 

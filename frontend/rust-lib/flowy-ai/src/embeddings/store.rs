@@ -297,7 +297,7 @@ impl VectorStore for SqliteVectorStore {
         query,
         limit,
         &rag_ids,
-        opt.score_threshold.unwrap_or(0.4),
+        opt.score_threshold.unwrap_or(0.25),
         true,
       )
       .await

@@ -45,16 +45,17 @@ class VectorIndexBloc extends Bloc<VectorIndexEvent, VectorIndexState> {
           RebuildVectorIndexRequestPB(documentIds: []),
         ).send();
 
-        result.fold(
-          (response) {
-            if (!response.success && response.error != null) {
+        await result.fold(
+          (response) async {
+            if (!response.success && response.hasError()) {
               Log.error('重建索引失败: ${response.error}');
             }
             // 无论成功与否，都获取最新状态
-            _fetchStatus(emit);
+            await _fetchStatus(emit);
           },
-          (error) {
+          (error) async {
             Log.error('重建索引请求失败: $error');
+            await _fetchStatus(emit);
           },
         );
       },
@@ -62,12 +63,13 @@ class VectorIndexBloc extends Bloc<VectorIndexEvent, VectorIndexState> {
         // 调用后端停止索引
         final result = await AIEventStopVectorIndexing().send();
 
-        result.fold(
-          (_) {
-            _fetchStatus(emit);
+        await result.fold(
+          (_) async {
+            await _fetchStatus(emit);
           },
-          (error) {
+          (error) async {
             Log.error('停止索引失败: $error');
+            await _fetchStatus(emit);
           },
         );
       },

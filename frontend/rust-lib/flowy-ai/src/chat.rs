@@ -173,8 +173,9 @@ impl Chat {
       .send(StreamMessage::MessageId(question.message_id).to_string())
       .await;
 
-    // Save message to disk
-    notify_message(&self.chat_id, question.clone())?;
+    // 🔧 删除此处的 notify_message 调用，避免用户消息重复
+    // 用户消息会作为函数返回值 (line 203) 发送给前端，不需要在这里再次通知
+    // notify_message(&self.chat_id, question.clone())?;
     let format = params.format.clone().map(Into::into).unwrap_or_default();
     
     // 传递系统提示词、智能体配置和工具调用处理器给 stream_response
@@ -251,7 +252,7 @@ impl Chat {
     &self,
     answer_stream_port: i64,
     answer_stream_buffer: Arc<Mutex<StringBuffer>>,
-    _uid: i64,
+    uid: i64,
     workspace_id: Uuid,
     question_id: i64,
     format: ResponseFormat,
@@ -265,6 +266,7 @@ impl Chat {
     let stop_stream = self.stop_stream.clone();
     let chat_id = self.chat_id;
     let cloud_service = self.chat_service.clone();
+    let user_service = self.user_service.clone();  // 🔧 捕获 user_service 用于保存消息到数据库
     
     // 🔧 工具调用支持
     let has_agent = agent_config.is_some();
@@ -280,9 +282,8 @@ impl Chat {
     let has_execution_logs = execution_logs.is_some();
     let has_tool_definitions = tool_definitions.is_some();
     let tool_count = tool_definitions.as_ref().map(|t| t.len()).unwrap_or(0);
-    // Disabled detailed debug logging to reduce noise
-    // info!("🔧 [RESPONSE] Starting stream_response: chat_id={}, question_id={}, has_agent={}, has_tool_handler={}, has_tool_definitions={}, tool_count={}, has_execution_logs={}", 
-    //       chat_id, question_id, has_agent, has_tool_handler, has_tool_definitions, tool_count, has_execution_logs);
+    info!("🔧 [EXECUTION] Starting stream_response: chat_id={}, question_id={}, has_agent={}, has_tool_handler={}, has_tool_definitions={}, tool_count={}, has_execution_logs={}", 
+          chat_id, question_id, has_agent, has_tool_handler, has_tool_definitions, tool_count, has_execution_logs);
     
     // 📝 详细调试信息 - Disabled to reduce noise
     // if let Some(ref config) = agent_config {
@@ -306,22 +307,20 @@ impl Chat {
                   
       // 🔧 多轮对话支持：记录工具调用和结果
             
-      // 📝 日志记录辅助函数 - Disabled debug logging to reduce noise
+      // 📝 日志记录辅助函数
       let add_log = |logs: &Option<Arc<DashMap<String, Vec<AgentExecutionLogPB>>>>, log: AgentExecutionLogPB| {
         if let Some(logs_map) = logs {
           let session_key = format!("{}_{}", log.session_id, log.message_id);
-          // Disabled debug logging to reduce noise
-          // info!("📝 [LOG] Recording log: session_key={}, phase={:?}, step={}", 
-          //       session_key, log.phase, log.step);
+          info!("📝 [EXECUTION-LOG] Recording log: session_key={}, phase={:?}, step={}", 
+                session_key, log.phase, log.step);
           logs_map.entry(session_key.clone())
             .or_insert_with(Vec::new)
             .push(log);
-          // let count = logs_map.get(&session_key).map(|v| v.len()).unwrap_or(0);
-          // info!("📝 [LOG] Total logs for session: {}", count);
+          let count = logs_map.get(&session_key).map(|v| v.len()).unwrap_or(0);
+          info!("📝 [EXECUTION-LOG] Total logs for session: {}", count);
         } else {
-          // Disabled debug logging to reduce noise
-          // warn!("📝 [LOG] Cannot record log - execution_logs is None! phase={:?}, step={}", 
-          //       log.phase, log.step);
+          warn!("📝 [EXECUTION-LOG] Cannot record log - execution_logs is None! phase={:?}, step={}", 
+                log.phase, log.step);
         }
       };
       
@@ -1058,7 +1057,40 @@ impl Chat {
         return Ok(());
       }
       let content = answer_stream_buffer.lock().await.take_content();
-      let metadata = answer_stream_buffer.lock().await.take_metadata();
+      let mut metadata = answer_stream_buffer.lock().await.take_metadata();
+      
+      // 🔧 在保存前，将执行日志添加到 metadata 中
+      if let Some(logs_map) = &execution_logs {
+        let session_key = format!("{}_{}", chat_id, question_id);
+        if let Some(logs_entry) = logs_map.get(&session_key) {
+          let logs = logs_entry.value();
+          if !logs.is_empty() {
+            info!("💾 [EXECUTION-LOG-SAVE] Saving {} execution logs to metadata (session_key: {})", 
+                  logs.len(), session_key);
+            
+            // 将执行日志序列化为 JSON
+            match serde_json::to_value(logs) {
+              Ok(logs_json) => {
+                // 如果 metadata 还不是对象，创建一个
+                if metadata.is_none() {
+                  metadata = Some(serde_json::json!({}));
+                }
+                
+                if let Some(metadata_obj) = metadata.as_mut() {
+                  if let Some(obj) = metadata_obj.as_object_mut() {
+                    obj.insert("execution_logs".to_string(), logs_json);
+                    info!("✅ [EXECUTION-LOG-SAVE] Successfully added execution logs to metadata");
+                  }
+                }
+              }
+              Err(e) => {
+                error!("❌ [EXECUTION-LOG-SAVE] Failed to serialize execution logs: {}", e);
+              }
+            }
+          }
+        }
+      }
+      
       let answer = cloud_service
         .create_answer(
           &workspace_id,
@@ -1068,6 +1100,18 @@ impl Chat {
           metadata,
         )
         .await?;
+      
+      // 🔧 关键修复：将回答消息保存到本地数据库（确保 reply_message_id 被持久化）
+      // 这样在程序重启后，从数据库加载消息时，reply_message_id 仍然存在
+      if let Err(err) = save_chat_message_disk(
+        user_service.sqlite_connection(uid)?,
+        &chat_id,
+        vec![answer.clone()],
+        true,
+      ) {
+        error!("Failed to save answer message to disk: {}", err);
+      }
+      
       notify_message(&chat_id, answer)?;
       Ok::<(), FlowyError>(())
     });
@@ -1402,8 +1446,84 @@ impl StringBuffer {
     self.content.push_str(value);
   }
 
+  /// 🔧 修改为累积 metadata 而不是替换
+  /// 这样可以保存完整的执行日志：推理文本、工具调用、任务规划等
   fn set_metadata(&mut self, value: serde_json::Value) {
-    self.metadata = Some(value);
+    if let Some(existing) = &mut self.metadata {
+      // 如果已有 metadata，进行智能合并
+      if let (Some(existing_obj), Some(new_obj)) = (existing.as_object_mut(), value.as_object()) {
+        for (key, new_value) in new_obj {
+          match key.as_str() {
+            // 🔹 reasoning_delta: 累积成 reasoning_text
+            "reasoning_delta" => {
+              if let Some(delta_str) = new_value.as_str() {
+                let current_text = existing_obj
+                  .get("reasoning_text")
+                  .and_then(|v| v.as_str())
+                  .unwrap_or("");
+                existing_obj.insert(
+                  "reasoning_text".to_string(),
+                  serde_json::Value::String(format!("{}{}", current_text, delta_str)),
+                );
+              }
+            }
+            // 🔹 tool_call: 累积到 tool_calls 数组
+            "tool_call" => {
+              let tool_calls = existing_obj
+                .entry("tool_calls")
+                .or_insert_with(|| serde_json::Value::Array(vec![]));
+              
+              if let Some(calls_array) = tool_calls.as_array_mut() {
+                // 检查是否已存在相同 ID 的工具调用
+                if let Some(call_id) = new_value.get("id").and_then(|v| v.as_str()) {
+                  if let Some(existing_call) = calls_array.iter_mut().find(|c| {
+                    c.get("id").and_then(|v| v.as_str()) == Some(call_id)
+                  }) {
+                    // 更新现有工具调用
+                    *existing_call = new_value.clone();
+                  } else {
+                    // 添加新工具调用
+                    calls_array.push(new_value.clone());
+                  }
+                }
+              }
+            }
+            // 🔹 task_plan: 更新任务规划（直接替换）
+            "task_plan" => {
+              existing_obj.insert(key.clone(), new_value.clone());
+            }
+            // 🔹 sources: 合并源列表（去重）
+            "sources" => {
+              if let Some(new_sources) = new_value.as_array() {
+                let existing_sources = existing_obj
+                  .entry("sources")
+                  .or_insert_with(|| serde_json::Value::Array(vec![]));
+                
+                if let Some(sources_array) = existing_sources.as_array_mut() {
+                  for new_source in new_sources {
+                    // 根据 id 去重
+                    let source_id = new_source.get("id").and_then(|v| v.as_str());
+                    let already_exists = sources_array.iter().any(|s| {
+                      s.get("id").and_then(|v| v.as_str()) == source_id
+                    });
+                    if !already_exists {
+                      sources_array.push(new_source.clone());
+                    }
+                  }
+                }
+              }
+            }
+            // 🔹 其他字段：直接更新或添加
+            _ => {
+              existing_obj.insert(key.clone(), new_value.clone());
+            }
+          }
+        }
+      }
+    } else {
+      // 如果还没有 metadata，直接设置
+      self.metadata = Some(value);
+    }
   }
 
   fn is_empty(&self) -> bool {

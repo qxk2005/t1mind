@@ -118,10 +118,18 @@ impl ChatCloudService for AutoSyncChatService {
     question_id: i64,
     metadata: Option<Value>,
   ) -> Result<ChatMessage, FlowyError> {
-    let message = self
+    let mut message = self
       .cloud_service
       .create_answer(workspace_id, chat_id, message, question_id, metadata)
       .await?;
+
+    // 🔧 关键修复：确保 reply_message_id 被正确设置
+    message.reply_message_id = Some(question_id);
+    
+    tracing::info!(
+      "🔍 [AUTO-SYNC-CREATE-ANSWER] message_id: {}, question_id: {}, reply_message_id: {:?}",
+      message.message_id, question_id, message.reply_message_id
+    );
 
     // TODO: implement background sync
     self.upsert_message(chat_id, message.clone(), true).await?;
