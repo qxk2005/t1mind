@@ -1263,13 +1263,13 @@ class _ServerCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
+                  color: Theme.of(context).colorScheme.primary,
                   borderRadius: BorderRadius.circular(4),
                 ),
-                child: FlowyText.regular(
+                child: FlowyText.medium(
                   _transportTypeToString(server.transportType),
                   fontSize: 12,
-                  color: Theme.of(context).colorScheme.primary,
+                  color: Colors.white,
                 ),
               ),
               const SizedBox(width: 8),

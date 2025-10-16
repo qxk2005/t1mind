@@ -1292,18 +1292,20 @@ You have access to relevant documents that contain information to answer the use
       
       loop {
         iteration += 1;
-        if iteration > effective_max_iterations {
-          warn!("🔄 [AUTO-MULTI-TURN] Max iterations reached");
+        // 判断是否达到最大迭代次数（但允许最后一轮生成回答）
+        let is_final_iteration = iteration > effective_max_iterations;
+        
+        if is_final_iteration {
+          warn!("🔄 [AUTO-MULTI-TURN] Max iterations reached, requesting final answer");
           yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
-            value: format!("\n\n⚠️ 已达到最大对话轮次 ({})\n", effective_max_iterations)
+            value: "\n\n🎯 **正在生成最终回答...**\n\n".to_string()
           };
-          break;
+        } else {
+          info!("🔄 [AUTO-MULTI-TURN] Iteration {}/{}", iteration, effective_max_iterations);
         }
         
-        info!("🔄 [AUTO-MULTI-TURN] Iteration {}/{}", iteration, effective_max_iterations);
-        
-        // 如果是第2轮或更高，显示继续提示
-        if iteration > 1 {
+        // 如果是第2轮或更高（但不是最终轮），显示继续提示
+        if iteration > 1 && !is_final_iteration {
           yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
             value: "\n🤔 **正在综合分析结果...**\n\n".to_string()
           };
@@ -1317,12 +1319,14 @@ You have access to relevant documents that contain information to answer the use
           "stream": true
         });
         
-        // 添加工具定义
-        if let Some(ref tools) = tools_clone {
-          if !tools.is_empty() {
-            let openai_tools = Self::convert_tools_to_openai_format(tools);
-            payload.as_object_mut().unwrap().insert("tools".into(), json!(openai_tools));
-            payload.as_object_mut().unwrap().insert("tool_choice".into(), json!("auto"));
+        // 添加工具定义（如果是最终迭代，不添加工具，强制生成文本回答）
+        if !is_final_iteration {
+          if let Some(ref tools) = tools_clone {
+            if !tools.is_empty() {
+              let openai_tools = Self::convert_tools_to_openai_format(tools);
+              payload.as_object_mut().unwrap().insert("tools".into(), json!(openai_tools));
+              payload.as_object_mut().unwrap().insert("tool_choice".into(), json!("auto"));
+            }
           }
         }
         
@@ -1430,6 +1434,12 @@ You have access to relevant documents that contain information to answer the use
           if !tc.function.name.is_empty() {
             info!("🔄 [AUTO-MULTI-TURN] Detected tool: {}", tc.function.name);
             
+            // 如果是最终迭代，不应该再调用工具，直接结束
+            if is_final_iteration {
+              info!("🔄 [AUTO-MULTI-TURN] Final iteration reached, ignoring tool call and finishing");
+              break;
+            }
+            
             // 添加 assistant 消息
             current_messages.push(json!({
               "role": "assistant",
@@ -1520,7 +1530,8 @@ You have access to relevant documents that contain information to answer the use
         if tool_call_opt.is_none() {
           let accumulated_text = answer_buffer.lock().await.clone();
           let extracted_calls = crate::agent::ToolCallHandler::extract_tool_calls(&accumulated_text);
-          if !extracted_calls.is_empty() {
+          if !extracted_calls.is_empty() && !is_final_iteration {
+            // 如果不是最终迭代，才执行工具调用
             // 构建 assistant 消息（包含解析得到的 tool_calls），并执行工具，再继续多轮
             let new_tool_calls_json: Vec<serde_json::Value> = extracted_calls.iter().map(|(req, _s, _e)| {
               json!({
@@ -1598,8 +1609,8 @@ You have access to relevant documents that contain information to answer the use
             continue;
           }
 
-          // 无工具调用回退可用：若本轮产生了内容，则视为完成
-          if has_content {
+          // 无工具调用回退可用：若本轮产生了内容或达到最终迭代，则视为完成
+          if has_content || is_final_iteration {
             info!("🔄 [AUTO-MULTI-TURN] Completed after {} iterations", iteration);
             break;
           }

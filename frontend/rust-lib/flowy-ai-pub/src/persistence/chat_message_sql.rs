@@ -26,6 +26,8 @@ pub struct ChatMessageTable {
 }
 impl ChatMessageTable {
   pub fn from_message(chat_id: String, message: ChatMessage, is_sync: bool) -> Self {
+    let metadata_str = serde_json::to_string(&message.metadata).unwrap_or_default();
+    
     ChatMessageTable {
       message_id: message.message_id,
       chat_id,
@@ -34,7 +36,7 @@ impl ChatMessageTable {
       author_type: message.author.author_type as i64,
       author_id: message.author.author_id.to_string(),
       reply_message_id: message.reply_message_id,
-      metadata: Some(serde_json::to_string(&message.metadata).unwrap_or_default()),
+      metadata: Some(metadata_str),
       is_sync,
     }
   }
@@ -72,7 +74,6 @@ pub fn upsert_chat_messages(
   mut conn: DBConnection,
   new_messages: &[ChatMessageTable],
 ) -> FlowyResult<()> {
-  //trace!("Upserting chat messages: {:?}", new_messages);
   conn.immediate_transaction(|conn| {
     for message in new_messages {
       let _ = insert_into(chat_message_table::table)

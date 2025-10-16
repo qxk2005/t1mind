@@ -1492,62 +1492,38 @@ impl AIManager {
 
   /// 获取执行日志列表
   pub async fn get_execution_logs(&self, request: &GetExecutionLogsRequestPB) -> FlowyResult<AgentExecutionLogListPB> {
-    // 📝 调试：输出当前存储的所有 key
-    let stored_keys: Vec<String> = self.execution_logs.iter()
-      .map(|entry| entry.key().clone())
-      .collect();
-    info!("📋 [EXECUTION-LOG-QUERY] Stored execution log keys: {:?}", stored_keys);
-    info!("📋 [EXECUTION-LOG-QUERY] Query session_id: {}, message_id: {:?}", 
-          request.session_id, request.message_id);
-    
     let logs = if let Some(message_id) = &request.message_id {
       // 首先尝试精确匹配
       let session_key = format!("{}_{}", request.session_id, message_id);
-      info!("📋 [EXECUTION-LOG-QUERY] Looking for exact key: {}", session_key);
       
       if let Some(entry) = self.execution_logs.get(&session_key) {
-        info!("📋 [EXECUTION-LOG-QUERY] ✅ Found exact match in memory");
         entry.value().clone()
       } else {
-        // 🔧 如果内存中没有，尝试从数据库恢复
-        info!("📋 [EXECUTION-LOG-QUERY] ⚠️ Not found in memory, trying to restore from database...");
-        
+        // 如果内存中没有，尝试从数据库恢复
         if let Ok(chat_id) = Uuid::parse_str(&request.session_id) {
           if let Ok(msg_id) = message_id.parse::<i64>() {
             match self.restore_execution_logs_from_db(&chat_id, msg_id).await {
               Ok(Some(logs)) if !logs.is_empty() => {
-                info!("📋 [EXECUTION-LOG-RESTORE] ✅ Successfully restored {} logs from database", logs.len());
                 // 缓存到内存中
                 self.execution_logs.insert(session_key.clone(), logs.clone());
                 logs
               }
-              Ok(_) => {
-                info!("📋 [EXECUTION-LOG-RESTORE] ⚠️ No logs found in database");
-                Vec::new()
-              }
-              Err(e) => {
-                error!("📋 [EXECUTION-LOG-RESTORE] ❌ Failed to restore from database: {}", e);
-                Vec::new()
-              }
+              _ => Vec::new()
             }
           } else {
-            error!("📋 [EXECUTION-LOG-RESTORE] ❌ Invalid message_id format: {}", message_id);
             Vec::new()
           }
         } else {
-          error!("📋 [EXECUTION-LOG-RESTORE] ❌ Invalid session_id UUID: {}", request.session_id);
           Vec::new()
         }
       }
     } else {
       // 查询会话中所有消息的日志
       let session_prefix = format!("{}_", request.session_id);
-      info!("📋 [EXECUTION-LOG-QUERY] Looking for keys with prefix: {}", session_prefix);
       let mut all_logs = Vec::new();
       
       for entry in self.execution_logs.iter() {
         if entry.key().starts_with(&session_prefix) {
-          info!("📋 [EXECUTION-LOG-QUERY] Found matching key: {}", entry.key());
           all_logs.extend(entry.value().clone());
         }
       }
@@ -1590,59 +1566,35 @@ impl AIManager {
     chat_id: &Uuid,
     message_id: i64,
   ) -> FlowyResult<Option<Vec<AgentExecutionLogPB>>> {
-    info!("📋 [EXECUTION-LOG-RESTORE] Querying LOCAL database for chat_id: {}, message_id: {}", 
-          chat_id, message_id);
-    
-    // 🔧 关键修复：使用 UserService 获取 SQLite 连接，直接查询本地数据库
-    // 避免调用 AppFlowy Cloud API（会触发配额限制）
+    // 使用 UserService 获取 SQLite 连接，直接查询本地数据库
     let uid = self.user_service.user_id()?;
     let conn = self.user_service.sqlite_connection(uid)?;
     
-    // 从本地 SQLite 数据库查询消息
-    use flowy_ai_pub::persistence::select_message;
-    match select_message(conn, message_id) {
+    // execution_logs 存储在 AI 回答消息中，需要根据 question_id 查找对应的 answer message
+    use flowy_ai_pub::persistence::select_answer_where_match_reply_message_id;
+    match select_answer_where_match_reply_message_id(conn, &chat_id.to_string(), message_id) {
       Ok(Some(message_table)) => {
-        info!("📋 [EXECUTION-LOG-RESTORE] ✅ Successfully retrieved message from LOCAL database");
-        
         // 解析 metadata
         if let Some(metadata_str) = message_table.metadata {
-          match serde_json::from_str::<serde_json::Value>(&metadata_str) {
-            Ok(metadata_value) => {
-              info!("📋 [EXECUTION-LOG-RESTORE] Found metadata, attempting to parse execution_logs");
-              
-              // 尝试从 metadata 中提取 execution_logs
-              if let Some(execution_logs_value) = metadata_value.get("execution_logs") {
-                match serde_json::from_value::<Vec<AgentExecutionLogPB>>(execution_logs_value.clone()) {
-                  Ok(logs) => {
-                    info!("📋 [EXECUTION-LOG-RESTORE] ✅ Successfully parsed {} execution logs from LOCAL DB", logs.len());
-                    return Ok(Some(logs));
-                  }
-                  Err(e) => {
-                    error!("📋 [EXECUTION-LOG-RESTORE] ❌ Failed to deserialize execution_logs: {}", e);
-                    return Ok(None);
-                  }
+          if let Ok(metadata_value) = serde_json::from_str::<serde_json::Value>(&metadata_str) {
+            // 尝试从 metadata 中提取 execution_logs
+            if let Some(execution_logs_value) = metadata_value.get("execution_logs") {
+              match serde_json::from_value::<Vec<AgentExecutionLogPB>>(execution_logs_value.clone()) {
+                Ok(logs) => {
+                  info!("📋 Successfully restored {} execution logs from database", logs.len());
+                  return Ok(Some(logs));
                 }
-              } else {
-                info!("📋 [EXECUTION-LOG-RESTORE] ⚠️ No execution_logs field found in metadata");
+                Err(e) => {
+                  error!("Failed to deserialize execution_logs: {}", e);
+                }
               }
             }
-            Err(e) => {
-              error!("📋 [EXECUTION-LOG-RESTORE] ❌ Failed to parse metadata JSON: {}", e);
-            }
           }
-        } else {
-          info!("📋 [EXECUTION-LOG-RESTORE] Message has no metadata.");
         }
         Ok(None)
       }
-      Ok(None) => {
-        warn!("📋 [EXECUTION-LOG-RESTORE] ⚠️ Message {} not found in LOCAL database", message_id);
-        Ok(None)
-      }
-      Err(e) => {
-        error!("📋 [EXECUTION-LOG-RESTORE] ❌ Failed to query LOCAL database: {}", e);
-        Err(FlowyError::from(e))
-      }
+      Ok(None) => Ok(None),
+      Err(e) => Err(FlowyError::from(e))
     }
   }
 

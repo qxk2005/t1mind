@@ -1062,29 +1062,97 @@ impl Chat {
       // 🔧 在保存前，将执行日志添加到 metadata 中
       if let Some(logs_map) = &execution_logs {
         let session_key = format!("{}_{}", chat_id, question_id);
+        
         if let Some(logs_entry) = logs_map.get(&session_key) {
           let logs = logs_entry.value();
+          
           if !logs.is_empty() {
-            info!("💾 [EXECUTION-LOG-SAVE] Saving {} execution logs to metadata (session_key: {})", 
-                  logs.len(), session_key);
-            
             // 将执行日志序列化为 JSON
-            match serde_json::to_value(logs) {
-              Ok(logs_json) => {
-                // 如果 metadata 还不是对象，创建一个
-                if metadata.is_none() {
-                  metadata = Some(serde_json::json!({}));
+            if let Ok(logs_json) = serde_json::to_value(logs) {
+              // 如果 metadata 还不是对象，创建一个
+              if metadata.is_none() {
+                metadata = Some(serde_json::json!({}));
+              }
+              
+              if let Some(metadata_obj) = metadata.as_mut() {
+                if let Some(obj) = metadata_obj.as_object_mut() {
+                  obj.insert("execution_logs".to_string(), logs_json);
                 }
-                
-                if let Some(metadata_obj) = metadata.as_mut() {
-                  if let Some(obj) = metadata_obj.as_object_mut() {
-                    obj.insert("execution_logs".to_string(), logs_json);
-                    info!("✅ [EXECUTION-LOG-SAVE] Successfully added execution logs to metadata");
+              }
+            }
+          }
+        }
+      }
+      
+      // 🔧 关键修复：从 tool_calls 中提取引用信息并添加到 sources 字段
+      // 这样重启后可以从数据库恢复引用信息（支持 web_search 和 MCP 工具）
+      if let Some(metadata_obj) = metadata.as_mut() {
+        if let Some(obj) = metadata_obj.as_object() {
+          let mut sources = Vec::new();
+          
+          // 检查是否有 tool_calls 数组
+          if let Some(tool_calls) = obj.get("tool_calls") {
+            if let Some(calls_array) = tool_calls.as_array() {
+              for tool_call in calls_array {
+                if let Some(tool_obj) = tool_call.as_object() {
+                  // 获取工具调用的基本信息
+                  let tool_name = tool_obj.get("tool_name").and_then(|v| v.as_str());
+                  let status = tool_obj.get("status").and_then(|v| v.as_str());
+                  let tool_id = tool_obj.get("id").and_then(|v| v.as_str());
+                  
+                  // 只处理成功的工具调用
+                  if let (Some(name), Some("success")) = (tool_name, status) {
+                    // 处理 AppFlowy 内置的 web_search 工具
+                    if name == "web_search" {
+                      if let Some(result) = tool_obj.get("result").and_then(|v| v.as_str()) {
+                        // 从搜索结果中提取 URL 引用
+                        let citations = extract_citations_from_search_result(result);
+                        if !citations.is_empty() {
+                          info!("📎 [METADATA] 从 web_search 结果中提取了 {} 个引用", citations.len());
+                          sources.extend(citations);
+                        }
+                      }
+                    } 
+                    // 处理 MCP 工具（非 web_search 的所有其他工具）
+                    else {
+                      // 提取 server 信息（如果 tool_name 包含 server 前缀）
+                      // 格式: "server_name.tool_name" 或直接 "tool_name"
+                      let (display_name, server_id) = if name.contains('.') {
+                        let parts: Vec<&str> = name.split('.').collect();
+                        if parts.len() >= 2 {
+                          let server = parts[0];
+                          let tool = parts[1..].join(".");
+                          (tool, Some(server))
+                        } else {
+                          (name.to_string(), None)
+                        }
+                      } else {
+                        (name.to_string(), None)
+                      };
+                      
+                      // 创建 MCP 引用
+                      let mcp_source = format!("mcp:{}", server_id.unwrap_or("unknown"));
+                      let citation = serde_json::json!({
+                        "id": tool_id.unwrap_or(name),
+                        "name": display_name,
+                        "source": mcp_source
+                      });
+                      
+                      sources.push(citation);
+                      info!("📎 [METADATA] 添加 MCP 工具引用: {} (source: {})", display_name, mcp_source);
+                    }
                   }
                 }
               }
-              Err(e) => {
-                error!("❌ [EXECUTION-LOG-SAVE] Failed to serialize execution logs: {}", e);
+            }
+          }
+          
+          // 如果提取到了引用，添加到 sources 字段
+          if !sources.is_empty() {
+            if let Some(metadata_obj_mut) = metadata.as_mut() {
+              if let Some(obj_mut) = metadata_obj_mut.as_object_mut() {
+                obj_mut.insert("sources".to_string(), serde_json::json!(sources));
+                info!("✅ [METADATA] 已将 {} 个引用添加到 metadata.sources", sources.len());
               }
             }
           }
@@ -1404,6 +1472,43 @@ impl Chat {
 
     Ok(())
   }
+}
+
+/// 从网络搜索结果字符串中提取引用信息
+/// 
+/// 搜索结果格式示例：
+/// ```
+/// 搜索结果 (查询词):
+/// 1. 标题1
+///    链接: https://example.com/1
+/// 2. 标题2
+///    链接: https://example.com/2
+/// ```
+fn extract_citations_from_search_result(result: &str) -> Vec<serde_json::Value> {
+  use regex::Regex;
+  
+  let mut citations = Vec::new();
+  
+  // 使用正则表达式匹配引用模式
+  // 匹配格式: 数字. 标题\n   链接: URL
+  let pattern = Regex::new(r"(\d+)\.\s+([^\n]+)\s+链接:\s+(https?://[^\s]+)").unwrap();
+  
+  for cap in pattern.captures_iter(result) {
+    if let (Some(_index), Some(title), Some(url)) = (cap.get(1), cap.get(2), cap.get(3)) {
+      let title_str = title.as_str().trim();
+      let url_str = url.as_str().trim();
+      
+      if !title_str.is_empty() && !url_str.is_empty() {
+        citations.push(serde_json::json!({
+          "id": url_str,
+          "name": title_str,
+          "source": "web"
+        }));
+      }
+    }
+  }
+  
+  citations
 }
 
 fn save_chat_message_disk(
