@@ -42,3 +42,5 @@ frontend/*.deb
 **/Cargo.toml.bak
 
 **/.cargo/**
+frontend/dist/AppFlowy-0.9.9-arm64.dmg
+frontend/dist/AppFlowy-0.9.9-macos.dmg
