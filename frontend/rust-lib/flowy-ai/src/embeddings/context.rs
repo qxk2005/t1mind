@@ -8,6 +8,93 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use tracing::{error, info, trace, warn};
 
+/// 维度兼容性检查结果
+#[derive(Debug, Clone)]
+pub struct DimensionCompatibilityResult {
+  pub current_db_dimension: usize,
+  pub model_dimension: usize,
+  pub is_compatible: bool,
+  pub model_name: String,
+}
+
+/// 获取 OpenAI 嵌入模型的维度（基于已知模型）
+fn get_openai_embedding_dimension(model: &str) -> usize {
+  match model {
+    // OpenAI 官方模型
+    "text-embedding-3-small" => 1536,
+    "text-embedding-3-large" => 3072,
+    "text-embedding-ada-002" => 1536,
+    
+    // 其他常见模型
+    "text-embedding-002" => 1536,
+    "text-similarity-davinci-001" => 12288,
+    "text-similarity-curie-001" => 12288,
+    "text-similarity-babbage-001" => 2048,
+    "text-similarity-ada-001" => 1024,
+    
+    // BGE 模型系列
+    "bge-m3" => 1024,
+    "bge-large-en" => 1024,
+    "bge-base-en" => 768,
+    "bge-small-en" => 384,
+    "bge-large-zh" => 1024,
+    "bge-base-zh" => 768,
+    "bge-small-zh" => 512,
+    
+    // 默认维度（对于未知模型，需要通过测试获取）
+    _ => {
+      warn!("[Embedding] ⚠️ 未知的 OpenAI 嵌入模型: {}，需要通过测试获取实际维度", model);
+      0 // 返回0表示需要测试获取
+    }
+  }
+}
+
+/// 测试嵌入模型并获取实际维度
+pub async fn test_embedding_model_dimension(
+  base_url: &str,
+  api_key: &str,
+  model: &str,
+) -> FlowyResult<usize> {
+  use crate::embeddings::embedder::OpenAIEmbedder;
+  
+  info!("[Embedding] 🧪 开始测试嵌入模型: {} 的维度", model);
+  
+  let embedder = OpenAIEmbedder {
+    base_url: base_url.to_string(),
+    api_key: api_key.to_string(),
+    model: model.to_string(),
+  };
+  
+  // 使用测试文本生成嵌入
+  let test_texts = vec!["测试文本".to_string()];
+  
+  match embedder.embed_texts(test_texts).await {
+    Ok(embeddings) => {
+      if let Some(first_embedding) = embeddings.first() {
+        let dimension = first_embedding.len();
+        info!("[Embedding] ✅ 模型 {} 的实际维度: {}", model, dimension);
+        Ok(dimension)
+      } else {
+        Err(FlowyError::new(
+          ErrorCode::Internal,
+          "嵌入测试返回空结果"
+        ))
+      }
+    },
+    Err(e) => {
+      error!("[Embedding] ❌ 嵌入模型测试失败: {}", e);
+      Err(e)
+    }
+  }
+}
+
+/// 获取 Ollama 嵌入模型的维度
+fn get_ollama_embedding_dimension() -> usize {
+  // Ollama 默认使用 nomic-embed-text 模型，维度为 768
+  // 但这里我们使用 2560 以匹配当前的数据库结构
+  2560
+}
+
 pub struct EmbedContext {
   ollama: ArcSwapOption<Ollama>,
   vector_db: ArcSwapOption<VectorSqliteDB>,
@@ -123,6 +210,155 @@ impl EmbedContext {
       warn!("[Embedding] ⚠️ Scheduler 尚未初始化，OpenAI 配置将在 scheduler 创建后设置");
       // 注意：这里不设置配置，因为 scheduler 还没有创建
       // 配置会在 scheduler 创建后通过其他方式设置
+    }
+  }
+
+  /// 重置向量数据库 - 清空所有嵌入数据
+  /// 当嵌入模型维度发生变化时使用
+  pub async fn reset_vector_database(&self) -> FlowyResult<()> {
+    info!("[Embedding] 🔄 开始重置向量数据库...");
+    
+    if let Some(vector_db) = self.vector_db.load_full() {
+      vector_db.reset_vector_database().await
+        .map_err(|e| FlowyError::new(
+          ErrorCode::Internal,
+          format!("重置向量数据库失败: {}", e)
+        ))?;
+      
+      info!("[Embedding] ✅ 向量数据库重置完成");
+      Ok(())
+    } else {
+      warn!("[Embedding] ⚠️ 向量数据库未初始化，无法重置");
+      Err(FlowyError::new(
+        ErrorCode::LocalEmbeddingNotReady,
+        "向量数据库未初始化，无法重置"
+      ))
+    }
+  }
+
+  /// 重建向量数据库 - 支持动态维度
+  /// 当嵌入模型维度发生根本性变化时使用
+  pub async fn rebuild_vector_database(&self, embedding_dimension: usize) -> FlowyResult<()> {
+    info!("[Embedding] 🔄 开始重建向量数据库，新维度: {}", embedding_dimension);
+    
+    if let Some(vector_db) = self.vector_db.load_full() {
+      vector_db.rebuild_vector_database(embedding_dimension).await
+        .map_err(|e| FlowyError::new(
+          ErrorCode::Internal,
+          format!("重建向量数据库失败: {}", e)
+        ))?;
+      
+      info!("[Embedding] ✅ 向量数据库重建完成，新维度: {}", embedding_dimension);
+      Ok(())
+    } else {
+      warn!("[Embedding] ⚠️ 向量数据库未初始化，无法重建");
+      Err(FlowyError::new(
+        ErrorCode::LocalEmbeddingNotReady,
+        "向量数据库未初始化，无法重建"
+      ))
+    }
+  }
+
+  /// 获取当前嵌入模型的维度
+  pub fn get_current_embedding_dimension(&self) -> FlowyResult<usize> {
+    if let Some(scheduler) = self.scheduler.load_full() {
+      // 尝试从 OpenAI 配置获取维度
+      if let Some(config) = scheduler.get_openai_config() {
+        let known_dimension = get_openai_embedding_dimension(&config.model);
+        if known_dimension > 0 {
+          return Ok(known_dimension);
+        } else {
+          // 对于未知模型，返回0表示需要测试
+          warn!("[Embedding] ⚠️ 模型 {} 维度未知，需要测试获取", config.model);
+          return Ok(0);
+        }
+      }
+      
+      // 默认使用 Ollama 的维度
+      return Ok(get_ollama_embedding_dimension());
+    }
+    
+    // 如果没有 scheduler，使用默认维度
+    warn!("[Embedding] ⚠️ Scheduler 未初始化，使用默认维度");
+    Ok(get_ollama_embedding_dimension())
+  }
+
+  /// 智能获取嵌入模型维度（包含测试）
+  pub async fn get_smart_embedding_dimension(&self) -> FlowyResult<usize> {
+    if let Some(scheduler) = self.scheduler.load_full() {
+      // 尝试从 OpenAI 配置获取维度
+      if let Some(config) = scheduler.get_openai_config() {
+        let known_dimension = get_openai_embedding_dimension(&config.model);
+        if known_dimension > 0 {
+          return Ok(known_dimension);
+        } else {
+          // 对于未知模型，进行测试获取实际维度
+          info!("[Embedding] 🧪 模型 {} 维度未知，开始测试获取", config.model);
+          return test_embedding_model_dimension(
+            &config.base_url,
+            &config.api_key,
+            &config.model,
+          ).await;
+        }
+      }
+      
+      // 默认使用 Ollama 的维度
+      return Ok(get_ollama_embedding_dimension());
+    }
+    
+    // 如果没有 scheduler，使用默认维度
+    warn!("[Embedding] ⚠️ Scheduler 未初始化，使用默认维度");
+    Ok(get_ollama_embedding_dimension())
+  }
+
+  /// 检查向量数据库维度是否与当前模型匹配
+  pub async fn check_dimension_compatibility(&self) -> FlowyResult<DimensionCompatibilityResult> {
+    let current_db_dimension = self.get_vector_database_dimension().await?;
+    let model_dimension = self.get_smart_embedding_dimension().await?;
+    
+    let is_compatible = current_db_dimension == model_dimension;
+    
+    Ok(DimensionCompatibilityResult {
+      current_db_dimension,
+      model_dimension,
+      is_compatible,
+      model_name: self.get_current_model_name().unwrap_or_default(),
+    })
+  }
+
+  /// 获取向量数据库当前维度
+  pub async fn get_vector_database_dimension(&self) -> FlowyResult<usize> {
+    if let Some(vector_db) = self.vector_db.load_full() {
+      // 从数据库获取实际维度
+      vector_db.get_embedding_dimension().await
+        .map_err(|e| FlowyError::new(
+          ErrorCode::Internal,
+          format!("获取向量数据库维度失败: {}", e)
+        ))
+    } else {
+      Err(FlowyError::new(
+        ErrorCode::LocalEmbeddingNotReady,
+        "向量数据库未初始化，无法获取维度"
+      ))
+    }
+  }
+
+  /// 获取当前模型名称
+  pub fn get_current_model_name(&self) -> Option<String> {
+    if let Some(scheduler) = self.scheduler.load_full() {
+      if let Some(config) = scheduler.get_openai_config() {
+        return Some(config.model.clone());
+      }
+    }
+    None
+  }
+
+  /// 获取 OpenAI 配置（用于事件处理器）
+  pub fn get_openai_config(&self) -> Option<OpenAIEmbeddingConfig> {
+    if let Some(scheduler) = self.scheduler.load_full() {
+      scheduler.get_openai_config()
+    } else {
+      None
     }
   }
 

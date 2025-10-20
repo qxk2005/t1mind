@@ -877,6 +877,43 @@ impl AIManager {
     Ok(())
   }
 
+  /// 重置向量数据库 - 清空所有嵌入数据
+  /// 当嵌入模型维度发生变化时使用
+  pub async fn reset_vector_database(&self) -> FlowyResult<()> {
+    use crate::embeddings::context::EmbedContext;
+    
+    info!("[AI Manager] 🔄 开始重置向量数据库...");
+    
+    EmbedContext::shared()
+      .reset_vector_database()
+      .await?;
+    
+    info!("[AI Manager] ✅ 向量数据库重置完成");
+    Ok(())
+  }
+
+  /// 智能重置向量数据库 - 根据当前嵌入模型维度重建
+  /// 当嵌入模型维度发生根本性变化时使用
+  pub async fn smart_reset_vector_database(&self) -> FlowyResult<()> {
+    use crate::embeddings::context::EmbedContext;
+    
+    info!("[AI Manager] 🔄 开始智能重置向量数据库...");
+    
+    // 获取当前嵌入模型的维度
+    let current_dimension = EmbedContext::shared()
+      .get_current_embedding_dimension()?;
+    
+    info!("[AI Manager] 📏 当前嵌入模型维度: {}", current_dimension);
+    
+    // 重建向量数据库以匹配新维度
+    EmbedContext::shared()
+      .rebuild_vector_database(current_dimension)
+      .await?;
+    
+    info!("[AI Manager] ✅ 向量数据库智能重置完成，新维度: {}", current_dimension);
+    Ok(())
+  }
+
   pub async fn get_active_model(&self, source: &str) -> AIModel {
     match self.user_service.workspace_id() {
       Ok(workspace_id) => {
@@ -1537,6 +1574,22 @@ impl AIManager {
     let mut filtered_logs = logs;
     if let Some(phase) = &request.phase {
       filtered_logs.retain(|log| log.phase == *phase);
+    }
+    if let Some(status) = &request.status {
+      filtered_logs.retain(|log| log.status == *status);
+    }
+    
+    // 应用搜索过滤
+    if let Some(query) = &request.search_query {
+      if !query.is_empty() {
+        let query_lower = query.to_lowercase();
+        filtered_logs.retain(|log| {
+          log.step.to_lowercase().contains(&query_lower) ||
+          log.input.to_lowercase().contains(&query_lower) ||
+          log.output.to_lowercase().contains(&query_lower) ||
+          log.error_message.as_ref().map(|e| e.to_lowercase().contains(&query_lower)).unwrap_or(false)
+        });
+      }
     }
 
     // 应用分页

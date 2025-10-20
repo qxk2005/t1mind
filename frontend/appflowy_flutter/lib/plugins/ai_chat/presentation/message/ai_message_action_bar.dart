@@ -1015,11 +1015,15 @@ class _ExecutionLogButtonState extends State<ExecutionLogButton> {
                   const Spacer(),
                   GestureDetector(
                     onTap: () => _popoverController.close(),
-                    child: Padding(
-                      padding: const EdgeInsets.all(4),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
                       child: FlowySvg(
                         FlowySvgs.close_s,
-                        size: const Size.square(12),
+                        size: const Size.square(16),
                       ),
                     ),
                   ),

@@ -362,6 +362,7 @@ impl Chat {
       
       match stream_result {
         Ok(mut stream) => {
+          // info!("🔧 [CHAT] ✅ Stream received successfully, starting to consume");
           // 📝 记录聊天开始日志
           {
             let mut log = AgentExecutionLogPB::new(
@@ -375,7 +376,9 @@ impl Chat {
             add_log(&execution_logs, log);
           }
           
+          // info!("🔧 [CHAT] About to consume stream messages");
           while let Some(message) = stream.next().await {
+            // info!("🔧 [CHAT] Received message from stream");
             match message {
               Ok(message) => {
                 if stop_stream.load(std::sync::atomic::Ordering::Relaxed) {

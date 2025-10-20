@@ -83,6 +83,14 @@ class ExecutionLogBloc extends Bloc<ExecutionLogEvent, ExecutionLogState> {
       request.phase = state.phaseFilter!;
     }
 
+    if (state.statusFilter != null) {
+      request.status = state.statusFilter!;
+    }
+
+    if (state.searchQuery.isNotEmpty) {
+      request.searchQuery = state.searchQuery;
+    }
+
     print('🔍 [ExecutionLogBloc] Calling AIEventGetExecutionLogs...');
     print('🔍 [ExecutionLogBloc] 🔵 Before API call - emit.isDone: ${emit.isDone}, isClosed: $isClosed');
     
@@ -153,6 +161,14 @@ class ExecutionLogBloc extends Bloc<ExecutionLogEvent, ExecutionLogState> {
 
     if (state.phaseFilter != null) {
       request.phase = state.phaseFilter!;
+    }
+
+    if (state.statusFilter != null) {
+      request.status = state.statusFilter!;
+    }
+
+    if (state.searchQuery.isNotEmpty) {
+      request.searchQuery = state.searchQuery;
     }
 
     // 🔌 使用真实的后端API

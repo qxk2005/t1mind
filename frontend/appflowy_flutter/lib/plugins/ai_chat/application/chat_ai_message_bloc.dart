@@ -314,6 +314,12 @@ class ChatAIMessageBloc extends Bloc<ChatAIMessageEvent, ChatAIMessageState> {
               _sourcesManager.setSources(chatId, questionId.toString(), state.sources);
             }
           }
+          
+          // 🔧 修复：流结束时，如果消息状态仍然是 loading，则更新为 ready
+          // 这解决了没有智能体时，AI响应没有通过 onData 传递文本的问题
+          if (state.messageState == const MessageState.loading()) {
+            _safeAdd(ChatAIMessageEvent.updateText(state.text));
+          }
         },
         onAIResponseLimit: () =>
             _safeAdd(const ChatAIMessageEvent.onAIResponseLimit()),

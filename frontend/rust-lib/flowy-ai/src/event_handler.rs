@@ -8,7 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Weak};
-use tracing::trace;
+use tracing::{trace, info};
 use uuid::Uuid;
 use validator::Validate;
 
@@ -475,5 +475,159 @@ pub(crate) async fn stop_vector_indexing_handler(
 ) -> FlowyResult<()> {
   let ai_manager = upgrade_ai_manager(ai_manager)?;
   ai_manager.vector_index_manager.stop_indexing().await;
+  Ok(())
+}
+
+// ==================== 向量数据库重置管理 ====================
+
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub(crate) async fn reset_vector_database_handler(
+  ai_manager: AFPluginState<Weak<AIManager>>,
+) -> FlowyResult<()> {
+  let ai_manager = upgrade_ai_manager(ai_manager)?;
+  ai_manager.reset_vector_database().await?;
+  Ok(())
+}
+
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub(crate) async fn smart_reset_vector_database_handler(
+  ai_manager: AFPluginState<Weak<AIManager>>,
+) -> FlowyResult<()> {
+  let ai_manager = upgrade_ai_manager(ai_manager)?;
+  ai_manager.smart_reset_vector_database().await?;
+  Ok(())
+}
+
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub(crate) async fn manual_reset_vector_database_handler(
+  data: AFPluginData<ManualResetVectorDatabaseRequestPB>,
+  ai_manager: AFPluginState<Weak<AIManager>>,
+) -> FlowyResult<()> {
+  let data = data.try_into_inner()?;
+  let ai_manager = upgrade_ai_manager(ai_manager)?;
+  
+  use crate::embeddings::context::EmbedContext;
+  
+  let embedding_dimension = data.embedding_dimension as usize;
+  EmbedContext::shared()
+    .rebuild_vector_database(embedding_dimension)
+    .await?;
+  
+  Ok(())
+}
+
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub(crate) async fn get_current_embedding_dimension_handler(
+  _ai_manager: AFPluginState<Weak<AIManager>>,
+) -> DataResult<EmbeddingDimensionPB, FlowyError> {
+  
+  use crate::embeddings::context::EmbedContext;
+  
+  let dimension = EmbedContext::shared()
+    .get_current_embedding_dimension()?;
+  
+  // 获取模型信息
+  let model_name = if let Some(config) = EmbedContext::shared().get_openai_config() {
+    config.model.clone()
+  } else {
+    "ollama-nomic-embed-text".to_string()
+  };
+  
+  let is_openai_compatible = EmbedContext::shared()
+    .get_openai_config()
+    .is_some();
+  
+  data_result_ok(EmbeddingDimensionPB {
+    dimension: dimension as u32,
+    model_name,
+    is_openai_compatible,
+  })
+}
+
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub(crate) async fn test_embedding_model_handler(
+  data: AFPluginData<TestEmbeddingModelRequestPB>,
+  _ai_manager: AFPluginState<Weak<AIManager>>,
+) -> DataResult<TestEmbeddingModelResponsePB, FlowyError> {
+  let data = data.try_into_inner()?;
+  
+  use crate::embeddings::context::test_embedding_model_dimension;
+  
+  match test_embedding_model_dimension(
+    &data.base_url,
+    &data.api_key,
+    &data.model,
+  ).await {
+    Ok(dimension) => {
+      data_result_ok(TestEmbeddingModelResponsePB {
+        success: true,
+        dimension: dimension as u32,
+        error: None,
+        model_name: data.model.clone(),
+      })
+    },
+    Err(e) => {
+      data_result_ok(TestEmbeddingModelResponsePB {
+        success: false,
+        dimension: 0,
+        error: Some(e.to_string()),
+        model_name: data.model.clone(),
+      })
+    }
+  }
+}
+
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub(crate) async fn check_dimension_compatibility_handler(
+  _ai_manager: AFPluginState<Weak<AIManager>>,
+) -> DataResult<DimensionCompatibilityPB, FlowyError> {
+  
+  use crate::embeddings::context::EmbedContext;
+  
+  match EmbedContext::shared().check_dimension_compatibility().await {
+    Ok(result) => {
+      data_result_ok(DimensionCompatibilityPB {
+        current_db_dimension: result.current_db_dimension as u32,
+        model_dimension: result.model_dimension as u32,
+        is_compatible: result.is_compatible,
+        model_name: result.model_name,
+        error: None,
+      })
+    },
+    Err(e) => {
+      data_result_ok(DimensionCompatibilityPB {
+        current_db_dimension: 0,
+        model_dimension: 0,
+        is_compatible: false,
+        model_name: String::new(),
+        error: Some(e.to_string()),
+      })
+    }
+  }
+}
+
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub(crate) async fn smart_reset_vector_database_with_test_handler(
+  ai_manager: AFPluginState<Weak<AIManager>>,
+) -> FlowyResult<()> {
+  let ai_manager = upgrade_ai_manager(ai_manager)?;
+  
+  use crate::embeddings::context::EmbedContext;
+  
+  info!("[AI Manager] 🔄 开始智能重置向量数据库（包含测试）...");
+  
+  // 获取智能检测的维度
+  let smart_dimension = EmbedContext::shared()
+    .get_smart_embedding_dimension()
+    .await?;
+  
+  info!("[AI Manager] 📏 智能检测到的维度: {}", smart_dimension);
+  
+  // 重建向量数据库以匹配新维度
+  EmbedContext::shared()
+    .rebuild_vector_database(smart_dimension)
+    .await?;
+  
+  info!("[AI Manager] ✅ 向量数据库智能重置完成，新维度: {}", smart_dimension);
   Ok(())
 }

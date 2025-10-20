@@ -124,7 +124,14 @@ pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
     plugin = plugin
       .event(AIEvent::RebuildVectorIndex, rebuild_vector_index_handler)
       .event(AIEvent::GetVectorIndexStatus, get_vector_index_status_handler)
-      .event(AIEvent::StopVectorIndexing, stop_vector_indexing_handler);
+      .event(AIEvent::StopVectorIndexing, stop_vector_indexing_handler)
+      .event(AIEvent::ResetVectorDatabase, reset_vector_database_handler)
+      .event(AIEvent::SmartResetVectorDatabase, smart_reset_vector_database_handler)
+      .event(AIEvent::ManualResetVectorDatabase, manual_reset_vector_database_handler)
+      .event(AIEvent::GetCurrentEmbeddingDimension, get_current_embedding_dimension_handler)
+      .event(AIEvent::TestEmbeddingModel, test_embedding_model_handler)
+      .event(AIEvent::CheckDimensionCompatibility, check_dimension_compatibility_handler)
+      .event(AIEvent::SmartResetVectorDatabaseWithTest, smart_reset_vector_database_with_test_handler);
     
     plugin
 }
@@ -357,4 +364,32 @@ pub enum AIEvent {
   /// 停止向量索引
   #[event()]
   StopVectorIndexing = 70,
+  
+  /// 重置向量数据库
+  #[event()]
+  ResetVectorDatabase = 71,
+  
+  /// 智能重置向量数据库
+  #[event()]
+  SmartResetVectorDatabase = 72,
+  
+  /// 手工重置向量数据库
+  #[event(input = "ManualResetVectorDatabaseRequestPB")]
+  ManualResetVectorDatabase = 73,
+  
+  /// 获取当前嵌入维度
+  #[event(output = "EmbeddingDimensionPB")]
+  GetCurrentEmbeddingDimension = 74,
+  
+  /// 测试嵌入模型维度
+  #[event(input = "TestEmbeddingModelRequestPB", output = "TestEmbeddingModelResponsePB")]
+  TestEmbeddingModel = 75,
+  
+  /// 检查维度兼容性
+  #[event(output = "DimensionCompatibilityPB")]
+  CheckDimensionCompatibility = 76,
+  
+  /// 智能重置向量数据库（自动检测维度）
+  #[event()]
+  SmartResetVectorDatabaseWithTest = 77,
 }

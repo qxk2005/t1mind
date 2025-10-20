@@ -8,6 +8,7 @@ use flowy_ai_pub::entities::{RAG_IDS, SOURCE_ID};
 use flowy_error::{FlowyError, FlowyResult};
 use flowy_sqlite_vec::db::VectorSqliteDB;
 use flowy_sqlite_vec::entities::{EmbeddedContent, SqliteEmbeddedDocument};
+use tracing::{info, warn, trace, error};
 use futures::stream::{self, StreamExt};
 use langchain_rust::llm::client::OllamaClient;
 use langchain_rust::schemas::Document;
@@ -16,7 +17,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Weak};
-use tracing::{error, trace, warn};
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -116,6 +116,21 @@ impl MultipleSourceRetrieverStore for SqliteVectorStore {
     debug_assert!(embeddings.len() == 1);
     let query_embedding = embeddings.first().unwrap();
 
+    // 添加调试：检查rag_ids是否为空
+    if rag_ids.is_empty() {
+      warn!("[VectorStore] ⚠️ rag_ids为空，将搜索所有文档");
+    } else {
+      info!("[VectorStore] 📋 将搜索指定的 {} 个文档ID", rag_ids.len());
+    }
+    
+    trace!(
+      "[VectorStore] 🔍 执行向量搜索: query='{}', limit={}, score_threshold={:.2}, rag_ids={:?}",
+      query, 
+      limit, 
+      score_threshold, 
+      rag_ids
+    );
+
     // Perform similarity search in the database
     let results = vector_db
       .search_with_score(
@@ -134,6 +149,19 @@ impl MultipleSourceRetrieverStore for SqliteVectorStore {
       rag_ids,
       score_threshold
     );
+
+    // 添加调试：显示搜索结果的详细信息
+    if results.is_empty() {
+      warn!(
+        "[VectorStore] ⚠️ 搜索返回0个结果 - 可能原因: 1)相似度分数低于阈值{:.2} 2)指定的rag_ids不存在 3)向量数据库为空",
+        score_threshold
+      );
+    } else {
+      info!(
+        "[VectorStore] 🎯 搜索完成: 找到 {} 个结果",
+        results.len()
+      );
+    }
 
     // Convert results to Documents
     let documents = results

@@ -91,6 +91,11 @@ impl EmbeddingScheduler {
     }
   }
 
+  /// 获取当前 OpenAI 配置
+  pub fn get_openai_config(&self) -> Option<OpenAIEmbeddingConfig> {
+    self.openai_config.load_full().map(|config| (*config).clone())
+  }
+
   pub(crate) fn create_embedder(&self) -> Result<Embedder, FlowyError> {
     // 优先使用 OpenAI 兼容配置
     if let Some(config) = self.openai_config.load_full() {
@@ -174,6 +179,17 @@ impl EmbeddingScheduler {
           object_ids
         );
         
+        // 添加调试：检查object_ids是否为空
+        if let Some(ref ids) = object_ids {
+          if ids.is_empty() {
+            warn!("[Embedding] ⚠️ object_ids为空，将搜索所有文档");
+          } else {
+            info!("[Embedding] 📋 将搜索指定的 {} 个文档ID", ids.len());
+          }
+        } else {
+          info!("[Embedding] 📋 未指定object_ids，将搜索所有文档");
+        }
+        
         let result = self
           .vector_db
           .search_with_score(
@@ -189,10 +205,18 @@ impl EmbeddingScheduler {
             FlowyError::new(ErrorCode::LocalEmbeddingNotReady, "Failed to search")
           })?;
 
-        info!(
-          "[Embedding] 🎯 搜索完成: 找到 {} 个结果",
-          result.len()
-        );
+        // 添加调试：显示搜索结果的详细信息
+        if result.is_empty() {
+          warn!(
+            "[Embedding] ⚠️ 搜索返回0个结果 - 可能原因: 1)相似度分数低于阈值{:.2} 2)指定的object_ids不存在 3)向量数据库为空",
+            score_threshold
+          );
+        } else {
+          info!(
+            "[Embedding] 🎯 搜索完成: 找到 {} 个结果",
+            result.len()
+          );
+        }
         
         // 输出每个结果的分数，帮助调试
         for (idx, item) in result.iter().enumerate() {
@@ -309,7 +333,7 @@ pub async fn spawn_write_embeddings(
         // drain and process exactly `n` records
         let records = buf.drain(..n).collect::<Vec<_>>();
         for record in records {
-          debug!("[Embedding] Writing {} chunks for {}", record.chunks.len(), record.object_id);
+          // debug!("[Embedding] Writing {} chunks for {}", record.chunks.len(), record.object_id);
           match scheduler
               .vector_db
               .upsert_collabs_embeddings(&record.workspace_id.to_string(), &record.object_id.to_string(), record.chunks)

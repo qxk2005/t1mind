@@ -123,23 +123,23 @@ impl ChatServiceMiddleware {
     };
 
     if rag_ids.is_empty() {
-      trace!("[RAG] 📚 OpenAI 兼容模式：没有选择文档，直接使用用户问题");
+      // trace!("[RAG] 📚 OpenAI 兼容模式：没有选择文档，直接使用用户问题");
       return Ok((question.to_string(), Vec::new()));
     }
 
-    info!(
-      "[RAG] 📚 OpenAI 兼容模式：检索文档 - rag_ids={:?}",
-      rag_ids
-    );
+      info!(
+        "[RAG] 📚 OpenAI 兼容模式：检索文档 - rag_ids={:?}",
+        rag_ids
+      );
 
     // 尝试直接使用嵌入调度器进行搜索（不依赖 local_ai.is_ready()）
     // 这样即使 Ollama 聊天客户端未初始化，只要配置了嵌入服务就能工作
     match self.try_search_documents_via_embeddings(chat_id, question, &rag_ids).await {
       Ok(documents) if !documents.is_empty() => {
-        info!(
-          "[RAG] 📖 OpenAI 兼容模式：找到 {} 个相关文档片段",
-          documents.len()
-        );
+          info!(
+            "[RAG] 📖 OpenAI 兼容模式：找到 {} 个相关文档片段",
+            documents.len()
+          );
         
         // 输出每个文档片段的详细信息
         for (idx, doc) in documents.iter().enumerate() {
@@ -151,19 +151,19 @@ impl ChatServiceMiddleware {
           );
         }
         
-        info!(
-          "[RAG] ✅ OpenAI 兼容模式：找到 {} 个文档片段，将添加到 system prompt",
-          documents.len()
-        );
+          info!(
+            "[RAG] ✅ OpenAI 兼容模式：找到 {} 个文档片段，将添加到 system prompt",
+            documents.len()
+          );
         
         // ⚠️ 关键修改：返回原始问题，不在用户消息中添加上下文
         // RAG 上下文将在调用处添加到 system prompt 中
         return Ok((question.to_string(), documents));
       }
       Ok(_) => {
-        warn!(
-          "[RAG] ⚠️ OpenAI 兼容模式：未找到相关文档（可能相似度分数低于阈值），使用原始问题"
-        );
+          warn!(
+            "[RAG] ⚠️ OpenAI 兼容模式：未找到相关文档（可能相似度分数低于阈值），使用原始问题"
+          );
       }
       Err(err) => {
         warn!(
@@ -555,6 +555,8 @@ You have access to relevant documents that contain information to answer the use
     tools: Option<&[ToolDefinitionPB]>,  // 🆕 添加工具参数
     rag_documents: Vec<langchain_rust::schemas::Document>,  // 🆕 RAG文档列表（用于发送metadata）
   ) -> Result<(Option<String>, StreamAnswer), FlowyError> {
+    info!("🔧 [AI-SERVICE] 🚀 openai_chat_stream_with_system called with model: {:?}, system_prompt: {}, tools: {}", 
+          model, system_prompt.is_some(), tools.is_some());
     let url = Self::join_openai_url(&cfg.base_url, "/v1/chat/completions");
     
     // 处理模型名称：如果是 "Auto" 或空，则使用配置中的模型
@@ -618,74 +620,88 @@ You have access to relevant documents that contain information to answer the use
     
     info!("🔧 [AI-SERVICE] Response status: {}, headers: {:?}", resp.status(), resp.headers());
     
+    // info!("🔧 [AI-SERVICE] About to create stream from response");
     let s = try_stream! {
       let mut inside_think = false;
       let mut tool_call_buffer: Option<OpenAIToolCall> = None;  // 🆕 用于累积流式 tool_call
       let mut stream = resp.bytes_stream();
+      let mut chunk_count = 0;
+      let mut text_sent = false;
+      // info!("🔧 [AI-SERVICE] Starting to process stream response");
+      // info!("🔧 [AI-SERVICE] Stream created, waiting for chunks...");
       
       while let Some(chunk) = stream.next().await {
+        chunk_count += 1;
+        // info!("🔧 [AI-SERVICE] Processing chunk #{}", chunk_count);
         let bytes = chunk.map_err(|e| FlowyError::server_error().with_context(e.to_string()))?;
         let s = String::from_utf8_lossy(&bytes);
+        // info!("🔧 [AI-SERVICE] Received chunk: '{}'", s);
         for line in s.lines() {
           let l = line.trim_start();
           if !l.starts_with("data:") { continue; }
           let data = l.trim_start_matches("data:").trim();
           if data == "[DONE]" { break; }
+          // info!("🔧 [AI-SERVICE] Processing data line: '{}'", data);
           if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
+            // info!("🔧 [AI-SERVICE] Successfully parsed JSON: {:?}", v);
             if let Some(delta) = v.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("delta")) {
+              // info!("🔧 [AI-SERVICE] Found delta: {:?}", delta);
               // 🆕 处理 tool_calls（OpenAI Function Call API）
               if let Some(tool_calls) = delta.get("tool_calls") {
                 if let Some(tool_call_array) = tool_calls.as_array() {
-                  for tool_call_delta in tool_call_array {
-                    let index = tool_call_delta.get("index").and_then(|i| i.as_u64()).unwrap_or(0);
-                    
-                    // 初始化或更新 tool_call
-                    if index == 0 {
-                      if tool_call_buffer.is_none() {
-                        tool_call_buffer = Some(OpenAIToolCall {
-                          id: tool_call_delta.get("id").and_then(|s| s.as_str()).unwrap_or("").to_string(),
-                          tool_type: tool_call_delta.get("type").and_then(|s| s.as_str()).unwrap_or("function").to_string(),
-                          function: OpenAIFunctionCall {
-                            name: String::new(),
-                            arguments: String::new(),
-                          },
-                        });
-                      }
+                  // 🔧 修复：只有当tool_calls数组不为空时才处理
+                  if !tool_call_array.is_empty() {
+                    for tool_call_delta in tool_call_array {
+                      let index = tool_call_delta.get("index").and_then(|i| i.as_u64()).unwrap_or(0);
                       
-                      if let Some(ref mut tc) = tool_call_buffer {
-                        if let Some(id) = tool_call_delta.get("id").and_then(|s| s.as_str()) {
-                          tc.id = id.to_string();
+                      // 初始化或更新 tool_call
+                      if index == 0 {
+                        if tool_call_buffer.is_none() {
+                          tool_call_buffer = Some(OpenAIToolCall {
+                            id: tool_call_delta.get("id").and_then(|s| s.as_str()).unwrap_or("").to_string(),
+                            tool_type: tool_call_delta.get("type").and_then(|s| s.as_str()).unwrap_or("function").to_string(),
+                            function: OpenAIFunctionCall {
+                              name: String::new(),
+                              arguments: String::new(),
+                            },
+                          });
                         }
-                        if let Some(func) = tool_call_delta.get("function") {
-                          if let Some(name) = func.get("name").and_then(|s| s.as_str()) {
-                            tc.function.name.push_str(name);
+                        
+                        if let Some(ref mut tc) = tool_call_buffer {
+                          if let Some(id) = tool_call_delta.get("id").and_then(|s| s.as_str()) {
+                            tc.id = id.to_string();
                           }
-                          if let Some(args) = func.get("arguments").and_then(|s| s.as_str()) {
-                            tc.function.arguments.push_str(args);
+                          if let Some(func) = tool_call_delta.get("function") {
+                            if let Some(name) = func.get("name").and_then(|s| s.as_str()) {
+                              tc.function.name.push_str(name);
+                            }
+                            if let Some(args) = func.get("arguments").and_then(|s| s.as_str()) {
+                              tc.function.arguments.push_str(args);
+                            }
                           }
                         }
                       }
                     }
+                    
+                    // 如果累积的 tool_call 已完整，发送元数据
+                    if let Some(ref tc) = tool_call_buffer {
+                      if !tc.function.name.is_empty() && !tc.id.is_empty() {
+                        // debug!("[OpenAI] Tool call detected: {} (id: {})", tc.function.name, tc.id);
+                        yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+                          value: json!({
+                            "tool_call": {
+                              "id": tc.id,
+                              "tool_name": tc.function.name,
+                              "arguments": tc.function.arguments,
+                              "status": "pending"
+                            }
+                          })
+                        };
+                      }
+                    }
+                    continue; // 🔧 只有真正处理了tool_calls才continue
                   }
                 }
-                
-                // 如果累积的 tool_call 已完整，发送元数据
-                if let Some(ref tc) = tool_call_buffer {
-                  if !tc.function.name.is_empty() && !tc.id.is_empty() {
-                    debug!("[OpenAI] Tool call detected: {} (id: {})", tc.function.name, tc.id);
-                    yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
-                      value: json!({
-                        "tool_call": {
-                          "id": tc.id,
-                          "tool_name": tc.function.name,
-                          "arguments": tc.function.arguments,
-                          "status": "pending"
-                        }
-                      })
-                    };
-                  }
-                }
-                continue;
               }
               
               // 1) 数组结构：显式 type（o1/DeepSeek-R1）
@@ -702,6 +718,8 @@ You have access to relevant documents that contain information to answer the use
                     },
                     "output_text" | "text" => {
                       if let Some(t) = item.get("text").and_then(|s| s.as_str()) {
+                        text_sent = true;
+                        // info!("🔧 [AI-SERVICE] ✅ Yielding array text to Flutter: '{}'", t);
                         yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
                           value: t.to_string()
                         };
@@ -710,11 +728,9 @@ You have access to relevant documents that contain information to answer the use
                     _ => {},
                   }
                 }
-                continue;
-              }
-
-              // 2) 字符串结构：DeepSeek <think> ... </think>
-              if let Some(token) = delta.get("content").and_then(|c| c.as_str()) {
+              } else if let Some(token) = delta.get("content").and_then(|c| c.as_str()) {
+                // 2) 字符串结构：DeepSeek <think> ... </think>
+                // info!("🔧 [AI-SERVICE] ✅ Processing string token: '{}'", token);
                 let mut text = token.to_string();
                 // 处理开始标签
                 if let Some(idx) = text.find("<think>") {
@@ -732,11 +748,12 @@ You have access to relevant documents that contain information to answer the use
                   }
                   inside_think = false;
                   if !after.is_empty() {
+                    text_sent = true;
+                    // info!("🔧 [AI-SERVICE] ✅ Yielding after-think text to Flutter: '{}'", after);
                     yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
                       value: after.to_string()
                     };
                   }
-                  continue;
                 }
                 if inside_think {
                   if !text.is_empty() {
@@ -746,12 +763,13 @@ You have access to relevant documents that contain information to answer the use
                   }
                 } else {
                   if !text.is_empty() {
+                    text_sent = true;
+                    // info!("🔧 [AI-SERVICE] ✅ Yielding normal text to Flutter: '{}'", text);
                     yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
                       value: text
                     };
                   }
                 }
-                continue;
               }
 
               // 3) 其他兼容字段
@@ -770,8 +788,23 @@ You have access to relevant documents that contain information to answer the use
                 }
               }
             }
+          } else {
+            warn!("🔧 [AI-SERVICE] Failed to parse JSON: '{}'", data);
           }
         }
+      }
+      
+      // 检查是否收到了任何数据块
+      if chunk_count == 0 {
+        warn!("🔧 [AI-SERVICE] ⚠️ No chunks received from AI service!");
+      } else {
+        // info!("🔧 [AI-SERVICE] ✅ Received {} chunks total", chunk_count);
+      }
+      
+      if !text_sent {
+        warn!("🔧 [AI-SERVICE] ⚠️ No text was sent to Flutter during this stream!");
+      } else {
+        // info!("🔧 [AI-SERVICE] ✅ Text was successfully sent to Flutter");
       }
       
       // 🔧 发送文档来源 metadata（如果有检索到的文档）
@@ -782,13 +815,17 @@ You have access to relevant documents that contain information to answer the use
         let mut deduplicated_sources: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
         for doc in &rag_documents {
           if let Some(object_id) = doc.metadata.get("object_id").and_then(|v| v.as_str()) {
+            // TODO: 获取真实的文档名称，目前暂时使用 "document"
+            // 由于生命周期问题，暂时无法在流式上下文中异步获取文档名称
+            let document_name = "document".to_string();
+            
             // 构建 metadata，格式与前端期望的 SOURCE_ID/SOURCE/SOURCE_NAME 匹配
             deduplicated_sources.insert(
               object_id.to_string(),
               json!({
                 "SOURCE_ID": object_id,
                 "SOURCE": "appflowy",
-                "SOURCE_NAME": "document"
+                "SOURCE_NAME": document_name
               })
             );
           }
@@ -811,114 +848,6 @@ You have access to relevant documents that contain information to answer the use
   async fn openai_chat_stream(&self, cfg: &OpenAICompatConfig, model_override: Option<&str>, content: String) -> FlowyResult<(Option<String>, StreamAnswer)> {
     // 调用新方法，不传系统提示词、工具和RAG文档
     self.openai_chat_stream_with_system(cfg, model_override, content, None, None, Vec::new()).await
-  }
-
-  /// 废弃的实现（保留用于参考）
-  #[allow(dead_code)]
-  async fn openai_chat_stream_old(&self, cfg: &OpenAICompatConfig, model_override: Option<&str>, content: String) -> FlowyResult<(Option<String>, StreamAnswer)> {
-    let client = reqwest::Client::new();
-    let base = cfg.base_url.trim_end_matches('/');
-    // 仅对 chat.completions 走 SSE；responses 不同供应商差异大，暂不做 SSE
-    let url = if base.ends_with("/v1") { format!("{}/chat/completions", base) } else { format!("{}/v1/chat/completions", base) };
-
-    let model_name = match model_override {
-      Some(name) if !name.is_empty() && name != DEFAULT_AI_MODEL_NAME => name.to_string(),
-      _ => cfg.model.clone(),
-    };
-
-    let messages = vec![json!({"role": "user", "content": content})];
-    let mut payload = Self::openai_chat_payload(&model_name, messages);
-    if let Some(t) = cfg.temperature { payload.as_object_mut().unwrap().insert("temperature".into(), json!(t)); }
-    if let Some(m) = cfg.max_tokens { payload.as_object_mut().unwrap().insert("max_tokens".into(), json!(m)); }
-    let resp = client
-      .post(&url)
-      .bearer_auth(&cfg.api_key)
-      .header("Content-Type", "application/json")
-      .header("Accept", "text/event-stream")
-      .json(&payload)
-      .send()
-      .await
-      .map_err(|e| FlowyError::server_error().with_context(e.to_string()))?;
-    if !resp.status().is_success() {
-      return Err(FlowyError::server_error().with_context(format!("OpenAI compat error: {}", resp.status())));
-    }
-
-    let s = try_stream! {
-      let mut inside_think = false;
-      let mut stream = resp.bytes_stream();
-      info!("🔧 [AI-SERVICE] Starting to process stream response");
-      let mut chunk_count = 0;
-      while let Some(chunk) = stream.next().await {
-        chunk_count += 1;
-        info!("🔧 [AI-SERVICE] Processing chunk #{}", chunk_count);
-        let bytes = chunk.map_err(|e| FlowyError::server_error().with_context(e.to_string()))?;
-        let s = String::from_utf8_lossy(&bytes);
-        info!("🔧 [AI-SERVICE] Received chunk: '{}'", s);
-        for line in s.lines() {
-          let l = line.trim_start();
-          if !l.starts_with("data:") { 
-            info!("🔧 [AI-SERVICE] Skipping non-data line: '{}'", l);
-            continue; 
-          }
-          let data = l.trim_start_matches("data:").trim();
-          info!("🔧 [AI-SERVICE] Processing data: '{}'", data);
-          if data == "[DONE]" { 
-            info!("🔧 [AI-SERVICE] Stream completed with [DONE]");
-            break; 
-          }
-          if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
-            if let Some(delta) = v.get("choices").and_then(|c| c.get(0)).and_then(|c| c.get("delta")) {
-              // 1) 数组结构：显式 type
-              if let Some(arr) = delta.get("content").and_then(|a| a.as_array()) {
-                for item in arr {
-                  let ty = item.get("type").and_then(|s| s.as_str()).unwrap_or("");
-                  match ty {
-                    "reasoning" => {
-                      if let Some(t) = item.get("text").and_then(|s| s.as_str()) { yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata { value: json!({"reasoning_delta": t}) }; }
-                    },
-                    "output_text" | "text" => {
-                      if let Some(t) = item.get("text").and_then(|s| s.as_str()) { 
-                        info!("🔧 [AI-SERVICE] Received text from AI: '{}'", t);
-                        yield flowy_ai_pub::cloud::QuestionStreamValue::Answer { value: t.to_string() }; 
-                      }
-                    },
-                    _ => {},
-                  }
-                }
-                continue;
-              }
-
-              // 2) 字符串结构：DeepSeek <think> ... </think>
-              if let Some(token) = delta.get("content").and_then(|c| c.as_str()) {
-                let mut text = token.to_string();
-                // 处理开始标签
-                if let Some(idx) = text.find("<think>") { inside_think = true; text.replace_range(idx..idx+7, ""); }
-                // 处理结束标签（可能与内容同一块）
-                if let Some(end_idx) = text.find("</think>") {
-                  let (before, after) = text.split_at(end_idx);
-                  let after = after.trim_start_matches("</think>");
-                  if !before.is_empty() { yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata { value: json!({"reasoning_delta": before}) }; }
-                  inside_think = false;
-                  if !after.is_empty() { yield flowy_ai_pub::cloud::QuestionStreamValue::Answer { value: after.to_string() }; }
-                  continue;
-                }
-                if inside_think {
-                  if !text.is_empty() { yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata { value: json!({"reasoning_delta": text}) }; }
-                } else {
-                  if !text.is_empty() { yield flowy_ai_pub::cloud::QuestionStreamValue::Answer { value: text }; }
-                }
-                continue;
-              }
-
-              // 3) 其他兼容字段
-              if let Some(r) = delta.get("reasoning_content").and_then(|s| s.as_str()) { if !r.is_empty() { yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata { value: json!({"reasoning_delta": r}) }; } }
-              if let Some(r) = delta.get("reasoning").and_then(|s| s.as_str()) { if !r.is_empty() { yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata { value: json!({"reasoning_delta": r}) }; } }
-            }
-          }
-        }
-      }
-    };
-    Ok((None, Box::pin(s)))
   }
 
   /// 🔄 多轮对话：执行工具并继续对话
@@ -1612,39 +1541,44 @@ You have access to relevant documents that contain information to answer the use
           // 无工具调用回退可用：若本轮产生了内容或达到最终迭代，则视为完成
           if has_content || is_final_iteration {
             info!("🔄 [AUTO-MULTI-TURN] Completed after {} iterations", iteration);
+            
+            // 🔧 在对话结束前发送文档来源 metadata（如果有检索到的文档）
+            if !rag_documents.is_empty() {
+              info!("[RAG] 📤 发送 {} 个文档来源的 metadata", rag_documents.len());
+              
+              // 使用 HashMap 去重（按 object_id）
+              let mut deduplicated_sources: HashMap<String, serde_json::Value> = HashMap::new();
+              for doc in &rag_documents {
+                if let Some(object_id) = doc.metadata.get("object_id").and_then(|v| v.as_str()) {
+                  // TODO: 获取真实的文档名称，目前暂时使用 "document"
+                  // 由于生命周期问题，暂时无法在流式上下文中异步获取文档名称
+                  let document_name = "document".to_string();
+                  
+                  // 构建 metadata，格式与前端期望的 SOURCE_ID/SOURCE/SOURCE_NAME 匹配
+                  deduplicated_sources.insert(
+                    object_id.to_string(),
+                    json!({
+                      "SOURCE_ID": object_id,
+                      "SOURCE": "appflowy",
+                      "SOURCE_NAME": document_name
+                    })
+                  );
+                }
+              }
+              
+              // 发送每个文档来源的 metadata
+              for source_meta in deduplicated_sources.values() {
+                yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+                  value: source_meta.clone()
+                };
+              }
+              
+              info!("[RAG] ✅ 已发送 {} 个文档来源 metadata", deduplicated_sources.len());
+            }
+            
             break;
           }
         }
-      }
-      
-      // 🔧 发送文档来源 metadata（如果有检索到的文档）
-      if !rag_documents.is_empty() {
-        info!("[RAG] 📤 发送 {} 个文档来源的 metadata", rag_documents.len());
-        
-        // 使用 HashMap 去重（按 object_id）
-        let mut deduplicated_sources: HashMap<String, serde_json::Value> = HashMap::new();
-        for doc in &rag_documents {
-          if let Some(object_id) = doc.metadata.get("object_id").and_then(|v| v.as_str()) {
-            // 构建 metadata，格式与前端期望的 SOURCE_ID/SOURCE/SOURCE_NAME 匹配
-            deduplicated_sources.insert(
-              object_id.to_string(),
-              json!({
-                "SOURCE_ID": object_id,
-                "SOURCE": "appflowy",
-                "SOURCE_NAME": "document"
-              })
-            );
-          }
-        }
-        
-        // 发送每个文档来源的 metadata
-        for source_meta in deduplicated_sources.values() {
-          yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
-            value: source_meta.clone()
-          };
-        }
-        
-        info!("[RAG] ✅ 已发送 {} 个文档来源 metadata", deduplicated_sources.len());
       }
     };
     
@@ -2208,3 +2142,4 @@ impl ChatCloudService for ChatServiceMiddleware {
       .await
   }
 }
+

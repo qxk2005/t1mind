@@ -20,14 +20,36 @@ impl Indexer for DocumentIndexer {
     model: EmbeddingModel,
   ) -> Result<Vec<EmbeddedChunk>, FlowyError> {
     if paragraphs.is_empty() {
-      warn!(
-        "[Embedding] No paragraphs found in document `{}`. Skipping embedding.",
+      // 将警告级别降低为调试信息，因为这是正常情况
+      debug!(
+        "[Embedding] Document `{}` has no text content to index. This may be normal for documents with only images, tables, or other non-text elements.",
         object_id
       );
 
       return Ok(vec![]);
     }
-    split_text_into_chunks(&object_id.to_string(), paragraphs, model, 1000, 200)
+    
+    // 过滤掉空段落和只包含空白字符的段落
+    let filtered_paragraphs: Vec<String> = paragraphs
+      .into_iter()
+      .filter(|p| !p.trim().is_empty())
+      .collect();
+    
+    if filtered_paragraphs.is_empty() {
+      debug!(
+        "[Embedding] Document `{}` has no meaningful text content after filtering empty paragraphs.",
+        object_id
+      );
+      return Ok(vec![]);
+    }
+    
+    trace!(
+      "[Embedding] Processing document `{}` with {} paragraphs",
+      object_id,
+      filtered_paragraphs.len()
+    );
+    
+    split_text_into_chunks(&object_id.to_string(), filtered_paragraphs, model, 1000, 200)
   }
 
   async fn embed(

@@ -298,19 +298,20 @@ class _UnifiedReferenceDisplayState extends State<UnifiedReferenceDisplay> {
     ThemeData theme,
     bool isDark,
   ) {
-    // 如果是UUID，异步加载真实的文档名称
-    if (isUUID(ref.id)) {
+    // 基于 source==appflowy 时，始终依据 id 异步解析真实文档名称
+    if (ref.source == 'appflowy') {
       return FutureBuilder<ViewPB?>(
         future: ViewBackendService.getView(ref.id).then((f) => f.toNullable()),
         builder: (context, snapshot) {
           final view = snapshot.data;
           String displayName;
           
-          if (snapshot.hasData && 
-              snapshot.connectionState == ConnectionState.done && 
+          if (snapshot.hasData &&
+              snapshot.connectionState == ConnectionState.done &&
               view != null) {
             displayName = view.nameOrDefault;
           } else {
+            // 加载中时显示占位或后端提供的 name
             displayName = ref.name.isNotEmpty ? ref.name : '加载中...';
           }
 

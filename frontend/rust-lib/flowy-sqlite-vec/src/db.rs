@@ -11,7 +11,7 @@ use rusqlite::{ToSql, params};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use tracing::{trace, warn};
+use tracing::{info, trace, warn};
 use uuid::Uuid;
 
 pub struct VectorSqliteDB {
@@ -647,6 +647,111 @@ impl VectorSqliteDB {
     tx.commit()
       .context("Committing delete_pending_indexed_collab transaction")?;
 
+    Ok(())
+  }
+
+  /// 重置向量数据库 - 清空所有嵌入数据
+  /// 当嵌入模型维度发生变化时使用
+  pub async fn reset_vector_database(&self) -> Result<()> {
+    tracing::info!("[Vector DB] 🔄 开始重置向量数据库...");
+    
+    let mut conn = self
+      .pool
+      .get()
+      .context("Failed to get connection from pool")?;
+    let tx = conn
+      .transaction()
+      .context("Starting reset_vector_database transaction")?;
+
+    // 清空所有嵌入数据
+    tx.execute("DELETE FROM af_collab_embeddings", [])
+      .context("Clearing af_collab_embeddings table")?;
+    
+    // 清空待索引数据
+    tx.execute("DELETE FROM af_pending_index_collab", [])
+      .context("Clearing af_pending_index_collab table")?;
+
+    tx.commit()
+      .context("Committing reset_vector_database transaction")?;
+
+    tracing::info!("[Vector DB] ✅ 向量数据库重置完成");
+    Ok(())
+  }
+
+  /// 获取当前嵌入向量的维度
+  pub async fn get_embedding_dimension(&self) -> Result<usize> {
+    let conn = self
+      .pool
+      .get()
+      .context("Failed to get connection from pool")?;
+
+    // 尝试从表结构获取维度
+    let sql = "SELECT sql FROM sqlite_master WHERE type='table' AND name='af_collab_embeddings'";
+    let mut stmt = conn.prepare(sql)?;
+    let mut rows = stmt.query([])?;
+
+    if let Some(row) = rows.next()? {
+      let create_sql: String = row.get(0)?;
+      // 解析 CREATE TABLE 语句中的 float[n] 格式
+      if let Some(start) = create_sql.find("float[") {
+        if let Some(end) = create_sql[start..].find(']') {
+          let dimension_str = &create_sql[start + 6..start + end];
+          if let Ok(dimension) = dimension_str.parse::<usize>() {
+            info!("[Vector DB] 从表结构获取嵌入维度: {}", dimension);
+            return Ok(dimension);
+          }
+        }
+      }
+    }
+
+    // 如果无法从表结构获取，返回默认值
+    warn!("[Vector DB] 无法从表结构获取嵌入维度，使用默认值 2560");
+    Ok(2560)
+  }
+
+  /// 当嵌入模型维度发生根本性变化时使用
+  pub async fn rebuild_vector_database(&self, embedding_dimension: usize) -> Result<()> {
+    
+    let mut conn = self
+      .pool
+      .get()
+      .context("Failed to get connection from pool")?;
+    let tx = conn
+      .transaction()
+      .context("Starting rebuild_vector_database transaction")?;
+
+    // 删除旧的向量表
+    tx.execute("DROP TABLE IF EXISTS af_collab_embeddings", [])
+      .context("Dropping old af_collab_embeddings table")?;
+    
+    // 清空待索引数据
+    tx.execute("DELETE FROM af_pending_index_collab", [])
+      .context("Clearing af_pending_index_collab table")?;
+
+    // 创建新的向量表，使用动态维度
+    let create_table_sql = format!(
+      "CREATE VIRTUAL TABLE af_collab_embeddings 
+       USING vec0(
+         workspace_id    TEXT    NOT NULL,
+         object_id       TEXT    NOT NULL,
+         fragment_id     TEXT    NOT NULL,
+         content_type    INTEGER NOT NULL,
+         content         TEXT    NOT NULL,
+         metadata        TEXT,
+         fragment_index  INTEGER NOT NULL DEFAULT 0,
+         embedder_type   INTEGER NOT NULL DEFAULT 0,
+         embedding       float[{}] 
+       )",
+      embedding_dimension
+    );
+    
+    tx.execute(&create_table_sql, [])
+      .context("Creating new af_collab_embeddings table with dynamic dimension")?;
+
+    tx.commit()
+      .context("Committing rebuild_vector_database transaction")?;
+
+    tracing::info!("[Vector DB] ✅ 向量数据库重建完成，新维度: {}", embedding_dimension);
     Ok(())
   }
 

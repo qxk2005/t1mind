@@ -117,6 +117,11 @@ class AnswerStream {
   }
 
   void _onDoneCallback() {
+    // 🔧 修复：流结束时，确保最终的文本内容被传递
+    // 这解决了没有智能体时，AI响应没有通过 onData 传递文本的问题
+    if (_text.isNotEmpty && _onData != null) {
+      _onData!(_text);
+    }
     _onEnd?.call();
   }
 

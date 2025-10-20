@@ -1478,10 +1478,16 @@ pub struct GetExecutionLogsRequestPB {
   #[pb(index = 3, one_of)]
   pub phase: Option<ExecutionPhasePB>,
 
-  #[pb(index = 4)]
+  #[pb(index = 4, one_of)]
+  pub status: Option<ExecutionStatusPB>,
+
+  #[pb(index = 5, one_of)]
+  pub search_query: Option<String>,
+
+  #[pb(index = 6)]
   pub limit: i32,
 
-  #[pb(index = 5)]
+  #[pb(index = 7)]
   pub offset: i32,
 }
 
@@ -2657,4 +2663,69 @@ pub enum VectorIndexStatePB {
   IndexCompleted = 2,
   IndexFailed = 3,
   IndexStopping = 4,
+}
+
+// ==================== 向量数据库重置管理 ====================
+
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct ManualResetVectorDatabaseRequestPB {
+  #[pb(index = 1)]
+  pub embedding_dimension: u32,
+}
+
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct EmbeddingDimensionPB {
+  #[pb(index = 1)]
+  pub dimension: u32,
+  
+  #[pb(index = 2)]
+  pub model_name: String,
+  
+  #[pb(index = 3)]
+  pub is_openai_compatible: bool,
+}
+
+#[derive(Default, ProtoBuf, Validate, Clone, Debug)]
+pub struct TestEmbeddingModelRequestPB {
+  #[pb(index = 1)]
+  pub base_url: String,
+  
+  #[pb(index = 2)]
+  pub api_key: String,
+  
+  #[pb(index = 3)]
+  pub model: String,
+}
+
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct TestEmbeddingModelResponsePB {
+  #[pb(index = 1)]
+  pub success: bool,
+  
+  #[pb(index = 2)]
+  pub dimension: u32,
+  
+  #[pb(index = 3, one_of)]
+  pub error: Option<String>,
+  
+  #[pb(index = 4)]
+  pub model_name: String,
+}
+
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct DimensionCompatibilityPB {
+  #[pb(index = 1)]
+  pub current_db_dimension: u32,
+  
+  #[pb(index = 2)]
+  pub model_dimension: u32,
+  
+  #[pb(index = 3)]
+  pub is_compatible: bool,
+  
+  #[pb(index = 4)]
+  pub model_name: String,
+  
+  #[pb(index = 5, one_of)]
+  pub error: Option<String>,
 }

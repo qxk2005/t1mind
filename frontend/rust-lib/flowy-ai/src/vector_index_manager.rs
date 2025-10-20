@@ -6,7 +6,7 @@ use collab::core::origin::CollabOrigin;
 use collab::preclude::Collab;
 use collab_entity::CollabType;
 use collab_integrate::instant_indexed_data_provider::unindexed_data_form_collab;
-use flowy_ai_pub::entities::{UnindexedCollab, UnindexedCollabMetadata};
+use flowy_ai_pub::entities::{UnindexedCollab, UnindexedCollabMetadata, UnindexedData};
 use flowy_ai_pub::persistence::select_all_chat_rag_ids;
 use flowy_ai_pub::user_service::AIUserService;
 use flowy_error::{FlowyError, FlowyResult};
@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicI64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -418,9 +418,24 @@ impl VectorIndexManager {
       let data = unindexed_data_form_collab(&collab, &CollabType::Document);
 
       if data.is_none() {
-        warn!("[VectorIndex] ⚠️ 文档 {} 没有可索引的内容", document_id);
+        debug!("[VectorIndex] 📄 文档 {} 没有可索引的文本内容（可能只包含图片、表格等）", document_id);
         let mut logs = recent_logs.write().await;
-        logs.push(format!("⚠️ 文档 {} 内容为空，跳过", document_id));
+        logs.push(format!("📄 文档 {} 没有文本内容，跳过", document_id));
+        continue;
+      }
+
+      // 检查提取的数据是否包含有效的文本内容
+      let has_text_content = match &data {
+        Some(UnindexedData::Paragraphs(paragraphs)) => {
+          paragraphs.iter().any(|p| !p.trim().is_empty())
+        }
+        _ => false,
+      };
+
+      if !has_text_content {
+        debug!("[VectorIndex] 📄 文档 {} 的文本内容为空（过滤后）", document_id);
+        let mut logs = recent_logs.write().await;
+        logs.push(format!("📄 文档 {} 文本内容为空，跳过", document_id));
         continue;
       }
 

@@ -45,6 +45,8 @@ class _ExecutionLogViewerState extends State<ExecutionLogViewer> {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   Timer? _searchDebounce;
+  // 让多个下拉菜单互斥：始终只保留最后打开的一个
+  final PopoverMutex _filterMutex = PopoverMutex();
 
   @override
   void initState() {
@@ -75,6 +77,7 @@ class _ExecutionLogViewerState extends State<ExecutionLogViewer> {
     _searchDebounce?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
+    _filterMutex.dispose();
     // 不要在这里关闭BLoC，因为它可能由外部管理
     super.dispose();
   }
@@ -248,46 +251,115 @@ class _ExecutionLogViewerState extends State<ExecutionLogViewer> {
   }
 
   Widget _buildPhaseFilter(ExecutionLogState state) {
-    return DropdownButton<ExecutionPhasePB?>(
-      value: state.phaseFilter,
-      hint: const Text('所有阶段', style: TextStyle(fontSize: 12)),
-      items: [
-        const DropdownMenuItem<ExecutionPhasePB?>(
-          value: null,
-          child: Text('所有阶段', style: TextStyle(fontSize: 12)),
-        ),
-        ...ExecutionPhasePB.values.map(
-          (phase) => DropdownMenuItem<ExecutionPhasePB?>(
-            value: phase,
-            child: Text(_getPhaseDisplayName(phase), style: const TextStyle(fontSize: 12)),
+    final controller = PopoverController();
+    final String label = state.phaseFilter == null
+        ? '所有阶段'
+        : _getPhaseDisplayName(state.phaseFilter!);
+    return AppFlowyPopover(
+      controller: controller,
+      mutex: _filterMutex,
+      direction: PopoverDirection.bottomWithLeftAligned,
+      offset: const Offset(0, 4),
+      constraints: const BoxConstraints(maxWidth: 200, maxHeight: 300),
+      popupBuilder: (context) {
+        return Material(
+          color: Colors.transparent,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 200, maxHeight: 300),
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                ListTile(
+                  dense: true,
+                  title: const Text('所有阶段', style: TextStyle(fontSize: 12)),
+                  onTap: () {
+                    bloc.add(const ExecutionLogEvent.filterByPhase(null));
+                    controller.close();
+                  },
+                ),
+                ...ExecutionPhasePB.values.map((phase) => ListTile(
+                      dense: true,
+                      title: Text(
+                        _getPhaseDisplayName(phase),
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onTap: () {
+                        bloc.add(ExecutionLogEvent.filterByPhase(phase));
+                        controller.close();
+                      },
+                    )),
+              ],
+            ),
           ),
-        ),
-      ],
-      onChanged: (value) {
-        bloc.add(ExecutionLogEvent.filterByPhase(value));
+        );
       },
+      child: _buildFilterChip(label),
     );
   }
 
   Widget _buildStatusFilter(ExecutionLogState state) {
-    return DropdownButton<ExecutionStatusPB?>(
-      value: state.statusFilter,
-      hint: const Text('所有状态', style: TextStyle(fontSize: 12)),
-      items: [
-        const DropdownMenuItem<ExecutionStatusPB?>(
-          value: null,
-          child: Text('所有状态', style: TextStyle(fontSize: 12)),
-        ),
-        ...ExecutionStatusPB.values.map(
-          (status) => DropdownMenuItem<ExecutionStatusPB?>(
-            value: status,
-            child: Text(_getStatusDisplayName(status), style: const TextStyle(fontSize: 12)),
+    final controller = PopoverController();
+    final String label = state.statusFilter == null
+        ? '所有状态'
+        : _getStatusDisplayName(state.statusFilter!);
+    return AppFlowyPopover(
+      controller: controller,
+      mutex: _filterMutex,
+      direction: PopoverDirection.bottomWithLeftAligned,
+      offset: const Offset(0, 4),
+      constraints: const BoxConstraints(maxWidth: 200, maxHeight: 300),
+      popupBuilder: (context) {
+        return Material(
+          color: Colors.transparent,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 200, maxHeight: 300),
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                ListTile(
+                  dense: true,
+                  title: const Text('所有状态', style: TextStyle(fontSize: 12)),
+                  onTap: () {
+                    bloc.add(const ExecutionLogEvent.filterByStatus(null));
+                    controller.close();
+                  },
+                ),
+                ...ExecutionStatusPB.values.map((status) => ListTile(
+                      dense: true,
+                      title: Text(
+                        _getStatusDisplayName(status),
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      onTap: () {
+                        bloc.add(ExecutionLogEvent.filterByStatus(status));
+                        controller.close();
+                      },
+                    )),
+              ],
+            ),
           ),
-        ),
-      ],
-      onChanged: (value) {
-        bloc.add(ExecutionLogEvent.filterByStatus(value));
+        );
       },
+      child: _buildFilterChip(label),
+    );
+  }
+
+  Widget _buildFilterChip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Theme.of(context).dividerColor, width: 0.8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(text, style: const TextStyle(fontSize: 12)),
+          const HSpace(4),
+          const Icon(Icons.keyboard_arrow_down, size: 16),
+        ],
+      ),
     );
   }
 

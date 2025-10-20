@@ -195,9 +195,8 @@ impl AgentConfigManager {
         }
         
         // 🆕 更新已选择的 MCP 服务器列表
-        if !request.selected_mcp_servers.is_empty() {
-            agent_config.selected_mcp_servers = request.selected_mcp_servers;
-        }
+        // 注意：即使列表为空也要更新，因为用户可能取消了所有选择
+        agent_config.selected_mcp_servers = request.selected_mcp_servers;
         
         // 更新时间戳
         agent_config.updated_at = Utc::now().timestamp();
