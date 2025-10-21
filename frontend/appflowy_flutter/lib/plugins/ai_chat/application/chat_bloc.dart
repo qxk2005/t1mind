@@ -50,6 +50,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     _dispatch();
     _loadMessages();
     _loadSettings();
+    _checkDefaultAgent();
   }
 
   final String chatId;
@@ -466,6 +467,30 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       },
       (err) => Log.error("Failed to load chat settings: $err"),
     );
+  }
+
+  /// 🆕 检查并设置默认智能体
+  void _checkDefaultAgent() async {
+    try {
+      // 获取智能体列表
+      final getAgentListPayload = AIEventGetAgentList();
+      
+      await getAgentListPayload.send().fold(
+        (agentList) {
+          if (!isClosed && agentList.agents.isNotEmpty) {
+            // 自动选择第一个智能体作为默认智能体
+            final defaultAgent = agentList.agents.first;
+            selectedAgentId = defaultAgent.id;
+            Log.info('[ChatBloc] 🆕 自动设置默认智能体: ${defaultAgent.name} (${defaultAgent.id})');
+          } else if (!isClosed) {
+            Log.info('[ChatBloc] 🆕 没有可用的智能体，不设置默认智能体');
+          }
+        },
+        (err) => Log.error("Failed to load agent list for default selection: $err"),
+      );
+    } catch (e) {
+      Log.error("Error checking default agent: $e");
+    }
   }
 
   void _loadMessages() async {

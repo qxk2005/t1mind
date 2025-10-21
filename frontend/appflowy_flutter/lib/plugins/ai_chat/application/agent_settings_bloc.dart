@@ -268,7 +268,7 @@ class AgentSettingsBloc extends Bloc<AgentSettingsEvent, AgentSettingsState> {
     final errorMessage = validationErrors.isNotEmpty ? validationErrors.join('; ') : null;
     
     add(AgentSettingsEvent.didReceiveValidationResult(
-      AgentValidationResult(isValid: validationResult, errorMessage: errorMessage)
+      AgentValidationResult(isValid: validationResult, errorMessage: errorMessage),
     ));
   }
 
@@ -285,8 +285,18 @@ class AgentSettingsBloc extends Bloc<AgentSettingsEvent, AgentSettingsState> {
       Log.info('  智能体 ${i + 1}: ${agent.name} (${agent.id})');
     }
     
+    // 🆕 自动选择第一个智能体作为默认智能体
+    AgentConfigPB? defaultAgent;
+    if (agents.agents.isNotEmpty) {
+      defaultAgent = agents.agents.first;
+      Log.info('🆕 自动选择第一个智能体作为默认智能体: ${defaultAgent.name} (${defaultAgent.id})');
+    } else {
+      Log.info('🆕 没有智能体可用，不设置默认智能体');
+    }
+    
     emit(state.copyWith(
       agents: agents.agents,
+      selectedAgent: defaultAgent,
       isLoading: false,
       error: null,
     ));

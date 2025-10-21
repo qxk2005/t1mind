@@ -86,9 +86,26 @@ class _AgentSelectorState extends State<AgentSelector> with TickerProviderStateM
           return _buildErrorSelector(state.error!);
         }
 
+        // 🆕 检查是否需要自动选择默认智能体
+        _checkAndSetDefaultAgent(state);
+
         return _buildAgentDropdown(state.agents);
       },
     );
+  }
+
+  /// 🆕 检查并设置默认智能体
+  void _checkAndSetDefaultAgent(AgentSettingsState state) {
+    // 如果当前没有选中的智能体，且有可用的智能体列表，则自动选择第一个
+    if (widget.selectedAgent == null && 
+        state.agents.isNotEmpty && 
+        widget.onAgentSelected != null) {
+      final defaultAgent = state.agents.first;
+      // 使用 postFrameCallback 确保在构建完成后执行
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        widget.onAgentSelected?.call(defaultAgent);
+      });
+    }
   }
 
   /// 构建加载中的选择器
