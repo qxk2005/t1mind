@@ -523,8 +523,9 @@ pub(crate) async fn get_current_embedding_dimension_handler(
   
   use crate::embeddings::context::EmbedContext;
   
+  // 使用智能检测版本，会自动测试未知模型的维度
   let dimension = EmbedContext::shared()
-    .get_current_embedding_dimension()?;
+    .get_current_embedding_dimension_smart().await?;
   
   // 获取模型信息
   let model_name = if let Some(config) = EmbedContext::shared().get_openai_config() {

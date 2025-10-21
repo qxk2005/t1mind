@@ -6,6 +6,7 @@ use lib_infra::util::get_operating_system;
 use ollama_rs::Ollama;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
+use std::collections::HashMap;
 use tracing::{error, info, trace, warn};
 
 /// 维度兼容性检查结果
@@ -99,6 +100,8 @@ pub struct EmbedContext {
   ollama: ArcSwapOption<Ollama>,
   vector_db: ArcSwapOption<VectorSqliteDB>,
   scheduler: ArcSwapOption<EmbeddingScheduler>,
+  // 维度缓存：存储已测试过的模型维度
+  dimension_cache: ArcSwapOption<HashMap<String, usize>>,
 }
 
 impl EmbedContext {
@@ -109,6 +112,7 @@ impl EmbedContext {
         ollama: ArcSwapOption::new(None),
         vector_db: ArcSwapOption::new(None),
         scheduler: ArcSwapOption::new(None),
+        dimension_cache: ArcSwapOption::from(Some(Arc::new(HashMap::new()))),
       })
     })
   }
@@ -271,6 +275,52 @@ impl EmbedContext {
           // 对于未知模型，返回0表示需要测试
           warn!("[Embedding] ⚠️ 模型 {} 维度未知，需要测试获取", config.model);
           return Ok(0);
+        }
+      }
+      
+      // 默认使用 Ollama 的维度
+      return Ok(get_ollama_embedding_dimension());
+    }
+    
+    // 如果没有 scheduler，使用默认维度
+    warn!("[Embedding] ⚠️ Scheduler 未初始化，使用默认维度");
+    Ok(get_ollama_embedding_dimension())
+  }
+
+  /// 获取当前嵌入模型的维度（智能检测版本）
+  pub async fn get_current_embedding_dimension_smart(&self) -> FlowyResult<usize> {
+    if let Some(scheduler) = self.scheduler.load_full() {
+      // 尝试从 OpenAI 配置获取维度
+      if let Some(config) = scheduler.get_openai_config() {
+        let known_dimension = get_openai_embedding_dimension(&config.model);
+        if known_dimension > 0 {
+          return Ok(known_dimension);
+        } else {
+          // 检查缓存中是否已有该模型的维度
+          if let Some(cache) = self.dimension_cache.load_full() {
+            if let Some(&cached_dimension) = cache.get(&config.model) {
+              info!("[Embedding] 📋 从缓存获取模型 {} 的维度: {}", config.model, cached_dimension);
+              return Ok(cached_dimension);
+            }
+          }
+          
+          // 对于未知模型，进行实际测试获取维度
+          info!("[Embedding] 🧪 模型 {} 维度未知，开始实际测试获取", config.model);
+          let dimension = test_embedding_model_dimension(
+            &config.base_url,
+            &config.api_key,
+            &config.model,
+          ).await?;
+          
+          // 将测试结果缓存
+          if let Some(cache) = self.dimension_cache.load_full() {
+            let mut new_cache = (*cache).clone();
+            new_cache.insert(config.model.clone(), dimension);
+            self.dimension_cache.store(Some(Arc::new(new_cache)));
+            info!("[Embedding] 💾 已缓存模型 {} 的维度: {}", config.model, dimension);
+          }
+          
+          return Ok(dimension);
         }
       }
       
