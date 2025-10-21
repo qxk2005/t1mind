@@ -473,8 +473,12 @@ impl AIManager {
           trace!("[Chat] Agent has {} tools, tool_calling enabled: {}", 
                 config.available_tools.len(), config.capabilities.enable_tool_calling);
           
-          // 🔍 获取工具详情用于增强系统提示
-          let tool_details = self.discover_available_tools().await;
+          // 🔍 获取工具详情用于增强系统提示（仅在启用工具调用时）
+          let tool_details = if config.capabilities.enable_tool_calling {
+            self.discover_tools_from_selected_servers(&config.selected_mcp_servers).await
+          } else {
+            Vec::new()
+          };
           trace!("[Chat] 🔍 Discovered {} tools from MCP servers", tool_details.len());
           
           // 打印每个发现的工具及其来源服务器
@@ -1803,12 +1807,14 @@ impl AIManager {
       info!("[Tool Def] Web search feature not enabled, skipping web search tools");
     }
     
-    // 然后从 MCP 服务器获取工具
+    // 然后从 MCP 服务器获取工具（仅在需要时）
     #[cfg(feature = "mcp")]
     {
-      let tool_details = self.discover_available_tools().await;
-      
-      for tool_name in _tool_names {
+      // 只有在有工具名称需要查找时才进行工具发现
+      if !_tool_names.is_empty() {
+        let tool_details = self.discover_available_tools().await;
+        
+        for tool_name in _tool_names {
         // 检查是否已经在结果中
         let already_added = result.iter().any(|def| def.name == *tool_name);
         if already_added {
@@ -1840,6 +1846,7 @@ impl AIManager {
         
         if !found {
           warn!("[Tool Def] Tool '{}' not found in any MCP server", tool_name);
+        }
         }
       }
     }
@@ -1925,6 +1932,79 @@ impl AIManager {
     vec![]
   }
 
+  /// 🆕 根据已选择的 MCP 服务器列表发现工具详情
+  /// 这个方法只从智能体选择的服务器中发现工具，避免扫描所有服务器
+  #[cfg(feature = "mcp")]
+  async fn discover_tools_from_selected_servers(&self, selected_server_ids: &[String]) -> Vec<(String, crate::mcp::entities::MCPTool)> {
+    let mut tool_details = Vec::new();
+    
+    if selected_server_ids.is_empty() {
+      info!("[Tool Discovery] 智能体未选择任何MCP服务器，跳过工具发现");
+      return tool_details;
+    }
+    
+    info!("[Tool Discovery] 开始从 {} 个已选择的MCP服务器发现工具...", selected_server_ids.len());
+    
+    // 获取所有已配置的服务器
+    let server_configs = self.mcp_manager.config_manager().get_all_servers();
+    
+    // 只处理智能体选择的服务器
+    for server_id in selected_server_ids {
+      if let Some(config) = server_configs.iter().find(|c| c.id == *server_id) {
+        info!("[Tool Discovery] 检查已选择的服务器: {} (ID: {}, 激活: {})", 
+              config.name, config.id, config.is_active);
+        
+        // 跳过未激活的服务器
+        if !config.is_active {
+          info!("[Tool Discovery] 跳过未激活的已选择服务器: {}", config.name);
+          continue;
+        }
+        
+        // 优先使用缓存的工具列表
+        if let Some(cached_tools) = &config.cached_tools {
+          let tool_count = cached_tools.len();
+          info!("[Tool Discovery] 从已选择服务器 '{}' 的缓存中发现 {} 个工具", config.name, tool_count);
+          
+          for tool in cached_tools {
+            tool_details.push((config.id.clone(), tool.clone()));
+          }
+          continue;
+        }
+        
+        // 如果没有缓存，尝试从已连接的客户端获取
+        info!("[Tool Discovery] 已选择服务器 '{}' 没有缓存，尝试从客户端获取...", config.name);
+        match self.mcp_manager.tool_list(&config.id).await {
+          Ok(tools_list) => {
+            let tool_count = tools_list.tools.len();
+            if tool_count > 0 {
+              info!("[Tool Discovery] 从已选择服务器 '{}' 的客户端获取到 {} 个工具", config.name, tool_count);
+              for tool in tools_list.tools {
+                tool_details.push((config.id.clone(), tool));
+              }
+            } else {
+              warn!("[Tool Discovery] 已选择服务器 '{}' 已激活但未返回任何工具", config.name);
+            }
+          }
+          Err(e) => {
+            warn!("[Tool Discovery] 从已选择服务器 '{}' 获取工具列表失败: {} - 可能未连接", config.name, e);
+          }
+        }
+      } else {
+        warn!("[Tool Discovery] 已选择的服务器 '{}' 在配置中未找到", server_id);
+      }
+    }
+    
+    info!("✅ [Tool Discovery] 共从 {} 个已选择服务器发现 {} 个工具", 
+          selected_server_ids.len(), tool_details.len());
+    
+    tool_details
+  }
+  
+  #[cfg(not(feature = "mcp"))]
+  async fn discover_tools_from_selected_servers(&self, _selected_server_ids: &[String]) -> Vec<(String, ())> {
+    vec![]
+  }
+
   /// 🆕 根据已选择的 MCP 服务器列表获取工具名称
   /// 这个方法用于根据UI中勾选的服务器自动填充工具列表
   #[cfg(feature = "mcp")]
@@ -1937,7 +2017,7 @@ impl AIManager {
     
     info!("[🔧 Selected Servers] 开始从 {} 个已选择的服务器获取工具", server_ids.len());
     
-    let all_tool_details = self.discover_available_tools().await;
+    let all_tool_details = self.discover_tools_from_selected_servers(server_ids).await;
     let mut unique_tool_names = HashSet::new();
     let mut tools = Vec::new();
     
