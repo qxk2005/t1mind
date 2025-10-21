@@ -1,5 +1,4 @@
 import 'package:appflowy/plugins/ai_chat/application/chat_entity.dart';
-import 'package:appflowy_backend/log.dart';
 
 /// 全局管理器，用于累积和持久化聊天消息的引用来源（sources）
 /// 
@@ -30,15 +29,31 @@ class SourcesManager {
     return sources;
   }
 
-  /// 设置指定消息的 sources（完全替换）
+  /// 设置指定消息的 sources（智能合并，保留现有sources）
   void setSources(String chatId, String questionId, List<ChatMessageRefSource> sources) {
     final key = _generateKey(chatId, questionId);
-    _sourcesMap[key] = List.from(sources);
+    final existingSources = _sourcesMap[key] ?? [];
     
-    // 输出详细信息
-    final webCount = sources.where((s) => s.source == 'web').length;
-    final mcpCount = sources.where((s) => s.source.startsWith('mcp')).length;
-    final docCount = sources.where((s) => s.source == 'appflowy').length;
+    // 🔧 修复：智能合并sources而不是完全替换
+    // 使用 source + id 作为唯一标识进行去重和合并
+    final Map<String, ChatMessageRefSource> sourceMap = {};
+    
+    // 首先保留现有的sources（特别是RAG文档sources）
+    for (final existingSource in existingSources) {
+      final sourceKey = '${existingSource.source}:${existingSource.id}';
+      sourceMap[sourceKey] = existingSource;
+    }
+    
+    // 然后添加新的sources（web搜索等）
+    for (final newSource in sources) {
+      final sourceKey = '${newSource.source}:${newSource.id}';
+      sourceMap[sourceKey] = newSource;
+    }
+    
+    // 更新sources列表
+    final mergedSources = sourceMap.values.toList();
+    _sourcesMap[key] = mergedSources;
+    
     
   }
 
@@ -52,13 +67,11 @@ class SourcesManager {
         .map((source) => '${source.source}:${source.id}')
         .toSet();
     
-    int addedCount = 0;
     for (final newSource in newSources) {
       final sourceKey = '${newSource.source}:${newSource.id}';
       if (!existingKeys.contains(sourceKey)) {
         existingSources.add(newSource);
         existingKeys.add(sourceKey);
-        addedCount++;
       }
     }
     

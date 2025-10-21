@@ -1150,12 +1150,30 @@ impl Chat {
             }
           }
           
-          // 如果提取到了引用，添加到 sources 字段
+          // 如果提取到了引用，合并到 sources 字段（而不是覆盖）
           if !sources.is_empty() {
             if let Some(metadata_obj_mut) = metadata.as_mut() {
               if let Some(obj_mut) = metadata_obj_mut.as_object_mut() {
-                obj_mut.insert("sources".to_string(), serde_json::json!(sources));
-                info!("✅ [METADATA] 已将 {} 个引用添加到 metadata.sources", sources.len());
+                // 🔧 修复：合并sources而不是覆盖
+                // 获取现有的sources数组
+                let existing_sources = obj_mut
+                  .entry("sources")
+                  .or_insert_with(|| serde_json::Value::Array(vec![]));
+                
+                if let Some(sources_array) = existing_sources.as_array_mut() {
+                  // 合并新的sources，根据id去重
+                  let sources_count = sources.len();
+                  for new_source in sources {
+                    let source_id = new_source.get("id").and_then(|v| v.as_str());
+                    let already_exists = sources_array.iter().any(|s| {
+                      s.get("id").and_then(|v| v.as_str()) == source_id
+                    });
+                    if !already_exists {
+                      sources_array.push(new_source);
+                    }
+                  }
+                  info!("✅ [METADATA] 已合并 {} 个引用到 metadata.sources（当前总数: {}）", sources_count, sources_array.len());
+                }
               }
             }
           }

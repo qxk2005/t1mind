@@ -10,7 +10,6 @@ import 'package:appflowy/plugins/ai_chat/presentation/message/tool_call_display.
 import 'package:appflowy/plugins/ai_chat/presentation/message/task_plan_display.dart';
 import 'package:appflowy/plugins/ai_chat/widgets/unified_reference_display.dart';
 import 'package:string_validator/string_validator.dart';
-import 'package:appflowy_backend/log.dart';
 import 'package:appflowy_backend/protobuf/flowy-ai/protobuf.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:fixnum/fixnum.dart';
@@ -367,15 +366,21 @@ class _NonEmptyMessage extends StatelessWidget {
               
               // 文档引用显示（统一风格）
               if (_hasDocumentSources(state.sources))
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(start: 4.0, top: 8.0),
-                  child: UnifiedReferenceDisplay(
-                    references: _extractDocumentSources(state.sources),
-                    referenceType: ReferenceType.document,
-                    maxVisibleReferences: 3,
-                    showExpandButton: true,
-                    onReferenceSelected: onSelectedMetadata,
-                  ),
+                Builder(
+                  builder: (context) {
+                    final docSources = _extractDocumentSources(state.sources);
+                    
+                    return Padding(
+                      padding: const EdgeInsetsDirectional.only(start: 4.0, top: 8.0),
+                      child: UnifiedReferenceDisplay(
+                        references: docSources,
+                        referenceType: ReferenceType.document,
+                        maxVisibleReferences: 3,
+                        showExpandButton: true,
+                        onReferenceSelected: onSelectedMetadata,
+                      ),
+                    );
+                  },
                 ),
               
               if (state.sources.isNotEmpty && !isLastMessage) const VSpace(8.0),
@@ -388,28 +393,21 @@ class _NonEmptyMessage extends StatelessWidget {
 
   /// 检查是否有网络搜索引用
   bool _hasWebSearchCitations(List<ChatMessageRefSource> sources) {
-    final hasWeb = sources.any((source) => source.source == 'web' && isURL(source.id));
-    if (hasWeb) {
-      final webCount = sources.where((source) => source.source == 'web' && isURL(source.id)).length;
-    }
-    return hasWeb;
+    return sources.any((source) => source.source == 'web' && isURL(source.id));
   }
 
   /// 检查是否有MCP工具引用
   bool _hasMCPReferences(List<ChatMessageRefSource> sources) {
-    final hasMCP = sources.any((source) => source.source.startsWith('mcp'));
-    if (hasMCP) {
-      final mcpSources = sources.where((source) => source.source.startsWith('mcp')).toList();
-    } else {
-      final allSources = sources.map((s) => '${s.source}:${s.name}').join(', ');
-    }
-    return hasMCP;
+    return sources.any((source) => source.source.startsWith('mcp'));
   }
 
   /// 检查是否有文档来源
   bool _hasDocumentSources(List<ChatMessageRefSource> sources) {
-    return sources.any((source) => source.source == 'appflowy' || 
+    final hasDoc = sources.any((source) => source.source == 'appflowy' || 
         (source.source == 'web' && !isURL(source.id)));
+    
+    
+    return hasDoc;
   }
 
   /// 提取MCP工具引用

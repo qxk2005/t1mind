@@ -622,6 +622,38 @@ You have access to relevant documents that contain information to answer the use
     
     // info!("🔧 [AI-SERVICE] About to create stream from response");
     let s = try_stream! {
+      // 🔧 首先发送文档来源 metadata（如果有检索到的文档）
+      if !rag_documents.is_empty() {
+        
+        // 使用 HashMap 去重（按 object_id）
+        let mut deduplicated_sources: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
+        for doc in &rag_documents {
+          if let Some(object_id) = doc.metadata.get("object_id").and_then(|v| v.as_str()) {
+            // TODO: 获取真实的文档名称，目前暂时使用 "document"
+            // 由于生命周期问题，暂时无法在流式上下文中异步获取文档名称
+            let document_name = "document".to_string();
+            
+            // 构建 metadata，格式与前端期望的 SOURCE_ID/SOURCE/SOURCE_NAME 匹配
+            let source_meta = json!({
+              "SOURCE_ID": object_id,
+              "SOURCE": "appflowy",
+              "SOURCE_NAME": document_name
+            });
+            
+            deduplicated_sources.insert(object_id.to_string(), source_meta.clone());
+            
+          }
+        }
+        
+        // 发送每个文档来源的 metadata
+        for source_meta in deduplicated_sources.values() {
+          yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+            value: source_meta.clone()
+          };
+        }
+        
+      }
+      
       let mut inside_think = false;
       let mut tool_call_buffer: Option<OpenAIToolCall> = None;  // 🆕 用于累积流式 tool_call
       let mut stream = resp.bytes_stream();
@@ -807,39 +839,6 @@ You have access to relevant documents that contain information to answer the use
         // info!("🔧 [AI-SERVICE] ✅ Text was successfully sent to Flutter");
       }
       
-      // 🔧 发送文档来源 metadata（如果有检索到的文档）
-      if !rag_documents.is_empty() {
-        info!("[RAG] 📤 发送 {} 个文档来源的 metadata", rag_documents.len());
-        
-        // 使用 HashMap 去重（按 object_id）
-        let mut deduplicated_sources: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
-        for doc in &rag_documents {
-          if let Some(object_id) = doc.metadata.get("object_id").and_then(|v| v.as_str()) {
-            // TODO: 获取真实的文档名称，目前暂时使用 "document"
-            // 由于生命周期问题，暂时无法在流式上下文中异步获取文档名称
-            let document_name = "document".to_string();
-            
-            // 构建 metadata，格式与前端期望的 SOURCE_ID/SOURCE/SOURCE_NAME 匹配
-            deduplicated_sources.insert(
-              object_id.to_string(),
-              json!({
-                "SOURCE_ID": object_id,
-                "SOURCE": "appflowy",
-                "SOURCE_NAME": document_name
-              })
-            );
-          }
-        }
-        
-        // 发送每个文档来源的 metadata
-        for source_meta in deduplicated_sources.values() {
-          yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
-            value: source_meta.clone()
-          };
-        }
-        
-        info!("[RAG] ✅ 已发送 {} 个文档来源 metadata", deduplicated_sources.len());
-      }
     };
     Ok((None, Box::pin(s)))
   }
@@ -1214,6 +1213,38 @@ You have access to relevant documents that contain information to answer the use
     
     // 创建多轮对话流
     let s = try_stream! {
+      // 🔧 首先发送文档来源 metadata（如果有检索到的文档）
+      if !rag_documents.is_empty() {
+        
+        // 使用 HashMap 去重（按 object_id）
+        let mut deduplicated_sources: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
+        for doc in &rag_documents {
+          if let Some(object_id) = doc.metadata.get("object_id").and_then(|v| v.as_str()) {
+            // TODO: 获取真实的文档名称，目前暂时使用 "document"
+            // 由于生命周期问题，暂时无法在流式上下文中异步获取文档名称
+            let document_name = "document".to_string();
+            
+            // 构建 metadata，格式与前端期望的 SOURCE_ID/SOURCE/SOURCE_NAME 匹配
+            let source_meta = json!({
+              "SOURCE_ID": object_id,
+              "SOURCE": "appflowy",
+              "SOURCE_NAME": document_name
+            });
+            
+            deduplicated_sources.insert(object_id.to_string(), source_meta.clone());
+            
+          }
+        }
+        
+        // 发送每个文档来源的 metadata
+        for source_meta in deduplicated_sources.values() {
+          yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
+            value: source_meta.clone()
+          };
+        }
+        
+      }
+      
       let mut current_messages = messages.clone();
       let mut iteration = 0;
       // 累积本轮文本内容，用于不支持 Function Call 的回退解析（<tool_call> 标签）
@@ -1542,39 +1573,6 @@ You have access to relevant documents that contain information to answer the use
           if has_content || is_final_iteration {
             info!("🔄 [AUTO-MULTI-TURN] Completed after {} iterations", iteration);
             
-            // 🔧 在对话结束前发送文档来源 metadata（如果有检索到的文档）
-            if !rag_documents.is_empty() {
-              info!("[RAG] 📤 发送 {} 个文档来源的 metadata", rag_documents.len());
-              
-              // 使用 HashMap 去重（按 object_id）
-              let mut deduplicated_sources: HashMap<String, serde_json::Value> = HashMap::new();
-              for doc in &rag_documents {
-                if let Some(object_id) = doc.metadata.get("object_id").and_then(|v| v.as_str()) {
-                  // TODO: 获取真实的文档名称，目前暂时使用 "document"
-                  // 由于生命周期问题，暂时无法在流式上下文中异步获取文档名称
-                  let document_name = "document".to_string();
-                  
-                  // 构建 metadata，格式与前端期望的 SOURCE_ID/SOURCE/SOURCE_NAME 匹配
-                  deduplicated_sources.insert(
-                    object_id.to_string(),
-                    json!({
-                      "SOURCE_ID": object_id,
-                      "SOURCE": "appflowy",
-                      "SOURCE_NAME": document_name
-                    })
-                  );
-                }
-              }
-              
-              // 发送每个文档来源的 metadata
-              for source_meta in deduplicated_sources.values() {
-                yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
-                  value: source_meta.clone()
-                };
-              }
-              
-              info!("[RAG] ✅ 已发送 {} 个文档来源 metadata", deduplicated_sources.len());
-            }
             
             break;
           }
