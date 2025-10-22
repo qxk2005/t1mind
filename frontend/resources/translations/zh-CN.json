@@ -909,6 +909,65 @@
         "end": "滚动至底部"
       }
     },
+    "aboutT1mindPage": {
+      "menuLabel": "关于 T1Mind",
+      "title": "关于 T1Mind",
+      "description": "了解 T1Mind 的版本信息、更新历史和最新功能",
+      "versionInfo": {
+        "title": "版本信息",
+        "description": "T1Mind 当前版本和系统信息",
+        "t1mindVersion": "T1Mind 版本",
+        "buildNumber": "构建号",
+        "latestVersion": "最新版本",
+        "systemInfo": "系统信息",
+        "operatingSystem": "操作系统",
+        "architecture": "架构",
+        "macosVersion": "macOS 版本",
+        "androidSDK": "Android SDK",
+        "updateAvailable": "有新版本可用",
+        "currentVersionToLatest": "当前版本: {} → 最新版本: {}"
+      },
+      "updateCheck": {
+        "title": "更新检查",
+        "description": "检查T1Mind的最新版本和更新",
+        "checkForUpdates": "检查更新",
+        "checkingUpdates": "检查中...",
+        "checkingUpdatesDescription": "检查T1Mind是否有新版本可用",
+        "checkingUpdatesInProgress": "正在检查更新...",
+        "updateAvailable": "有新版本可用",
+        "upToDate": "已是最新版本",
+        "currentVersion": "当前版本: {}",
+        "latestVersion": "最新版本: {}",
+        "downloadUpdate": "下载更新",
+        "viewReleaseNotes": "查看说明",
+        "checkFailed": "检查更新失败: {}",
+        "cannotOpenDownloadLink": "无法打开下载链接: {}",
+        "cannotOpenDownloadLinkGeneric": "无法打开下载链接",
+        "errorOpeningDownloadLink": "打开下载链接时出错: {}",
+        "cannotOpenReleaseNotes": "无法打开发布说明: {}",
+        "cannotOpenReleaseNotesGeneric": "无法打开发布说明",
+        "errorOpeningReleaseNotes": "打开发布说明时出错: {}"
+      },
+      "changelog": {
+        "title": "更新历史",
+        "description": "T1Mind 版本更新记录和功能变更",
+        "loadingChangelog": "正在加载更新历史...",
+        "loadFailed": "加载失败",
+        "loadFailedDescription": "无法加载更新历史，请稍后重试。",
+        "reload": "重新加载",
+        "noChangelog": "暂无更新历史",
+        "noChangelogDescription": "更新历史将在新版本发布时显示"
+      },
+      "copyright": {
+        "title": "版权信息",
+        "t1mind": "T1Mind",
+        "t1mindDescription": "基于 AppFlowy 构建的智能笔记应用",
+        "appflowy": "AppFlowy",
+        "appflowyDescription": "开源生产力工具",
+        "flutter": "Flutter",
+        "flutterDescription": "Google 开发的跨平台 UI 框架"
+      }
+    },
     "aiPage_legacy": {
       "title": "AI 设置",
       "menuLabel": "AI 设置",

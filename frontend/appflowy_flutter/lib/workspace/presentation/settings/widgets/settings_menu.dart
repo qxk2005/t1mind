@@ -20,7 +20,7 @@ class SettingsMenu extends StatelessWidget {
     required this.currentUserRole,
   });
 
-  final Function changeSelectedPage;
+  final Function(SettingsPage) changeSelectedPage;
   final SettingsPage currentPage;
   final UserProfilePB userProfile;
   final bool isBillingEnabled;
@@ -164,6 +164,13 @@ class SettingsMenu extends StatelessWidget {
                 changeSelectedPage: changeSelectedPage,
               ),
             ],
+            SettingsMenuElement(
+              page: SettingsPage.aboutT1mind,
+              selectedPage: currentPage,
+              label: LocaleKeys.settings_aboutT1mindPage_menuLabel.tr(),
+              icon: const FlowySvg(FlowySvgs.information_s),
+              changeSelectedPage: changeSelectedPage,
+            ),
             if (kDebugMode)
               SettingsMenuElement(
                 // no need to translate this page

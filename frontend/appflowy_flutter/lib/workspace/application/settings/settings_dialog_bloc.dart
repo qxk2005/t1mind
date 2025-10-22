@@ -24,6 +24,7 @@ enum SettingsPage {
   plan,
   billing,
   sites,
+  aboutT1mind,
   // OLD
   notifications,
   cloud,

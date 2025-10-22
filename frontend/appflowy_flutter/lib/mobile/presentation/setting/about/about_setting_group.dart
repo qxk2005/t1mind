@@ -1,5 +1,6 @@
 import 'package:appflowy/core/helpers/url_launcher.dart';
 import 'package:appflowy/generated/locale_keys.g.dart';
+import 'package:appflowy/mobile/presentation/setting/about/mobile_about_t1mind_page.dart';
 import 'package:appflowy/mobile/presentation/setting/widgets/mobile_setting_trailing.dart';
 import 'package:appflowy/startup/tasks/device_info_task.dart';
 import 'package:appflowy/workspace/presentation/settings/widgets/feature_flags/mobile_feature_flag_screen.dart';
@@ -20,6 +21,19 @@ class AboutSettingGroup extends StatelessWidget {
     return MobileSettingGroup(
       groupTitle: LocaleKeys.settings_mobile_about.tr(),
       settingItemList: [
+        MobileSettingItem(
+          name: LocaleKeys.settings_aboutT1mindPage_menuLabel.tr(),
+          trailing: MobileSettingTrailing(
+            text: '',
+          ),
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => const MobileAboutT1MindPage(),
+              ),
+            );
+          },
+        ),
         MobileSettingItem(
           name: LocaleKeys.settings_mobile_privacyPolicy.tr(),
           trailing: MobileSettingTrailing(

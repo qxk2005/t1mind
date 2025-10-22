@@ -8,6 +8,7 @@ import 'package:appflowy/util/share_log_files.dart';
 import 'package:appflowy/workspace/application/settings/appearance/appearance_cubit.dart';
 import 'package:appflowy/workspace/application/settings/appflowy_cloud_urls_bloc.dart';
 import 'package:appflowy/workspace/application/settings/settings_dialog_bloc.dart';
+import 'package:appflowy/workspace/presentation/settings/pages/about/about_t1mind_page.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/settings_ai_view.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/setting_mcp_view/settings_mcp_view.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/setting_agent_view/settings_agent_view.dart';
@@ -87,9 +88,9 @@ class SettingsDialog extends StatelessWidget {
                     width: 204,
                     child: SettingsMenu(
                       userProfile: user,
-                      changeSelectedPage: (index) => context
+                      changeSelectedPage: (page) => context
                           .read<SettingsDialogBloc>()
-                          .add(SettingsDialogEvent.setSelectedPage(index)),
+                          .add(SettingsDialogEvent.setSelectedPage(page)),
                       currentPage:
                           context.read<SettingsDialogBloc>().state.page,
                       currentUserRole: currentWorkspaceMemberRole,
@@ -223,6 +224,8 @@ class SettingsDialog extends StatelessWidget {
         );
       case SettingsPage.featureFlags:
         return const FeatureFlagsPage();
+      case SettingsPage.aboutT1mind:
+        return const AboutT1MindPage();
     }
   }
 }

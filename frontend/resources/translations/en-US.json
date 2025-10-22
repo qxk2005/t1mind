@@ -968,6 +968,65 @@
       "couldNotLoadErrorMsg": "Could not load shortcuts, Try again",
       "couldNotSaveErrorMsg": "Could not save shortcuts, Try again"
     },
+    "aboutT1mindPage": {
+      "menuLabel": "About T1Mind",
+      "title": "About T1Mind",
+      "description": "Learn about T1Mind version information, update history, and latest features",
+      "versionInfo": {
+        "title": "Version Information",
+        "description": "T1Mind current version and system information",
+        "t1mindVersion": "T1Mind Version",
+        "buildNumber": "Build Number",
+        "latestVersion": "Latest Version",
+        "systemInfo": "System Information",
+        "operatingSystem": "Operating System",
+        "architecture": "Architecture",
+        "macosVersion": "macOS Version",
+        "androidSDK": "Android SDK",
+        "updateAvailable": "Update Available",
+        "currentVersionToLatest": "Current Version: {} → Latest Version: {}"
+      },
+      "updateCheck": {
+        "title": "Update Check",
+        "description": "Check for T1Mind latest version and updates",
+        "checkForUpdates": "Check for Updates",
+        "checkingUpdates": "Checking...",
+        "checkingUpdatesDescription": "Check if T1Mind has new version available",
+        "checkingUpdatesInProgress": "Checking for updates...",
+        "updateAvailable": "Update Available",
+        "upToDate": "Up to Date",
+        "currentVersion": "Current Version: {}",
+        "latestVersion": "Latest Version: {}",
+        "downloadUpdate": "Download Update",
+        "viewReleaseNotes": "View Release Notes",
+        "checkFailed": "Update check failed: {}",
+        "cannotOpenDownloadLink": "Cannot open download link: {}",
+        "cannotOpenDownloadLinkGeneric": "Cannot open download link",
+        "errorOpeningDownloadLink": "Error opening download link: {}",
+        "cannotOpenReleaseNotes": "Cannot open release notes: {}",
+        "cannotOpenReleaseNotesGeneric": "Cannot open release notes",
+        "errorOpeningReleaseNotes": "Error opening release notes: {}"
+      },
+      "changelog": {
+        "title": "Update History",
+        "description": "T1Mind version update records and feature changes",
+        "loadingChangelog": "Loading update history...",
+        "loadFailed": "Load Failed",
+        "loadFailedDescription": "Unable to load update history, please try again later.",
+        "reload": "Reload",
+        "noChangelog": "No Update History",
+        "noChangelogDescription": "Update history will be displayed when new versions are released"
+      },
+      "copyright": {
+        "title": "Copyright Information",
+        "t1mind": "T1Mind",
+        "t1mindDescription": "Intelligent note-taking application built on AppFlowy",
+        "appflowy": "AppFlowy",
+        "appflowyDescription": "Open source productivity tool",
+        "flutter": "Flutter",
+        "flutterDescription": "Cross-platform UI framework developed by Google"
+      }
+    },
     "aiPage": {
       "title": "AI Settings",
       "menuLabel": "AI Settings",
@@ -2869,7 +2928,7 @@
       "accountLogin": "Account Login",
       "updateNameError": "Failed to update name",
       "updateIconError": "Failed to update icon",
-      "aboutAppFlowy": "About @:appName",
+      "aboutAppFlowy": "About T1Mind",
       "deleteAccount": {
         "title": "Delete Account",
         "subtitle": "Permanently delete your account and all of your data.",
