@@ -43,3 +43,5 @@ frontend/*.deb
 
 **/.cargo/**
 frontend/dist/*
+frontend/temp_test/*
+frontend/scripts/windows_installer/runtime/*
