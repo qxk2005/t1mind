@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/document-import/tasks.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-10-22T11:29:47.468Z",
+      "trigger": "initial",
+      "approvalId": "approval_1761132587467_p6a44r01r",
+      "approvalTitle": "文档导入功能任务清单"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-10-22T11:30:09.003Z",
+      "trigger": "approved",
+      "approvalId": "approval_1761132587467_p6a44r01r",
+      "approvalTitle": "文档导入功能任务清单"
+    }
+  ]
+}
