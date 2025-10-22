@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/about-t1mind/tasks.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-10-22T01:31:06.510Z",
+      "trigger": "initial",
+      "approvalId": "approval_1761096666508_je9n7wqrl",
+      "approvalTitle": "关于t1mind功能任务文档"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-10-22T01:31:37.384Z",
+      "trigger": "approved",
+      "approvalId": "approval_1761096666508_je9n7wqrl",
+      "approvalTitle": "关于t1mind功能任务文档"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/about-t1mind/design.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-10-22T01:28:27.970Z",
+      "trigger": "initial",
+      "approvalId": "approval_1761096507969_fhap7lkh5",
+      "approvalTitle": "关于t1mind功能设计文档"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-10-22T01:29:40.440Z",
+      "trigger": "approved",
+      "approvalId": "approval_1761096507969_fhap7lkh5",
+      "approvalTitle": "关于t1mind功能设计文档"
+    }
+  ]
+}
