@@ -98,7 +98,13 @@ class ViewAddButton extends StatelessWidget {
       parentViewId,
       context,
       (type, name, initialDataBytes) {
-        onSelected(action.pluginBuilder, null, null, true, false);
+        // 导入完成后，不创建新视图，因为后端已经创建了视图
+        // 只需要关闭导入界面即可
+        if (name.isNotEmpty) {
+          // 只有当 name 不为空时才创建新视图（这是其他类型的导入）
+          onSelected(action.pluginBuilder, name, initialDataBytes, true, false);
+        }
+        // 如果 name 为空，说明是文件导入，后端已经创建了视图，不需要再创建
       },
     );
   }

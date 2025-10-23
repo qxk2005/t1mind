@@ -15,6 +15,8 @@ pub enum ImportTypePB {
   Markdown = 2,
   AFDatabase = 3,
   CSV = 4,
+  Word = 5,
+  Pdf = 6,
 }
 
 impl From<ImportTypePB> for ImportType {
@@ -25,6 +27,8 @@ impl From<ImportTypePB> for ImportType {
       ImportTypePB::Markdown => ImportType::Markdown,
       ImportTypePB::AFDatabase => ImportType::AFDatabase,
       ImportTypePB::CSV => ImportType::CSV,
+      ImportTypePB::Word => ImportType::Word,
+      ImportTypePB::Pdf => ImportType::Pdf,
     }
   }
 }

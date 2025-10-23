@@ -11,6 +11,7 @@ import 'package:appflowy/workspace/presentation/home/menu/sidebar/import/import_
 import 'package:appflowy_backend/protobuf/flowy-folder/protobuf.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flowy_infra/file_picker/file_picker_service.dart';
+import 'package:appflowy_backend/log.dart';
 import 'package:flowy_infra_ui/flowy_infra_ui.dart';
 import 'package:flowy_infra_ui/style_widget/container.dart';
 import 'package:flutter/material.dart';
@@ -204,18 +205,55 @@ class _ImportPanelState extends State<ImportPanel> {
               ..importType = ImportTypePB.AFDatabase,
           );
           break;
+        case ImportType.word:
+          // 使用文件路径而不是读取文件内容
+          importValues.add(
+            ImportItemPayloadPB.create()
+              ..name = name
+              ..filePath = path
+              ..viewLayout = ViewLayoutPB.Document
+              ..importType = ImportTypePB.Word,
+          );
+          break;
+        case ImportType.pdf:
+          // 使用文件路径而不是读取文件内容
+          importValues.add(
+            ImportItemPayloadPB.create()
+              ..name = name
+              ..filePath = path
+              ..viewLayout = ViewLayoutPB.Document
+              ..importType = ImportTypePB.Pdf,
+          );
+          break;
       }
     }
 
     if (importValues.isNotEmpty) {
-      await ImportBackendService.importPages(
+      final result = await ImportBackendService.importPages(
         parentViewId,
         importValues,
+      );
+      
+      result.fold(
+        (views) {
+          if (views.items.isNotEmpty) {
+            // 导入成功，不调用 callback 创建新视图
+            // 因为后端已经创建了视图，我们只需要通知导入完成
+            final importedView = views.items.first;
+            Log.info('Import successful, view created: ${importedView.id}');
+            // 调用 callback 但不传递参数，这样不会创建新视图，但会关闭导入界面
+            widget.importCallback(importType, '', null);
+          }
+        },
+        (error) {
+          // 导入失败，显示错误信息
+          Log.error('Import failed: $error');
+          widget.importCallback(importType, '', null);
+        },
       );
     }
 
     showLoading.value = false;
-    widget.importCallback(importType, '', null);
   }
 }
 

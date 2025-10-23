@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:math';
+import 'dart:convert';
 
 import 'package:appflowy/features/workspace/logic/workspace_bloc.dart';
 import 'package:appflowy/generated/flowy_svgs.g.dart';
@@ -99,7 +100,43 @@ class _ResizableImageState extends State<ResizableImage> {
   Widget _buildResizableImage(BuildContext context) {
     Widget child;
     final src = widget.src;
-    if (isURL(src)) {
+    if (src.startsWith('data:')) {
+      // Handle base64 data URLs directly with Image.memory
+      try {
+        final base64String = src.split(',')[1];
+        final bytes = base64Decode(base64String);
+        _cacheImage = Image.memory(
+          bytes,
+          width: imageWidth - moveDistance,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) {
+            widget.onStateChange?.call(ResizableImageState.failed);
+            return _ImageLoadFailedWidget(
+              width: imageWidth,
+              error: error,
+              onRetry: () {
+                setState(() {
+                  // For base64 images, we don't need to retry as the data is already there
+                });
+              },
+            );
+          },
+        );
+        child = _cacheImage!;
+        widget.onStateChange?.call(ResizableImageState.loaded);
+      } catch (e) {
+        widget.onStateChange?.call(ResizableImageState.failed);
+        child = _ImageLoadFailedWidget(
+          width: imageWidth,
+          error: e,
+          onRetry: () {
+            setState(() {
+              // For base64 images, we don't need to retry as the data is already there
+            });
+          },
+        );
+      }
+    } else if (isURL(src)) {
       _cacheImage = FlowyNetworkImage(
         url: widget.src,
         width: imageWidth - moveDistance,

@@ -164,7 +164,9 @@
     "databaseFromV010": "来自 v0.1.0 的数据库",
     "notionZip": "Notion 导出的 Zip 文件",
     "csv": "CSV",
-    "database": "数据库"
+    "database": "数据库",
+    "wordDocument": "Word 文档",
+    "pdfDocument": "PDF 文档"
   },
   "disclosureAction": {
     "rename": "重命名",
@@ -2298,6 +2300,91 @@
     "deleteTemplate": "删除模板",
     "removeRelatedTemplate": "移除相关模板",
     "label": "模板"
+  },
+  "conversionProgress": {
+    "title": "文档转换进度",
+    "overview": "转换概览",
+    "completedTasks": "已完成任务",
+    "totalTasks": "总任务数",
+    "progress": "进度",
+    "status": {
+      "pending": "等待中",
+      "processing": "转换中",
+      "completed": "已完成",
+      "error": "错误",
+      "cancelled": "已取消"
+    },
+    "actions": {
+      "cancel": "取消",
+      "retry": "重试",
+      "close": "关闭",
+      "viewLogs": "查看日志"
+    },
+    "messages": {
+      "converting": "正在转换文档...",
+      "completed": "转换完成",
+      "error": "转换失败",
+      "cancelled": "转换已取消"
+    }
+  },
+  "conversionLogs": {
+    "title": "转换日志",
+    "filters": {
+      "all": "全部",
+      "info": "信息",
+      "warning": "警告",
+      "error": "错误",
+      "success": "成功"
+    },
+    "search": "搜索日志...",
+    "export": "导出日志",
+    "clear": "清空日志",
+    "autoScroll": "自动滚动",
+    "noLogs": "暂无日志",
+    "loading": "加载中...",
+    "exportSuccess": "日志导出成功",
+    "exportFailed": "日志导出失败"
+  },
+  "importSettings": {
+    "title": "文档导入设置",
+    "conversionSettings": "转换设置",
+    "preserveFormatting": "保留原始格式",
+    "extractImages": "提取图片",
+    "extractTables": "提取表格",
+    "autoCreateFolder": "自动创建文件夹",
+    "maxConcurrentConversions": "最大并发转换数",
+    "conversionTimeoutSeconds": "转换超时时间（秒）",
+    "autoRetryOnFailure": "失败时自动重试",
+    "maxRetryAttempts": "最大重试次数",
+    "enableProgressNotifications": "启用进度通知",
+    "logLevel": "日志级别",
+    "logRetentionDays": "日志保留天数",
+    "pathSettings": "路径设置",
+    "defaultImportPath": "默认导入路径",
+    "cloudSettings": "云端设置",
+    "enableCloudSync": "启用云端同步",
+    "enableCloudBackup": "云端备份",
+    "cloudStoragePath": "云端存储路径",
+    "enableCompression": "压缩上传",
+    "advancedSettings": "高级设置",
+    "descriptions": {
+      "preserveFormatting": "尽可能保留原始文档的格式",
+      "extractImages": "从文档中提取图片",
+      "extractTables": "从文档中提取表格",
+      "autoCreateFolder": "为导入的文档自动创建文件夹",
+      "maxConcurrentConversions": "同时进行的转换任务数量",
+      "conversionTimeoutSeconds": "单个转换任务的超时时间",
+      "autoRetryOnFailure": "转换失败时自动重试",
+      "maxRetryAttempts": "最大重试次数",
+      "enableProgressNotifications": "显示转换进度通知",
+      "logLevel": "日志记录的详细程度",
+      "logRetentionDays": "日志文件保留的天数",
+      "defaultImportPath": "默认的文档导入路径",
+      "enableCloudSync": "将导入的文档同步到云端",
+      "enableCloudBackup": "自动备份导入的文档到云端",
+      "cloudStoragePath": "云端存储的路径前缀",
+      "enableCompression": "上传前压缩文档以节省带宽"
+    }
   },
   "time": {
     "justNow": "刚刚",

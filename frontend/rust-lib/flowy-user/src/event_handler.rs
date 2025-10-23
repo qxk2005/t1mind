@@ -232,6 +232,7 @@ pub async fn get_date_time_settings(
 }
 
 const NOTIFICATION_SETTINGS_CACHE_KEY: &str = "notification_settings";
+const IMPORT_SETTINGS_CACHE_KEY: &str = "import_settings";
 
 #[tracing::instrument(level = "debug", skip_all, err)]
 pub async fn set_notification_settings(
@@ -857,5 +858,104 @@ pub async fn notify_did_switch_plan_handler(
   let success = params.into_inner();
   let manager = upgrade_manager(manager)?;
   manager.notify_did_switch_plan(success).await?;
+  Ok(())
+}
+
+// Import Settings Handlers
+
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub async fn set_import_settings(
+  store_preferences: AFPluginState<Weak<KVStorePreferences>>,
+  data: AFPluginData<ImportSettingsPB>,
+) -> Result<(), FlowyError> {
+  let store_preferences = upgrade_store_preferences(store_preferences)?;
+  let setting = data.into_inner();
+  store_preferences.set_object(IMPORT_SETTINGS_CACHE_KEY, &setting)?;
+  Ok(())
+}
+
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub async fn get_import_settings(
+  store_preferences: AFPluginState<Weak<KVStorePreferences>>,
+) -> DataResult<ImportSettingsPB, FlowyError> {
+  let store_preferences = upgrade_store_preferences(store_preferences)?;
+  match store_preferences.get_str(IMPORT_SETTINGS_CACHE_KEY) {
+    None => data_result_ok(ImportSettingsPB::default()),
+    Some(s) => {
+      let setting = serde_json::from_str(&s).unwrap_or_else(|e| {
+        tracing::error!(
+          "Deserialize ImportSettings failed: {:?}, fallback to default",
+          e
+        );
+        ImportSettingsPB::default()
+      });
+      data_result_ok(setting)
+    },
+  }
+}
+
+#[tracing::instrument(level = "debug", skip_all, err)]
+pub async fn update_import_settings(
+  store_preferences: AFPluginState<Weak<KVStorePreferences>>,
+  data: AFPluginData<UpdateImportSettingsPB>,
+) -> Result<(), FlowyError> {
+  let store_preferences = upgrade_store_preferences(store_preferences)?;
+  let update = data.into_inner();
+  
+  // Get current settings or use default
+  let mut current_settings = match store_preferences.get_str(IMPORT_SETTINGS_CACHE_KEY) {
+    None => ImportSettingsPB::default(),
+    Some(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
+      tracing::error!(
+        "Deserialize ImportSettings failed: {:?}, fallback to default",
+        e
+      );
+      ImportSettingsPB::default()
+    }),
+  };
+  
+  // Apply updates
+  if let Some(max_concurrent_conversions) = update.max_concurrent_conversions {
+    current_settings.max_concurrent_conversions = max_concurrent_conversions;
+  }
+  if let Some(default_import_path) = update.default_import_path {
+    current_settings.default_import_path = default_import_path;
+  }
+  if let Some(preserve_formatting) = update.preserve_formatting {
+    current_settings.preserve_formatting = preserve_formatting;
+  }
+  if let Some(extract_images) = update.extract_images {
+    current_settings.extract_images = extract_images;
+  }
+  if let Some(extract_tables) = update.extract_tables {
+    current_settings.extract_tables = extract_tables;
+  }
+  if let Some(log_level) = update.log_level {
+    current_settings.log_level = log_level;
+  }
+  if let Some(auto_create_folder) = update.auto_create_folder {
+    current_settings.auto_create_folder = auto_create_folder;
+  }
+  if let Some(enable_progress_notifications) = update.enable_progress_notifications {
+    current_settings.enable_progress_notifications = enable_progress_notifications;
+  }
+  if let Some(conversion_timeout_seconds) = update.conversion_timeout_seconds {
+    current_settings.conversion_timeout_seconds = conversion_timeout_seconds;
+  }
+  if let Some(auto_retry_on_failure) = update.auto_retry_on_failure {
+    current_settings.auto_retry_on_failure = auto_retry_on_failure;
+  }
+  if let Some(max_retry_attempts) = update.max_retry_attempts {
+    current_settings.max_retry_attempts = max_retry_attempts;
+  }
+  if let Some(save_conversion_logs) = update.save_conversion_logs {
+    current_settings.save_conversion_logs = save_conversion_logs;
+  }
+  if let Some(log_retention_days) = update.log_retention_days {
+    current_settings.log_retention_days = log_retention_days;
+  }
+  
+  // Save updated settings
+  store_preferences.set_object(IMPORT_SETTINGS_CACHE_KEY, &current_settings)?;
   Ok(())
 }

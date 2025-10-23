@@ -9,7 +9,9 @@ enum ImportType {
   historyDatabase,
   markdownOrText,
   csv,
-  afDatabase;
+  afDatabase,
+  word,
+  pdf;
 
   @override
   String toString() {
@@ -24,6 +26,10 @@ enum ImportType {
         return LocaleKeys.importPanel_csv.tr();
       case ImportType.afDatabase:
         return LocaleKeys.importPanel_database.tr();
+      case ImportType.word:
+        return LocaleKeys.importPanel_wordDocument.tr();
+      case ImportType.pdf:
+        return LocaleKeys.importPanel_pdfDocument.tr();
     }
   }
 
@@ -38,6 +44,10 @@ enum ImportType {
             svg = FlowySvgs.board_s;
           case ImportType.markdownOrText:
             svg = FlowySvgs.text_s;
+          case ImportType.word:
+            svg = FlowySvgs.document_s;
+          case ImportType.pdf:
+            svg = FlowySvgs.document_s;
         }
 
         return FlowySvg(
@@ -52,6 +62,9 @@ enum ImportType {
       case ImportType.historyDocument:
       case ImportType.afDatabase:
         return kDebugMode;
+      case ImportType.word:
+      case ImportType.pdf:
+        return true;
       default:
         return true;
     }
@@ -68,6 +81,10 @@ enum ImportType {
         return ['md', 'txt'];
       case ImportType.csv:
         return ['csv'];
+      case ImportType.word:
+        return ['docx', 'doc'];
+      case ImportType.pdf:
+        return ['pdf'];
     }
   }
 
@@ -78,6 +95,8 @@ enum ImportType {
       case ImportType.csv:
       case ImportType.afDatabase:
       case ImportType.markdownOrText:
+      case ImportType.word:
+      case ImportType.pdf:
         return true;
     }
   }

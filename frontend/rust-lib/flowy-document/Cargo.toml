@@ -34,6 +34,20 @@ uuid.workspace = true
 futures.workspace = true
 dashmap.workspace = true
 scraper = "0.18.0"
+chrono = { workspace = true, features = ["serde"] }
+async-trait = "0.1"
+thiserror = "1.0"
+anyhow = "1.0"
+docx-rs = "0.4"
+zip = "0.6"
+image = "0.24"
+lopdf = "0.32"
+html-escape = "0.2"
+regex = "1.0"
+xml = "0.8"
+# Enhanced PDF processing dependencies
+base64 = "0.22"
+tempfile = "3.4"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }

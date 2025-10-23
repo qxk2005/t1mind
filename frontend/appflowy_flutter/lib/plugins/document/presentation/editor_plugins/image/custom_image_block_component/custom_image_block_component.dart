@@ -408,7 +408,7 @@ class CustomImageBlockComponentState extends State<CustomImageBlockComponent>
       return false;
     }
 
-    if (!isURL(url) && !File(url).existsSync()) {
+    if (!isURL(url) && !url.startsWith('data:') && !File(url).existsSync()) {
       return false;
     }
 

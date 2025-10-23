@@ -80,7 +80,7 @@ class FlowyNetworkImageState extends State<FlowyNetworkImage> {
   void initState() {
     super.initState();
 
-    assert(isURL(widget.url));
+    assert(isURL(widget.url) || widget.url.startsWith('data:'));
 
     if (widget.url.isAppFlowyCloudUrl) {
       assert(

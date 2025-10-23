@@ -253,6 +253,7 @@ dependency_overrides:
       url: https://github.com/LucasXu0/flutter-permission-handler.git
       path: permission_handler
       ref: faef1c9
+  string_validator: ^0.3.0
 
 flutter:
   generate: true

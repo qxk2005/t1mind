@@ -237,7 +237,7 @@ class MultiImagePlaceholderState extends State<MultiImagePlaceholder> {
   }
 
   Future<void> insertAIImage(String url) async {
-    if (url.isEmpty || !isURL(url)) {
+    if (url.isEmpty || (!isURL(url) && !url.startsWith('data:'))) {
       // show error
       return showSnackBarMessage(
         context,
@@ -269,7 +269,7 @@ class MultiImagePlaceholderState extends State<MultiImagePlaceholder> {
   }
 
   Future<void> insertNetworkImage(String url) async {
-    if (url.isEmpty || !isURL(url)) {
+    if (url.isEmpty || (!isURL(url) && !url.startsWith('data:'))) {
       // show error
       return showSnackBarMessage(
         context,

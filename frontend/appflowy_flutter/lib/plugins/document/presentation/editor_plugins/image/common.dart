@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
 
@@ -56,6 +57,17 @@ class ImageBlockData {
     switch (type) {
       case CustomImageType.internal:
       case CustomImageType.external:
+        if (url.startsWith('data:')) {
+          // Handle base64 data URLs
+          try {
+            final base64String = url.split(',')[1];
+            final bytes = base64Decode(base64String);
+            return MemoryImage(bytes);
+          } catch (e) {
+            // Fallback to NetworkImage if base64 decoding fails
+            return NetworkImage(url);
+          }
+        }
         return NetworkImage(url);
       case CustomImageType.local:
         return FileImage(File(url));

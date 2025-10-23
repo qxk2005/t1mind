@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
@@ -25,11 +26,14 @@ class ImageRender extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final child = switch (image.type) {
-      CustomImageType.internal || CustomImageType.external => FlowyNetworkImage(
-          url: image.url,
-          userProfilePB: userProfile,
-          fit: fit,
-        ),
+      CustomImageType.internal || CustomImageType.external => 
+        image.url.startsWith('data:') 
+          ? _buildBase64Image()
+          : FlowyNetworkImage(
+              url: image.url,
+              userProfilePB: userProfile,
+              fit: fit,
+            ),
       CustomImageType.local => Image.file(File(image.url), fit: fit),
     };
 
@@ -38,5 +42,31 @@ class ImageRender extends StatelessWidget {
       decoration: BoxDecoration(borderRadius: borderRadius),
       child: child,
     );
+  }
+
+  Widget _buildBase64Image() {
+    try {
+      final base64String = image.url.split(',')[1];
+      final bytes = base64Decode(base64String);
+      return Image.memory(
+        bytes,
+        fit: fit,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            width: 100,
+            height: 100,
+            color: Colors.grey[300],
+            child: const Icon(Icons.broken_image),
+          );
+        },
+      );
+    } catch (e) {
+      return Container(
+        width: 100,
+        height: 100,
+        color: Colors.grey[300],
+        child: const Icon(Icons.broken_image),
+      );
+    }
   }
 }

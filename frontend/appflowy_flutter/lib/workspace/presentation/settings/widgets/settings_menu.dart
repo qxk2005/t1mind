@@ -138,6 +138,16 @@ class SettingsMenu extends StatelessWidget {
               ),
               changeSelectedPage: changeSelectedPage,
             ),
+            SettingsMenuElement(
+              page: SettingsPage.import,
+              selectedPage: currentPage,
+              label: "文档导入",
+              icon: const Icon(
+                Icons.upload_file,
+                size: 20,
+              ),
+              changeSelectedPage: changeSelectedPage,
+            ),
             if (userProfile.workspaceType == WorkspaceTypePB.ServerW &&
                 currentUserRole != null &&
                 currentUserRole != AFRolePB.Guest)

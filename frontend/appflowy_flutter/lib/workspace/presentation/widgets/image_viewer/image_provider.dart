@@ -2,7 +2,8 @@ import 'package:appflowy/plugins/document/presentation/editor_plugins/image/comm
 import 'package:appflowy/shared/appflowy_network_image.dart';
 import 'package:appflowy/shared/patterns/common_patterns.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/user_profile.pb.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
+import 'dart:convert';
 
 /// Abstract class for providing images to the [InteractiveImageViewer].
 ///
@@ -57,6 +58,33 @@ class AFBlockImageProvider implements AFImageProvider {
     if (image.type == CustomImageType.local &&
         localPathRegex.hasMatch(image.url)) {
       return Image(image: image.toImageProvider());
+    }
+
+    // Handle base64 data URLs
+    if (image.url.startsWith('data:')) {
+      try {
+        final base64String = image.url.split(',')[1];
+        final bytes = base64Decode(base64String);
+        return Image.memory(
+          bytes,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) {
+            return Container(
+              width: 200,
+              height: 200,
+              color: Colors.grey[300],
+              child: const Icon(Icons.broken_image),
+            );
+          },
+        );
+      } catch (e) {
+        return Container(
+          width: 200,
+          height: 200,
+          color: Colors.grey[300],
+          child: const Icon(Icons.broken_image),
+        );
+      }
     }
 
     return FlowyNetworkImage(

@@ -312,7 +312,7 @@ class _MultiImageMenuState extends State<MultiImageMenu> {
   Future<void> insertAIImage(String url) async {
     controller.close();
 
-    if (url.isEmpty || !isURL(url)) {
+    if (url.isEmpty || (!isURL(url) && !url.startsWith('data:'))) {
       // show error
       return showSnackBarMessage(
         context,
@@ -346,7 +346,7 @@ class _MultiImageMenuState extends State<MultiImageMenu> {
   Future<void> insertNetworkImage(String url) async {
     controller.close();
 
-    if (url.isEmpty || !isURL(url)) {
+    if (url.isEmpty || (!isURL(url) && !url.startsWith('data:'))) {
       // show error
       return showSnackBarMessage(
         context,

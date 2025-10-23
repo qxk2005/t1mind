@@ -2076,21 +2076,45 @@ impl FolderManager {
       },
     }
 
-    let params = CreateViewParams {
-      parent_view_id,
-      name: import_data.name,
-      layout: import_data.view_layout.clone().into(),
-      initial_data: ViewData::Empty,
-      view_id,
-      meta: Default::default(),
-      set_as_current: false,
-      index: None,
-      section: None,
-      extra: None,
-      icon: None,
+    info!("encoded_collab length: {}", encoded_collab.len());
+    let view = if encoded_collab.is_empty() {
+      // 如果encoded_collab为空，说明import_from_file_path已经创建了文档
+      // 直接创建View对象，不调用create_view_with_params
+      info!("encoded_collab is empty, creating view directly without calling create_view_with_params");
+      let params = CreateViewParams {
+        parent_view_id,
+        name: import_data.name,
+        layout: import_data.view_layout.clone().into(),
+        initial_data: ViewData::Empty,
+        view_id,
+        meta: Default::default(),
+        set_as_current: false,
+        index: None,
+        section: None,
+        extra: None,
+        icon: None,
+      };
+      create_view(self.user.user_id()?, params, import_data.view_layout)
+    } else {
+      // 如果encoded_collab不为空，说明import_from_bytes返回了数据
+      // 使用create_view_with_params创建文档
+      info!("encoded_collab is not empty, calling create_view_with_params");
+      let params = CreateViewParams {
+        parent_view_id,
+        name: import_data.name,
+        layout: import_data.view_layout.clone().into(),
+        initial_data: ViewData::Empty,
+        view_id,
+        meta: Default::default(),
+        set_as_current: false,
+        index: None,
+        section: None,
+        extra: None,
+        icon: None,
+      };
+      let (view, _) = self.create_view_with_params(params, false).await?;
+      view
     };
-
-    let view = create_view(self.user.user_id()?, params, import_data.view_layout);
 
     // Insert the new view into the folder
     if let Some(lock) = self.mutex_folder.load_full() {

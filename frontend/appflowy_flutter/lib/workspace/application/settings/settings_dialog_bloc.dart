@@ -21,6 +21,7 @@ enum SettingsPage {
   mcp,
   agent,
   webSearch,
+  import,
   plan,
   billing,
   sites,

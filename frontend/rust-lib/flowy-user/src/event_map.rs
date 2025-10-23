@@ -81,6 +81,9 @@ pub fn init(user_manager: Weak<UserManager>) -> AFPlugin {
     .event(UserEvent::GetWorkspaceSetting, get_workspace_setting_handler)
     .event(UserEvent::NotifyDidSwitchPlan, notify_did_switch_plan_handler)
     .event(UserEvent::PasscodeSignIn, sign_in_with_passcode_handler)
+    .event(UserEvent::SetImportSettings, set_import_settings)
+    .event(UserEvent::GetImportSettings, get_import_settings)
+    .event(UserEvent::UpdateImportSettings, update_import_settings)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Display, Hash, ProtoBuf_Enum, Flowy_Event)]
@@ -274,6 +277,18 @@ pub enum UserEvent {
 
   #[event(input = "PasscodeSignInPB", output = "GotrueTokenResponsePB")]
   PasscodeSignIn = 65,
+
+  /// Set import settings
+  #[event(input = "ImportSettingsPB")]
+  SetImportSettings = 66,
+
+  /// Get import settings
+  #[event(output = "ImportSettingsPB")]
+  GetImportSettings = 67,
+
+  /// Update import settings
+  #[event(input = "UpdateImportSettingsPB")]
+  UpdateImportSettings = 68,
 }
 
 #[async_trait]

@@ -9,6 +9,8 @@ pub enum ImportType {
   Markdown = 2,
   AFDatabase = 3,
   CSV = 4,
+  Word = 5,
+  Pdf = 6,
 }
 
 #[derive(Clone, Debug)]

@@ -199,7 +199,9 @@
     "databaseFromV010": "Database from v0.1.0",
     "notionZip": "Notion Exported Zip File",
     "csv": "CSV",
-    "database": "Database"
+    "database": "Database",
+    "wordDocument": "Word Document",
+    "pdfDocument": "PDF Document"
   },
   "emojiIconPicker": {
     "iconUploader": {
@@ -3678,6 +3680,91 @@
         "member": "Some invitees are outside your workspace. To invite them as guests, please contact your workspace owner to upgrade to the Pro plan.",
         "guest": "Some invitees are outside your workspace. To invite them as guests, please contact your workspace owner to upgrade to the Pro plan."
       }
+    }
+  },
+  "conversionProgress": {
+    "title": "Document Conversion Progress",
+    "overview": "Conversion Overview",
+    "completedTasks": "Completed Tasks",
+    "totalTasks": "Total Tasks",
+    "progress": "Progress",
+    "status": {
+      "pending": "Pending",
+      "processing": "Processing",
+      "completed": "Completed",
+      "error": "Error",
+      "cancelled": "Cancelled"
+    },
+    "actions": {
+      "cancel": "Cancel",
+      "retry": "Retry",
+      "close": "Close",
+      "viewLogs": "View Logs"
+    },
+    "messages": {
+      "converting": "Converting documents...",
+      "completed": "Conversion completed",
+      "error": "Conversion failed",
+      "cancelled": "Conversion cancelled"
+    }
+  },
+  "conversionLogs": {
+    "title": "Conversion Logs",
+    "filters": {
+      "all": "All",
+      "info": "Info",
+      "warning": "Warning",
+      "error": "Error",
+      "success": "Success"
+    },
+    "search": "Search logs...",
+    "export": "Export Logs",
+    "clear": "Clear Logs",
+    "autoScroll": "Auto Scroll",
+    "noLogs": "No logs available",
+    "loading": "Loading...",
+    "exportSuccess": "Logs exported successfully",
+    "exportFailed": "Failed to export logs"
+  },
+  "importSettings": {
+    "title": "Document Import Settings",
+    "conversionSettings": "Conversion Settings",
+    "preserveFormatting": "Preserve Original Formatting",
+    "extractImages": "Extract Images",
+    "extractTables": "Extract Tables",
+    "autoCreateFolder": "Auto Create Folder",
+    "maxConcurrentConversions": "Max Concurrent Conversions",
+    "conversionTimeoutSeconds": "Conversion Timeout (seconds)",
+    "autoRetryOnFailure": "Auto Retry on Failure",
+    "maxRetryAttempts": "Max Retry Attempts",
+    "enableProgressNotifications": "Enable Progress Notifications",
+    "logLevel": "Log Level",
+    "logRetentionDays": "Log Retention Days",
+    "pathSettings": "Path Settings",
+    "defaultImportPath": "Default Import Path",
+    "cloudSettings": "Cloud Settings",
+    "enableCloudSync": "Enable Cloud Sync",
+    "enableCloudBackup": "Cloud Backup",
+    "cloudStoragePath": "Cloud Storage Path",
+    "enableCompression": "Enable Compression",
+    "advancedSettings": "Advanced Settings",
+    "descriptions": {
+      "preserveFormatting": "Preserve original document formatting as much as possible",
+      "extractImages": "Extract images from documents",
+      "extractTables": "Extract tables from documents",
+      "autoCreateFolder": "Automatically create folders for imported documents",
+      "maxConcurrentConversions": "Number of concurrent conversion tasks",
+      "conversionTimeoutSeconds": "Timeout for individual conversion tasks",
+      "autoRetryOnFailure": "Automatically retry failed conversions",
+      "maxRetryAttempts": "Maximum number of retry attempts",
+      "enableProgressNotifications": "Show conversion progress notifications",
+      "logLevel": "Level of detail for log recording",
+      "logRetentionDays": "Number of days to retain log files",
+      "defaultImportPath": "Default path for document imports",
+      "enableCloudSync": "Sync imported documents to cloud",
+      "enableCloudBackup": "Automatically backup imported documents to cloud",
+      "cloudStoragePath": "Path prefix for cloud storage",
+      "enableCompression": "Compress documents before upload to save bandwidth"
     }
   },
   "shareSection": {

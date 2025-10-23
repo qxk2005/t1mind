@@ -365,7 +365,7 @@ class ImagePlaceholderState extends State<ImagePlaceholder> {
   }
 
   Future<void> insertAIImage(String url) async {
-    if (url.isEmpty || !isURL(url)) {
+    if (url.isEmpty || (!isURL(url) && !url.startsWith('data:'))) {
       // show error
       return showSnackBarMessage(
         context,
@@ -397,7 +397,7 @@ class ImagePlaceholderState extends State<ImagePlaceholder> {
   }
 
   Future<void> insertNetworkImage(String url) async {
-    if (url.isEmpty || !isURL(url)) {
+    if (url.isEmpty || (!isURL(url) && !url.startsWith('data:'))) {
       // show error
       return showSnackBarMessage(
         context,
