@@ -17,3 +17,6 @@ PRODUCT_COPYRIGHT = Copyright © 2025 AppFlowy.IO. All rights reserved.
 ARCHS = arm64;
 EXCLUDED_ARCHS[sdk=macosx*] = x86_64;
 
+// Architectures 打包通用版本
+//ARCHS = "$(ARCHS_STANDARD)";
+//EXCLUDED_ARCHS[sdk=macosx*] = "";

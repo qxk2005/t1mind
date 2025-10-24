@@ -1,5 +1,14 @@
 # T1Mind 更新日志
 
+## 0.9.20251023 (2025-10-23)
+
+### 🎉 新增功能
+- ✨ 增加导入word文档，并且支持表格、图片和大纲字体样式。
+
+
+
+---
+
 ## 0.9.20251022 (2025-10-22)
 
 ### 🎉 新增功能
@@ -10,8 +19,10 @@
 
 ---
 
+
+
 *T1Mind - 让AI成为你的第二大脑*
 
 **获取更多信息：**
-- 🌐 官方网站：[https://t1mind.com](https://t1mind.com)
-- 📱 GitHub仓库：[https://github.com/qxk2005/t1mind](https://github.com/qxk2005/t1mind)
+- 🌐 官方网站：https://t1mind.com
+- 📱 GitHub仓库：https://github.com/qxk2005/t1mind

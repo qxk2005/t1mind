@@ -34,18 +34,24 @@ class ChangelogLoader {
       
       if (content.isNotEmpty) {
         _cachedContent = content;
-        Log.info('[ChangelogLoader] Successfully loaded changelog content (${content.length} characters)');
+        Log.info('[ChangelogLoader] Successfully loaded changelog content');
         return content;
       } else {
-        Log.info('[ChangelogLoader] Changelog file is empty');
-        return _getDefaultChangelogContent();
+        Log.info('[ChangelogLoader] Changelog file is empty, using default content');
+        final defaultContent = _getDefaultChangelogContent();
+        _cachedContent = defaultContent;
+        return defaultContent;
       }
     } on PlatformException catch (e) {
       Log.error('[ChangelogLoader] Platform error loading changelog: ${e.message}');
-      return _getDefaultChangelogContent();
+      final defaultContent = _getDefaultChangelogContent();
+      _cachedContent = defaultContent;
+      return defaultContent;
     } catch (e) {
       Log.error('[ChangelogLoader] Failed to load changelog: $e');
-      return _getDefaultChangelogContent();
+      final defaultContent = _getDefaultChangelogContent();
+      _cachedContent = defaultContent;
+      return defaultContent;
     }
   }
 
@@ -97,6 +103,8 @@ class ChangelogLoader {
 
   /// 获取原始changelog内容（markdown格式）
   Future<String> getRawChangelog() async {
+    // 强制重新加载，不使用缓存
+    _cachedContent = null;
     return loadChangelogContent();
   }
 

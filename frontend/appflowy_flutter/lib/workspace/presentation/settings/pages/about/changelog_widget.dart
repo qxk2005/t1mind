@@ -175,7 +175,7 @@ class _ChangelogWidgetState extends State<ChangelogWidget> {
             physics: const ClampingScrollPhysics(),
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: _buildFormattedContent(theme),
+              child: _buildMarkdownContent(theme),
             ),
           ),
         ),
@@ -183,11 +183,14 @@ class _ChangelogWidgetState extends State<ChangelogWidget> {
     );
   }
 
-  Widget _buildFormattedContent(AppFlowyThemeData theme) {
+  Widget _buildMarkdownContent(AppFlowyThemeData theme) {
     if (_changelogContent == null) return const SizedBox.shrink();
 
-    // 简单的markdown解析和格式化
-    final lines = _changelogContent!.split('\n');
+    return _parseMarkdown(_changelogContent!, theme);
+  }
+
+  Widget _parseMarkdown(String content, AppFlowyThemeData theme) {
+    final lines = content.split('\n');
     final widgets = <Widget>[];
 
     for (int i = 0; i < lines.length; i++) {
@@ -230,6 +233,11 @@ class _ChangelogWidgetState extends State<ChangelogWidget> {
           widgets.add(const VSpace(8));
         }
       }
+      // 处理水平分割线
+      else if (line == '---' || line == '***' || line == '___') {
+        widgets.add(_buildHorizontalRule(theme));
+        widgets.add(const VSpace(8));
+      }
       // 处理普通段落
       else {
         widgets.add(_buildParagraph(line, theme));
@@ -269,18 +277,73 @@ class _ChangelogWidgetState extends State<ChangelogWidget> {
         fontSize = 14;
     }
 
-    return FlowyText.medium(
-      text,
-      fontSize: fontSize,
-      color: theme.textColorScheme.primary,
-    );
+    return _buildRichText(text, theme, fontSize: fontSize, fontWeight: FontWeight.bold);
   }
 
   Widget _buildParagraph(String text, AppFlowyThemeData theme) {
-    return FlowyText.regular(
-      text,
-      fontSize: 13,
+    return _buildRichText(text, theme);
+  }
+
+  Widget _buildRichText(String text, AppFlowyThemeData theme, {double? fontSize, FontWeight? fontWeight}) {
+    final List<TextSpan> spans = [];
+    final TextStyle baseStyle = TextStyle(
+      fontSize: fontSize ?? 13,
+      fontWeight: fontWeight ?? FontWeight.normal,
       color: theme.textColorScheme.primary,
+    );
+
+    // 处理内联 Markdown 格式
+    int currentPosition = 0;
+    
+    // 先处理粗体 **text**
+    final boldRegex = RegExp(r'\*\*(.*?)\*\*');
+    final boldMatches = boldRegex.allMatches(text).toList();
+    
+    // 再处理斜体 *text*
+    final italicRegex = RegExp(r'(?<!\*)\*(?!\*)([^*]+?)\*(?!\*)');
+    final italicMatches = italicRegex.allMatches(text).toList();
+    
+    // 合并所有匹配项并按位置排序
+    final List<Match> allMatches = [...boldMatches, ...italicMatches];
+    allMatches.sort((a, b) => a.start.compareTo(b.start));
+    
+    for (final match in allMatches) {
+      // 添加匹配前的普通文本
+      if (match.start > currentPosition) {
+        spans.add(TextSpan(
+          text: text.substring(currentPosition, match.start),
+          style: baseStyle,
+        ));
+      }
+      
+      // 确定是粗体还是斜体
+      if (boldMatches.contains(match)) {
+        // 粗体
+        spans.add(TextSpan(
+          text: match.group(1),
+          style: baseStyle.copyWith(fontWeight: FontWeight.bold),
+        ));
+      } else if (italicMatches.contains(match)) {
+        // 斜体
+        spans.add(TextSpan(
+          text: match.group(1),
+          style: baseStyle.copyWith(fontStyle: FontStyle.italic),
+        ));
+      }
+      
+      currentPosition = match.end;
+    }
+    
+    // 添加剩余的普通文本
+    if (currentPosition < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(currentPosition),
+        style: baseStyle,
+      ));
+    }
+    
+    return RichText(
+      text: TextSpan(children: spans),
     );
   }
 
@@ -298,11 +361,7 @@ class _ChangelogWidgetState extends State<ChangelogWidget> {
           ),
         ),
         Expanded(
-          child: FlowyText.regular(
-            text,
-            fontSize: 13,
-            color: theme.textColorScheme.primary,
-          ),
+          child: _buildRichText(text, theme),
         ),
       ],
     );
@@ -319,11 +378,7 @@ class _ChangelogWidgetState extends State<ChangelogWidget> {
         ),
         const HSpace(8),
         Expanded(
-          child: FlowyText.regular(
-            text,
-            fontSize: 13,
-            color: theme.textColorScheme.primary,
-          ),
+          child: _buildRichText(text, theme),
         ),
       ],
     );
@@ -352,6 +407,15 @@ class _ChangelogWidgetState extends State<ChangelogWidget> {
       ),
     );
   }
+
+  Widget _buildHorizontalRule(AppFlowyThemeData theme) {
+    return Container(
+      height: 1,
+      width: double.infinity,
+      color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.3),
+    );
+  }
+
 
   Widget _buildEmptyState(AppFlowyThemeData theme) {
     return Container(
