@@ -383,6 +383,8 @@ impl From<ConversionError> for FlowyError {
 pub enum DocumentConverterEnum {
     Word(crate::import::word_converter::WordConverter),
     Pdf(crate::import::pdf_converter::PdfConverter),
+    EnhancedPdf(crate::import::pdf_converter_v2::EnhancedPdfConverter),
+    NativePdf(crate::import::pdf_converter_native::NativePdfConverter),
 }
 
 impl DocumentConverterEnum {
@@ -390,6 +392,8 @@ impl DocumentConverterEnum {
         match self {
             Self::Word(converter) => converter.name(),
             Self::Pdf(converter) => converter.name(),
+            Self::EnhancedPdf(converter) => converter.name(),
+            Self::NativePdf(converter) => converter.name(),
         }
     }
 
@@ -397,6 +401,8 @@ impl DocumentConverterEnum {
         match self {
             Self::Word(converter) => converter.supported_types(),
             Self::Pdf(converter) => converter.supported_types(),
+            Self::EnhancedPdf(converter) => converter.supported_types(),
+            Self::NativePdf(converter) => converter.supported_types(),
         }
     }
 
@@ -404,6 +410,8 @@ impl DocumentConverterEnum {
         match self {
             Self::Word(converter) => converter.can_handle(file_path),
             Self::Pdf(converter) => converter.can_handle(file_path),
+            Self::EnhancedPdf(converter) => converter.can_handle(file_path),
+            Self::NativePdf(converter) => converter.can_handle(file_path),
         }
     }
 
@@ -411,6 +419,8 @@ impl DocumentConverterEnum {
         match self {
             Self::Word(converter) => converter.convert(task).await,
             Self::Pdf(converter) => converter.convert(task).await,
+            Self::EnhancedPdf(converter) => converter.convert(task).await,
+            Self::NativePdf(converter) => converter.convert(task).await,
         }
     }
 
@@ -418,6 +428,8 @@ impl DocumentConverterEnum {
         match self {
             Self::Word(converter) => converter.validate_file(file_path).await,
             Self::Pdf(converter) => converter.validate_file(file_path).await,
+            Self::EnhancedPdf(converter) => converter.validate_file(file_path).await,
+            Self::NativePdf(converter) => converter.validate_file(file_path).await,
         }
     }
 
@@ -425,6 +437,8 @@ impl DocumentConverterEnum {
         match self {
             Self::Word(converter) => converter.get_file_info(file_path).await,
             Self::Pdf(converter) => converter.get_file_info(file_path).await,
+            Self::EnhancedPdf(converter) => converter.get_file_info(file_path).await,
+            Self::NativePdf(converter) => converter.get_file_info(file_path).await,
         }
     }
 }
@@ -450,7 +464,8 @@ impl ConverterFactory for DefaultConverterFactory {
             }
             DocumentType::Pdf => {
                 let config = ConversionConfig::default();
-                Some(DocumentConverterEnum::Pdf(crate::import::pdf_converter::PdfConverter::new(config)))
+                // 优先使用原生PDFium转换器
+                Some(DocumentConverterEnum::NativePdf(crate::import::pdf_converter_native::NativePdfConverter::new(config)))
             }
         }
     }
@@ -458,6 +473,9 @@ impl ConverterFactory for DefaultConverterFactory {
     fn get_all_converters(&self) -> Vec<DocumentConverterEnum> {
         vec![
             DocumentConverterEnum::Word(crate::import::word_converter::WordConverter::new(ConversionConfig::default())),
+            DocumentConverterEnum::NativePdf(crate::import::pdf_converter_native::NativePdfConverter::new(ConversionConfig::default())),
+            // 保留其他转换器作为备用
+            DocumentConverterEnum::EnhancedPdf(crate::import::pdf_converter_v2::EnhancedPdfConverter::new(ConversionConfig::default())),
             DocumentConverterEnum::Pdf(crate::import::pdf_converter::PdfConverter::new(ConversionConfig::default())),
         ]
     }
