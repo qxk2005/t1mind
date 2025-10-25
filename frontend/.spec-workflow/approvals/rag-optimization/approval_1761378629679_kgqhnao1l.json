@@ -1,0 +1,27 @@
+{
+  "id": "approval_1761378629679_kgqhnao1l",
+  "title": "RAG 优化设计文档审批",
+  "filePath": ".spec-workflow/specs/rag-optimization/design.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2025-10-25T07:50:29.679Z",
+  "category": "spec",
+  "categoryName": "rag-optimization",
+  "response": "Feedback Summary (1 comments):\n\nSpecific Text Comments:\n1. \"**LocalAIController**: 扩展现有的本地 AI 控制器，集成新的 RAG 功能\": 不仅仅使用 localai 的能力，还要支持 openai 兼容服务器的能力，并且根据全局选择的当前使用的模型来执行 AI 任务\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"selection\",\n      \"comment\": \"不仅仅使用 localai 的能力，还要支持 openai 兼容服务器的能力，并且根据全局选择的当前使用的模型来执行 AI 任务\",\n      \"timestamp\": \"2025-10-25T07:52:41.499Z\",\n      \"selectedText\": \"**LocalAIController**: 扩展现有的本地 AI 控制器，集成新的 RAG 功能\",\n      \"highlightColor\": {\n        \"bg\": \"rgba(255, 235, 59, 0.3)\",\n        \"border\": \"#FFEB3B\",\n        \"name\": \"#ffeb3b\"\n      },\n      \"id\": \"comment_1761378761499_spbhhn0zj\"\n    }\n  ],\n  \"summary\": \"Feedback Summary (1 comments):\\n\\nSpecific Text Comments:\\n1. \\\"**LocalAIController**: 扩展现有的本地 AI 控制器，集成新的 RAG 功能\\\": 不仅仅使用 localai 的能力，还要支持 openai 兼容服务器的能力，并且根据全局选择的当前使用的模型来执行 AI 任务\\n\",\n  \"timestamp\": \"2025-10-25T07:52:43.985Z\"\n}",
+  "respondedAt": "2025-10-25T07:52:43.992Z",
+  "comments": [
+    {
+      "type": "selection",
+      "comment": "不仅仅使用 localai 的能力，还要支持 openai 兼容服务器的能力，并且根据全局选择的当前使用的模型来执行 AI 任务",
+      "timestamp": "2025-10-25T07:52:41.499Z",
+      "selectedText": "**LocalAIController**: 扩展现有的本地 AI 控制器，集成新的 RAG 功能",
+      "highlightColor": {
+        "bg": "rgba(255, 235, 59, 0.3)",
+        "border": "#FFEB3B",
+        "name": "#ffeb3b"
+      },
+      "id": "comment_1761378761499_spbhhn0zj"
+    }
+  ]
+}
