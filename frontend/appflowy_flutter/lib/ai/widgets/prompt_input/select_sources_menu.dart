@@ -41,7 +41,7 @@ class PromptInputDesktopSelectSourcesButton extends StatefulWidget {
 class _PromptInputDesktopSelectSourcesButtonState
     extends State<PromptInputDesktopSelectSourcesButton> {
   late final cubit = ViewSelectorCubit(
-    maxSelectedParentPageCount: 3,
+    maxSelectedParentPageCount: null, // 移除了文档数量限制，允许选择任意数量
     getIgnoreViewType: (item) {
       final view = item.view;
 
