@@ -13,6 +13,7 @@ import 'package:appflowy/workspace/presentation/settings/pages/setting_ai_view/s
 import 'package:appflowy/workspace/presentation/settings/pages/setting_mcp_view/settings_mcp_view.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/setting_agent_view/settings_agent_view.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/setting_web_search_view/settings_web_search_view.dart';
+import 'package:appflowy/workspace/presentation/settings/ai/rag_setting_view.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/settings_import_view.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/settings_account_view.dart';
 import 'package:appflowy/workspace/presentation/settings/pages/settings_billing_view.dart';
@@ -233,6 +234,12 @@ class SettingsDialog extends StatelessWidget {
         return const FeatureFlagsPage();
       case SettingsPage.aboutT1mind:
         return const AboutT1MindPage();
+      case SettingsPage.rag:
+        return RAGSettingView(
+          key: ValueKey(workspace.workspaceId),
+          userProfile: user,
+          workspaceId: workspace.workspaceId,
+        );
     }
   }
 }

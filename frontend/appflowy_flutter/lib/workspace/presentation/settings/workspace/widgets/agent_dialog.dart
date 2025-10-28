@@ -314,7 +314,7 @@ class _AgentDialogState extends State<AgentDialog> {
     // 🆕 构建可用工具列表
     final availableTools = <String>[];
     if (_enableWebSearch) {
-      availableTools.addAll(['web_search', 'quick_search']);
+      availableTools.addAll(['web_search']);
     }
 
     final capabilities = AgentCapabilitiesPB()
@@ -336,7 +336,8 @@ class _AgentDialogState extends State<AgentDialog> {
         ..personality = _personalityController.text.trim()
         ..avatar = _avatarController.text.trim()
         ..capabilities = capabilities
-        ..availableTools.addAll(availableTools)  // 🆕 添加可用工具列表
+        ..availableTools.addAll(availableTools)  // 🆕 设置可用工具列表（包括空列表）
+        ..hasAvailableTools = true  // 🆕 标记为明确设置了工具列表
         ..selectedMcpServers.addAll(_selectedMCPServerIds);  // 🆕 传递选中的服务器列表
 
       context.read<AgentSettingsBloc>().add(

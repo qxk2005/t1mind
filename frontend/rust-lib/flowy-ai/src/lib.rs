@@ -15,6 +15,7 @@ pub mod agent;
 #[cfg(feature = "ai-tool")]
 mod ai_tool;
 pub mod embeddings;
+pub mod rag;
 pub use embeddings::store::SqliteVectorStore;
 pub mod vector_index_manager;
 

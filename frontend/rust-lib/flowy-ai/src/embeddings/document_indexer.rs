@@ -1,15 +1,25 @@
 use crate::embeddings::embedder::Embedder;
 use crate::embeddings::indexer::{EmbeddingModel, Indexer};
+use crate::rag::RAGConfigManager;
 use flowy_ai_pub::entities::{EmbeddedChunk, SOURCE, SOURCE_ID, SOURCE_NAME};
 use flowy_error::FlowyError;
 use lib_infra::async_trait::async_trait;
 use serde_json::json;
+use std::sync::{Arc, Weak};
 use text_splitter::{ChunkConfig, TextSplitter};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 use twox_hash::xxhash64::Hasher;
 use uuid::Uuid;
 
-pub struct DocumentIndexer;
+pub struct DocumentIndexer {
+  rag_config: Option<Weak<RAGConfigManager>>,
+}
+
+impl DocumentIndexer {
+  pub fn new(rag_config: Option<Weak<RAGConfigManager>>) -> Self {
+    Self { rag_config }
+  }
+}
 
 #[async_trait]
 impl Indexer for DocumentIndexer {
@@ -49,7 +59,32 @@ impl Indexer for DocumentIndexer {
       filtered_paragraphs.len()
     );
     
-    split_text_into_chunks(&object_id.to_string(), filtered_paragraphs, model, 1000, 200)
+    // 尝试从配置中读取 chunk_size、chunk_overlap 和 semantic splitting 设置
+    let (chunk_size, overlap, enable_semantic) = if let Some(ref weak_config) = self.rag_config {
+      if let Some(config) = weak_config.upgrade() {
+        let settings = config.get_rag_settings();
+        info!(
+          "[Embedding] Using configured chunk_size={}, chunk_overlap={}, enable_semantic_splitting={}",
+          settings.chunk_size, settings.chunk_overlap, settings.enable_semantic_splitting
+        );
+        (settings.chunk_size as usize, settings.chunk_overlap as usize, settings.enable_semantic_splitting)
+      } else {
+        warn!("[Embedding] RAG config dropped, using defaults: chunk_size=1000, overlap=200, enable_semantic=false");
+        (1000, 200, false)
+      }
+    } else {
+      trace!("[Embedding] No RAG config available, using defaults: chunk_size=1000, overlap=200, enable_semantic=false");
+      (1000, 200, false)
+    };
+    
+    // 根据配置使用不同的切片策略
+    if enable_semantic {
+      info!("[Embedding] 🧠 Using semantic splitting with TextSplitter");
+      split_text_into_chunks_with_semantic(&object_id.to_string(), filtered_paragraphs, model, chunk_size, overlap)
+    } else {
+      info!("[Embedding] 📏 Using character-based splitting");
+      split_text_into_chunks(&object_id.to_string(), filtered_paragraphs, model, chunk_size, overlap)
+    }
   }
 
   async fn embed(
@@ -154,13 +189,34 @@ pub fn split_text_into_chunks(
     }
   }
 
-  trace!(
-    "[Embedding] Created {} chunks for object_id `{}`, chunk_size: {}, overlap: {}",
+  info!(
+    "[Embedding] ✅ Created {} chunks for object_id `{}`, chunk_size: {}, overlap: {}",
     chunks.len(),
     object_id,
     chunk_size,
     overlap
   );
+  
+  // 显示前3个 chunk 的预览，帮助用户了解切片情况
+  if !chunks.is_empty() {
+    info!(
+      "[Embedding] 📄 Preview of first chunk (length: {} chars): '{}'",
+      chunks[0].content.as_ref().map(|c| c.len()).unwrap_or(0),
+      chunks[0].content.as_ref()
+        .map(|c| c.chars().take(100).collect::<String>())
+        .unwrap_or_else(|| "empty".to_string())
+    );
+    if chunks.len() > 1 {
+      info!(
+        "[Embedding] 📄 Preview of last chunk (index {}): '{}'",
+        chunks.len() - 1,
+        chunks.last().unwrap().content.as_ref()
+          .map(|c| c.chars().take(100).collect::<String>())
+          .unwrap_or_else(|| "empty".to_string())
+      );
+    }
+  }
+  
   Ok(chunks)
 }
 
@@ -210,4 +266,109 @@ pub fn group_paragraphs_by_max_content_len(
   }
 
   result
+}
+
+/// 使用纯语义分割的文本切片函数
+/// 
+/// 这个函数完全依赖 TextSplitter 进行语义感知的文本分割，
+/// 而不是简单的字符计数方式。
+pub fn split_text_into_chunks_with_semantic(
+  object_id: &str,
+  paragraphs: Vec<String>,
+  embedding_model: EmbeddingModel,
+  chunk_size: usize,
+  overlap: usize,
+) -> Result<Vec<EmbeddedChunk>, FlowyError> {
+  debug_assert!(matches!(embedding_model, EmbeddingModel::NomicEmbedText));
+
+  if paragraphs.is_empty() {
+    return Ok(vec![]);
+  }
+
+  info!("[Embedding] 🧠 Semantic splitting: processing {} paragraphs with chunk_size={}, overlap={}", 
+        paragraphs.len(), chunk_size, overlap);
+
+  let mut split_contents = Vec::new();
+
+  // 配置 TextSplitter
+  let chunk_config = ChunkConfig::new(chunk_size)
+    .with_overlap(overlap)
+    .unwrap();
+  let splitter = TextSplitter::new(chunk_config);
+
+  // 将段落合并为完整文本
+  let full_text = paragraphs.join("\n\n");
+  
+  // 使用 TextSplitter 进行语义分割
+  let chunks = splitter.chunks(&full_text);
+  for chunk in chunks {
+    split_contents.push(chunk.to_string());
+  }
+
+  info!("[Embedding] 🧠 Semantic splitting: created {} semantic chunks", split_contents.len());
+
+  let metadata = json!({
+      SOURCE_ID: object_id,
+      SOURCE: "appflowy",
+      SOURCE_NAME: "document",
+  });
+
+  let mut seen = std::collections::HashSet::new();
+  let mut embedded_chunks = Vec::new();
+
+  for (index, content) in split_contents.into_iter().enumerate() {
+    let metadata_string = metadata.to_string();
+    let combined_data = format!("{}{}", content, metadata_string);
+    let consistent_hash = Hasher::oneshot(0, combined_data.as_bytes());
+    let fragment_id = format!("{:x}", consistent_hash);
+    
+    if seen.insert(fragment_id.clone()) {
+      embedded_chunks.push(EmbeddedChunk {
+        fragment_id,
+        object_id: object_id.to_string(),
+        content_type: 0,
+        content: Some(content),
+        embeddings: None,
+        metadata: Some(metadata_string),
+        fragment_index: index as i32,
+        embedder_type: 0,
+      });
+    } else {
+      debug!(
+        "[Embedding] 🧠 Semantic: Duplicate fragment_id detected: {}. This fragment will not be added.",
+        fragment_id
+      );
+    }
+  }
+
+  info!(
+    "[Embedding] ✅ Semantic splitting: Created {} chunks for object_id `{}`, chunk_size: {}, overlap: {}",
+    embedded_chunks.len(),
+    object_id,
+    chunk_size,
+    overlap
+  );
+  
+  // 显示第一个和最后一个 chunk 的预览
+  if !embedded_chunks.is_empty() {
+    info!(
+      "[Embedding] 📄 Semantic first chunk (length: {} chars): '{}'",
+      embedded_chunks[0].content.as_ref().map(|c| c.len()).unwrap_or(0),
+      embedded_chunks[0].content.as_ref()
+        .map(|c| c.chars().take(100).collect::<String>())
+        .unwrap_or_else(|| "empty".to_string())
+    );
+    if embedded_chunks.len() > 1 {
+      info!(
+        "[Embedding] 📄 Semantic last chunk (index {}, length: {} chars): '{}'",
+        embedded_chunks.len() - 1,
+        embedded_chunks.last().unwrap().content.as_ref().map(|c| c.len()).unwrap_or(0),
+        embedded_chunks.last().unwrap().content.as_ref()
+          .map(|c| c.chars().take(100).collect::<String>())
+          .unwrap_or_else(|| "empty".to_string())
+      );
+    }
+  }
+  
+  Ok(embedded_chunks)
 }

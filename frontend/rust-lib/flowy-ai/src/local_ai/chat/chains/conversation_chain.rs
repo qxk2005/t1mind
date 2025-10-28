@@ -5,13 +5,15 @@ use crate::local_ai::chat::chains::context_question_chain::{
 use crate::local_ai::chat::chains::related_question_chain::RelatedQuestionChain;
 use crate::local_ai::chat::llm::LLMOllama;
 use crate::local_ai::chat::retriever::AFRetriever;
+use crate::rag::agent_reflection::{AgentReflection, ReflectionConfig};
 use arc_swap::ArcSwap;
 use async_stream::stream;
 use async_trait::async_trait;
 use flowy_ai_pub::cloud::{ContextSuggestedQuestion, QuestionStreamValue};
 use flowy_ai_pub::entities::SOURCE_ID;
+use crate::entities::AgentCapabilitiesPB;
 use flowy_error::{FlowyError, FlowyResult};
-use flowy_sqlite_vec::entities::EmbeddedContent;
+use flowy_sqlite_vec::entities::{EmbeddedContent, SqliteEmbeddedDocument};
 use futures::Stream;
 use futures_util::{StreamExt, pin_mut};
 use langchain_rust::chain::{
@@ -51,6 +53,8 @@ pub struct ConversationalRetrieverChain {
   pub(crate) input_key: String,
   pub(crate) output_key: String,
   latest_context: ArcSwap<String>,
+  workspace_id: Uuid,
+  pub(crate) agent_reflection: Option<AgentReflection>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,6 +119,47 @@ impl ConversationalRetrieverChain {
     } else {
       Ok(vec![])
     }
+  }
+
+  /// 执行反思评估
+  async fn perform_reflection(
+    &self,
+    question: &str,
+    answer: &str,
+    context_docs: &[SqliteEmbeddedDocument],
+    reflection: &AgentReflection,
+  ) -> FlowyResult<()> {
+    info!("🤔 [ConversationChain] 开始反思评估...");
+    
+    // 调用反思模块
+    let result = reflection.reflect(
+      question,
+      answer,
+      context_docs,
+      &flowy_ai_pub::cloud::AIModel::default(),
+      &self.workspace_id,
+    ).await?;
+
+    info!(
+      "🤔 [ConversationChain] 反思结果: is_resolved={}, quality_score={}, confidence={}",
+      result.is_resolved, result.quality_score, result.confidence
+    );
+
+    // 根据反思结果决定是否需要继续迭代
+    if reflection.should_continue_iteration(&result) {
+      info!(
+        "🤔 [ConversationChain] 需要继续改进答案。建议: {:?}",
+        result.suggestions
+      );
+      
+      // TODO: 如果需要，可以根据反思结果生成改进提示
+      // 目前我们只是记录日志，不实际修改答案
+      // 未来的实现可以在第二次迭代中使用这些建议
+    } else {
+      info!("🤔 [ConversationChain] 答案质量满足要求，不需要继续改进");
+    }
+
+    Ok(())
   }
 
   async fn get_documents_or_result(
@@ -271,6 +316,34 @@ impl Chain for ConversationalRetrieverChain {
       if let Some(mut token_usage) = token_usage {
         token_usage.add(tokens);
         output.tokens = Some(token_usage)
+      }
+    }
+
+    // 转换文档为SqliteEmbeddedDocument格式以便反思使用
+    let embedded_docs: Vec<SqliteEmbeddedDocument> = documents
+      .iter()
+      .map(|d| SqliteEmbeddedDocument {
+        workspace_id: self.workspace_id.to_string(),
+        object_id: d
+          .metadata
+          .get(SOURCE_ID)
+          .and_then(|v| v.as_str())
+          .unwrap_or("unknown")
+          .to_string(),
+        fragments: vec![],
+      })
+      .collect();
+
+    // 执行反思（如果启用且答案已生成）
+    if let Some(ref reflection) = self.agent_reflection {
+      if let Err(err) = self.perform_reflection(
+        &question,
+        &output.generation,
+        &embedded_docs,
+        reflection,
+      ).await {
+        warn!("[ConversationChain] 反思执行失败: {}", err);
+        // 反思失败不应该阻止对话继续
       }
     }
 
@@ -488,6 +561,7 @@ pub struct ConversationalRetrieverChainBuilder {
   input_key: String,
   output_key: String,
   store: Option<SqliteVectorStore>,
+  agent_capabilities: Option<AgentCapabilitiesPB>,
 }
 impl ConversationalRetrieverChainBuilder {
   pub fn new(
@@ -507,7 +581,14 @@ impl ConversationalRetrieverChainBuilder {
       input_key: CONVERSATIONAL_RETRIEVAL_QA_DEFAULT_INPUT_KEY.to_string(),
       output_key: DEFAULT_OUTPUT_KEY.to_string(),
       store,
+      agent_capabilities: None,
     }
+  }
+
+  /// 设置智能体能力配置，用于启用反思功能
+  pub fn with_agent_capabilities(mut self, capabilities: AgentCapabilitiesPB) -> Self {
+    self.agent_capabilities = Some(capabilities);
+    self
   }
 
   ///If you want to add a custom prompt,keep in mind which variables are obligatory.
@@ -552,6 +633,12 @@ impl ConversationalRetrieverChainBuilder {
       .store
       .map(|store| ContextRelatedQuestionChain::new(self.workspace_id, self.llm.clone(), store));
 
+    // 创建AgentReflection实例（如果启用）
+    let agent_reflection = self.agent_capabilities
+      .as_ref()
+      .filter(|cap| cap.enable_reflection)
+      .map(|cap| AgentReflection::from_capabilities(cap));
+
     Ok(ConversationalRetrieverChain {
       ollama: self.llm,
       retriever: self.retriever,
@@ -564,6 +651,8 @@ impl ConversationalRetrieverChainBuilder {
       input_key: self.input_key,
       output_key: self.output_key,
       latest_context: Default::default(),
+      workspace_id: self.workspace_id,
+      agent_reflection,
     })
   }
 }

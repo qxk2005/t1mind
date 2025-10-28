@@ -15,7 +15,7 @@ use tracing::{info, trace, warn};
 use uuid::Uuid;
 
 pub struct VectorSqliteDB {
-  pool: Pool<SqliteConnectionManager>,
+  pub pool: Pool<SqliteConnectionManager>,
 }
 
 impl VectorSqliteDB {
@@ -133,6 +133,56 @@ impl VectorSqliteDB {
     }
 
     Ok(map)
+  }
+
+  /// 统计指定文档的切片数量
+  pub async fn count_fragments_for_document(
+    &self,
+    workspace_id: &str,
+    object_id: &str,
+  ) -> Result<usize> {
+    let conn = self
+      .pool
+      .get()
+      .context("Failed to get connection from pool")?;
+    
+    let count: i64 = conn
+      .query_row(
+        "SELECT COUNT(*) FROM af_collab_embeddings WHERE workspace_id = ? AND object_id = ?",
+        params![workspace_id, object_id],
+        |row| row.get(0),
+      )?;
+    
+    Ok(count as usize)
+  }
+
+  /// 获取所有文档及其切片数量的统计信息
+  pub async fn get_document_fragment_stats(
+    &self,
+    workspace_id: &str,
+  ) -> Result<HashMap<String, usize>> {
+    let conn = self
+      .pool
+      .get()
+      .context("Failed to get connection from pool")?;
+    
+    let mut stmt = conn.prepare(
+      "SELECT object_id, COUNT(*) as fragment_count 
+       FROM af_collab_embeddings 
+       WHERE workspace_id = ? 
+       GROUP BY object_id"
+    )?;
+    
+    let mut stats = HashMap::new();
+    let mut rows = stmt.query(params![workspace_id])?;
+    
+    while let Some(row) = rows.next()? {
+      let object_id: String = row.get(0)?;
+      let count: i64 = row.get(1)?;
+      stats.insert(object_id, count as usize);
+    }
+    
+    Ok(stats)
   }
 
   pub async fn delete_collab(&self, workspace_id: &str, object_id: &str) -> Result<()> {

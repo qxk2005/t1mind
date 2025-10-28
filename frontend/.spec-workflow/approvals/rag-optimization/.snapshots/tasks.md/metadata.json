@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/rag-optimization/tasks.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-10-27T01:59:42.734Z",
+      "trigger": "initial",
+      "approvalId": "approval_1761530382731_aroa2osfg",
+      "approvalTitle": "RAG优化功能任务文档"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-10-27T02:00:17.729Z",
+      "trigger": "approved",
+      "approvalId": "approval_1761530382731_aroa2osfg",
+      "approvalTitle": "RAG优化功能任务文档"
+    }
+  ]
+}

@@ -195,6 +195,32 @@ impl ChatServiceMiddleware {
     // 获取 workspace_id
     let workspace_id = self.user_service.workspace_id()?;
     
+    // 🔧 在检索前，尝试从用户设置中读取最新的相似度阈值并更新
+    if let Some(settings_json) = self.store_preferences.get_str("appearance_settings") {
+      if let Ok(v) = serde_json::from_str::<serde_json::Value>(&settings_json) {
+        let map = v
+          .get("setting_key_value")
+          .or_else(|| v.get("settingKeyValue"))
+          .and_then(|v| v.as_object());
+        
+        if let Some(map) = map {
+          let scoped = |k: &str| -> String { format!("{}.{}", k, workspace_id) };
+          let get = |k: &str| -> Option<String> {
+            let scoped_key = scoped(k);
+            map.get(&scoped_key)
+              .and_then(|v| v.as_str().map(|s| s.to_string()))
+              .or_else(|| map.get(k).and_then(|v| v.as_str().map(|s| s.to_string())))
+          };
+          
+          if let Some(threshold_str) = get("ai.openai.ragScoreThreshold") {
+            if let Ok(new_threshold) = threshold_str.parse::<f32>() {
+              scheduler.update_score_threshold(new_threshold);
+            }
+          }
+        }
+      }
+    }
+    
     trace!("[RAG] 🔍 使用嵌入调度器搜索文档: query='{}', rag_ids={:?}", query, rag_ids);
     
     // 使用调度器进行搜索，限制返回 5 个结果

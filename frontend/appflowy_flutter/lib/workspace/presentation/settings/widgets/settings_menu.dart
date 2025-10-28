@@ -139,6 +139,16 @@ class SettingsMenu extends StatelessWidget {
               changeSelectedPage: changeSelectedPage,
             ),
             SettingsMenuElement(
+              page: SettingsPage.rag,
+              selectedPage: currentPage,
+              label: "RAG 优化",
+              icon: const Icon(
+                Icons.auto_awesome,
+                size: 20,
+              ),
+              changeSelectedPage: changeSelectedPage,
+            ),
+            SettingsMenuElement(
               page: SettingsPage.import,
               selectedPage: currentPage,
               label: "文档导入",

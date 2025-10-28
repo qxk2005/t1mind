@@ -8,6 +8,9 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 use chrono::Utc;
 
+#[cfg(feature = "web-search")]
+use crate::web_search::hub::WebSearchHub;
+
 use crate::entities::{
     AgentConfigPB, AgentCapabilitiesPB, AgentStatusPB, CreateAgentRequestPB, 
     UpdateAgentRequestPB, DeleteAgentRequestPB, GetAgentRequestPB, AgentListPB
@@ -179,11 +182,9 @@ impl AgentConfigManager {
             agent_config.capabilities = capabilities;
         }
         
-        if !request.available_tools.is_empty() {
-            agent_config.available_tools = request.available_tools;
-        } else if agent_config.available_tools.is_empty() && agent_config.capabilities.enable_tool_calling {
-            // 为现有智能体自动填充默认工具
-            agent_config.available_tools = self.get_default_tools();
+        // 🆕 更新available_tools：只有明确设置了标记时才更新
+        if request.has_available_tools {
+            agent_config.available_tools = request.available_tools.clone();
         }
         
         if let Some(status) = request.status {
@@ -535,29 +536,46 @@ impl AgentConfigManager {
     /// 
     /// 此方法需要访问 MCP 管理器，因此需要异步调用
     /// 为了保持向后兼容，我们提供同步版本返回内置工具
+    /// 
+    /// 🔧 修复：检查工具是否真正可用后再返回
     fn get_default_tools(&self) -> Vec<String> {
         // 🆕 返回内置工具列表，包括网络搜索工具
-        let tools = vec![
+        let mut tools = vec![
             "search_documents".to_string(),
             "create_document".to_string(),
             "update_document".to_string(),
             "delete_document".to_string(),
         ];
         
-        // 🆕 添加内置网络搜索工具
+        // 🆕 添加内置网络搜索工具（仅当功能启用时）
         #[cfg(feature = "web-search")]
         {
-            let mut tools = tools;
-            tools.extend(vec![
-                "web_search".to_string(),
-                // "quick_search".to_string(), // 已注释以避免重复调用
-            ]);
-            tools
+            // 🔧 关键修复：检查网络搜索功能是否真正启用
+            // 通过检查 web_search_hub 的状态来决定是否添加网络搜索工具
+            use std::sync::Arc;
+            use flowy_sqlite::kv::KVStorePreferences;
+            
+            // 尝试创建临时 hub 实例来检查状态
+            let hub = Arc::new(WebSearchHub::new(Arc::new(KVStorePreferences::new("temp").unwrap_or_else(|_| {
+                // 如果创建失败，使用现有的 store_preferences
+                KVStorePreferences::new(":memory:").unwrap()
+            }))));
+            
+            let hub_status = hub.get_status();
+            if hub_status.enabled {
+                // 只有启用了才添加网络搜索工具
+                tools.push("web_search".to_string());
+                info!("🔧 [Default Tools] Network search enabled, added web_search tool");
+            } else {
+                info!("🔧 [Default Tools] Network search disabled, skipping web_search tool");
+            }
         }
         #[cfg(not(feature = "web-search"))]
         {
-            tools
+            // Web search feature not enabled
         }
+        
+        tools
     }
     
     /// 为现有智能体自动填充工具（如果工具列表为空）

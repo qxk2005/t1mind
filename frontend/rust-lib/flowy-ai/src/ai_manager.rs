@@ -16,6 +16,7 @@ use crate::agent::config_manager::AgentConfigManager;
 #[cfg(feature = "web-search")]
 use crate::web_search::hub::WebSearchHub;
 use crate::vector_index_manager::VectorIndexManager;
+use crate::rag::RAGConfigManager;
 use flowy_ai_pub::persistence::{
   ChatTableChangeset, select_chat_metadata, select_chat_rag_ids, select_chat_summary, update_chat,
 };
@@ -80,6 +81,7 @@ pub struct AIManager {
   #[cfg(feature = "web-search")]
   pub web_search_hub: Arc<WebSearchHub>,
   pub vector_index_manager: Arc<VectorIndexManager>,
+  pub rag_config_manager: Arc<crate::rag::RAGConfigManager>,
 }
 impl Drop for AIManager {
   fn drop(&mut self) {
@@ -122,6 +124,9 @@ impl AIManager {
       folder_service,
       user_service.clone(),
     ));
+    
+    // 初始化RAG配置管理器
+    let rag_config_manager = Arc::new(RAGConfigManager::new(store_preferences.clone()));
 
     Self {
       cloud_service_wm,
@@ -138,6 +143,7 @@ impl AIManager {
       #[cfg(feature = "web-search")]
       web_search_hub,
       vector_index_manager,
+      rag_config_manager,
     }
   }
 
@@ -217,12 +223,28 @@ impl AIManager {
     self.prepare_local_ai(workspace_id, is_enabled).await;
     self.reload_with_workspace_id(workspace_id).await;
     
+    // 🔧 加载并应用 RAG 配置管理器
+    use crate::embeddings::context::EmbedContext;
+    EmbedContext::shared().set_rag_config(Some(self.rag_config_manager.clone()));
+    
+    // 🔧 如果 scheduler 已经存在，需要重新创建以应用 RAG 配置
+    // 这确保了新的 scheduler 会使用 RAG 配置
+    if let Ok(_scheduler) = EmbedContext::shared().get_scheduler() {
+      info!("[AI Manager] 🔄 Scheduler 已存在，重新创建以应用 RAG 配置...");
+      EmbedContext::shared().try_recreate_scheduler();
+    }
+    
     // 🔧 加载并应用 OpenAI 兼容的嵌入服务配置
     self.load_and_apply_embedding_config(workspace_id).await;
     
     Ok(())
   }
   
+  /// 重新加载嵌入服务配置（公共方法，可在外部调用）
+  pub async fn reload_embedding_config(&self, workspace_id: &Uuid) {
+    self.load_and_apply_embedding_config(workspace_id).await;
+  }
+
   /// 加载并应用嵌入服务配置
   async fn load_and_apply_embedding_config(&self, workspace_id: &Uuid) {
     use crate::embeddings::context::EmbedContext;
@@ -565,6 +587,7 @@ impl AIManager {
                 status: None,
                 metadata: std::collections::HashMap::new(),
                 selected_mcp_servers: config.selected_mcp_servers.clone(),
+                has_available_tools: true,
               };
               
               if let Err(e) = self.agent_manager.update_agent(update_request) {
@@ -666,11 +689,20 @@ impl AIManager {
       if config.capabilities.enable_tool_calling && !config.available_tools.is_empty() {
         let tools = self.get_tool_definitions_by_names(&config.available_tools).await;
         // trace!("[Chat] 🔧 Got {} tool definitions for OpenAI Function Call", tools.len());
-        for tool in &tools {
-          // trace!("[Chat] 🔧   - Tool '{}' from server '{}': {}", 
-          //       tool.name, tool.source, tool.description);
+        
+        // 🔧 关键修复：过滤掉不可用的工具，只返回可用的工具
+        let available_tools: Vec<ToolDefinitionPB> = tools.into_iter()
+          .filter(|tool| tool.is_available)
+          .collect();
+        
+        if available_tools.is_empty() {
+          warn!("[Chat] 🔧 All tools are disabled, skipping tool definitions");
+          None
+        } else {
+          info!("[Chat] 🔧 Using {} available tools ({} were disabled)", 
+                available_tools.len(), config.available_tools.len() - available_tools.len());
+          Some(available_tools)
         }
-        Some(tools)
       } else {
         warn!("[Chat] 🔧 Tool calling disabled or no available tools: enable_tool_calling={}, available_tools_count={}", 
               config.capabilities.enable_tool_calling, config.available_tools.len());
@@ -1344,6 +1376,7 @@ impl AIManager {
     info!("🔄 [Agent Update] 请求工具列表长度: {}", request.available_tools.len());
     info!("🔄 [Agent Update] 请求已选择服务器数量: {}", request.selected_mcp_servers.len());
     info!("🔄 [Agent Update] 请求是否包含 capabilities: {}", request.capabilities.is_some());
+    info!("🔄 [Agent Update] 请求是否明确设置工具列表: {}", request.has_available_tools);
     
     if let Some(ref existing) = existing_config {
       info!("🔄 [Agent Update] 现有智能体: {}", existing.name);
@@ -1376,6 +1409,7 @@ impl AIManager {
           warn!("⚠️ [Agent Update] 已选择的服务器未返回任何工具");
           request.available_tools = vec![];
         }
+        request.has_available_tools = true;
       } else {
         info!("ℹ️ [Agent Update] 工具调用未启用，跳过工具同步");
       }
@@ -1385,7 +1419,7 @@ impl AIManager {
     if let Some(ref capabilities) = request.capabilities {
       info!("🔄 [Agent Update] 新能力配置 - enable_tool_calling: {}", capabilities.enable_tool_calling);
       
-      if capabilities.enable_tool_calling && request.available_tools.is_empty() {
+      if capabilities.enable_tool_calling && request.available_tools.is_empty() && !request.has_available_tools {
         info!("🔄 [Agent Update] 条件满足：工具调用已启用且工具列表为空");
         
         if let Some(existing) = existing_config {
@@ -1443,6 +1477,7 @@ impl AIManager {
               info!("✅ [Agent Update] 为智能体 '{}' 自动发现了 {} 个工具（包含内置工具）", 
                     existing.name, all_tools.len());
               request.available_tools = all_tools;
+              request.has_available_tools = true;
             } else {
               warn!("⚠️  [Agent Update] 未发现任何可用的工具");
             }

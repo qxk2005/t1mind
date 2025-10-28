@@ -1179,6 +1179,10 @@ pub struct UpdateAgentRequestPB {
   /// 🆕 已选择的 MCP 服务器列表
   #[pb(index = 10)]
   pub selected_mcp_servers: Vec<String>,
+
+  /// 标记是否明确设置了工具列表（用于区分空列表和未设置）
+  #[pb(index = 11)]
+  pub has_available_tools: bool,
 }
 
 /// 删除智能体请求
@@ -2507,6 +2511,243 @@ impl WebSearchGlobalConfigPB {
   }
 }
 
+// ==================== RAG配置相关结构 ====================
+
+/// RAG全局设置
+#[derive(Default, ProtoBuf, Clone, Debug, Serialize, Deserialize, Validate)]
+pub struct RAGSettingsPB {
+  /// 文档切块大小（字符数）
+  #[pb(index = 1)]
+  pub chunk_size: i32,
+  
+  /// 文档切块重叠大小（字符数）
+  #[pb(index = 2)]
+  pub chunk_overlap: i32,
+  
+  /// 是否启用语义切片
+  #[pb(index = 3)]
+  pub enable_semantic_splitting: bool,
+  
+  /// 是否启用混合检索
+  #[pb(index = 4)]
+  pub enable_hybrid_search: bool,
+  
+  /// 向量检索权重
+  #[pb(index = 5)]
+  pub vector_weight: f32,
+  
+  /// 关键词检索权重
+  #[pb(index = 6)]
+  pub keyword_weight: f32,
+  
+  /// 初筛top_k
+  #[pb(index = 7)]
+  pub initial_top_k: i32,
+  
+  /// 重排序后top_k
+  #[pb(index = 8)]
+  pub final_top_k: i32,
+  
+  /// 是否启用重排序
+  #[pb(index = 9)]
+  pub enable_reranking: bool,
+  
+  /// 重排序模型名称
+  #[pb(index = 10, one_of)]
+  pub reranker_model: Option<String>,
+  
+  /// 重排序 API URL（用于独立的重排序服务）
+  #[pb(index = 16, one_of)]
+  pub reranker_api_url: Option<String>,
+  
+  /// 重排序 API Key（用于独立的重排序服务）
+  #[pb(index = 17, one_of)]
+  pub reranker_api_key: Option<String>,
+  
+  /// 是否启用智能体反思
+  #[pb(index = 11)]
+  pub enable_agent_reflection: bool,
+  
+  /// 反思阈值
+  #[pb(index = 12)]
+  pub reflection_threshold: f32,
+  
+  /// 创建时间（时间戳）
+  #[pb(index = 13)]
+  pub created_at: i64,
+  
+  /// 更新时间（时间戳）
+  #[pb(index = 14)]
+  pub updated_at: i64,
+  
+  /// 配置元数据
+  #[pb(index = 15)]
+  pub metadata: HashMap<String, String>,
+}
+
+/// 检索到的文档
+#[derive(Default, ProtoBuf, Clone, Debug, Serialize, Deserialize)]
+pub struct RetrievedDocumentPB {
+  /// 文档ID
+  #[pb(index = 1)]
+  pub document_id: String,
+  
+  /// 文档内容
+  #[pb(index = 2)]
+  pub content: String,
+  
+  /// 文档元数据
+  #[pb(index = 3)]
+  pub metadata: HashMap<String, String>,
+  
+  /// 向量检索分数
+  #[pb(index = 4, one_of)]
+  pub vector_score: Option<f32>,
+  
+  /// 关键词检索分数
+  #[pb(index = 5, one_of)]
+  pub keyword_score: Option<f32>,
+  
+  /// 综合分数
+  #[pb(index = 6)]
+  pub combined_score: f32,
+  
+  /// 检索类型
+  #[pb(index = 7)]
+  pub retrieval_type: RetrievalTypePB,
+}
+
+/// 检索类型枚举
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ProtoBuf_Enum, Serialize, Deserialize, Default)]
+pub enum RetrievalTypePB {
+  /// 向量检索
+  #[default]
+  Vector = 0,
+  /// 关键词检索
+  Keyword = 1,
+  /// 混合检索
+  Hybrid = 2,
+}
+
+/// 智能体反思结果
+#[derive(Default, ProtoBuf, Clone, Debug, Serialize, Deserialize)]
+pub struct AgentReflectionResultPB {
+  /// 置信度 (0-1)
+  #[pb(index = 1)]
+  pub confidence: f32,
+  
+  /// 是否完全解决了问题
+  #[pb(index = 2)]
+  pub is_question_solved: bool,
+  
+  /// 改进建议
+  #[pb(index = 3, one_of)]
+  pub suggestion: Option<String>,
+  
+  /// 缺失的上下文信息
+  #[pb(index = 4)]
+  pub missing_context: Vec<String>,
+  
+  /// 反思过程提示
+  #[pb(index = 5)]
+  pub reflection_prompt: String,
+}
+
+/// 获取RAG设置请求
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct GetRAGSettingsRequestPB {
+  #[pb(index = 1)]
+  pub dummy: String, // 虚拟字段，避免空消息的 trait 冲突
+}
+
+/// 获取RAG设置响应
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct GetRAGSettingsResponsePB {
+  /// RAG设置
+  #[pb(index = 1, one_of)]
+  pub settings: Option<RAGSettingsPB>,
+}
+
+/// 更新RAG设置请求
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct UpdateRAGSettingsRequestPB {
+  /// 文档切块大小
+  #[pb(index = 1, one_of)]
+  pub chunk_size: Option<i32>,
+  
+  /// 文档切块重叠大小
+  #[pb(index = 2, one_of)]
+  pub chunk_overlap: Option<i32>,
+  
+  /// 是否启用语义切片
+  #[pb(index = 3, one_of)]
+  pub enable_semantic_splitting: Option<bool>,
+  
+  /// 是否启用混合检索
+  #[pb(index = 4, one_of)]
+  pub enable_hybrid_search: Option<bool>,
+  
+  /// 向量检索权重
+  #[pb(index = 5, one_of)]
+  pub vector_weight: Option<f32>,
+  
+  /// 关键词检索权重
+  #[pb(index = 6, one_of)]
+  pub keyword_weight: Option<f32>,
+  
+  /// 初筛top_k
+  #[pb(index = 7, one_of)]
+  pub initial_top_k: Option<i32>,
+  
+  /// 重排序后top_k
+  #[pb(index = 8, one_of)]
+  pub final_top_k: Option<i32>,
+  
+  /// 是否启用重排序
+  #[pb(index = 9, one_of)]
+  pub enable_reranking: Option<bool>,
+  
+  /// 重排序模型名称
+  #[pb(index = 10, one_of)]
+  pub reranker_model: Option<String>,
+  
+  /// 重排序 API URL（用于独立的重排序服务）
+  #[pb(index = 16, one_of)]
+  pub reranker_api_url: Option<String>,
+  
+  /// 重排序 API Key（用于独立的重排序服务）
+  #[pb(index = 17, one_of)]
+  pub reranker_api_key: Option<String>,
+  
+  /// 是否启用智能体反思
+  #[pb(index = 11, one_of)]
+  pub enable_agent_reflection: Option<bool>,
+  
+  /// 反思阈值
+  #[pb(index = 12, one_of)]
+  pub reflection_threshold: Option<f32>,
+  
+  /// 元数据
+  #[pb(index = 13)]
+  pub metadata: HashMap<String, String>,
+}
+
+/// 更新RAG设置响应
+#[derive(Default, ProtoBuf, Clone, Debug)]
+pub struct UpdateRAGSettingsResponsePB {
+  /// 是否成功
+  #[pb(index = 1)]
+  pub success: bool,
+  
+  /// 错误消息
+  #[pb(index = 2, one_of)]
+  pub error_message: Option<String>,
+  
+  /// 更新后的设置
+  #[pb(index = 3, one_of)]
+  pub settings: Option<RAGSettingsPB>,
+}
+
 impl WebSearchCacheEntryPB {
   /// 创建新的缓存条目
   pub fn new(cache_key: String, search_response: WebSearchResponsePB) -> Self {
@@ -2728,4 +2969,132 @@ pub struct DimensionCompatibilityPB {
   
   #[pb(index = 5, one_of)]
   pub error: Option<String>,
+}
+
+// ==================== RAG配置实现 ====================
+
+impl RAGSettingsPB {
+  /// 创建默认的RAG设置
+  pub fn default_config() -> Self {
+    let now = Utc::now().timestamp();
+    Self {
+      chunk_size: 1000,
+      chunk_overlap: 200,
+      enable_semantic_splitting: false,
+      enable_hybrid_search: true,
+      vector_weight: 0.7,
+      keyword_weight: 0.3,
+      initial_top_k: 10,
+      final_top_k: 5,
+      enable_reranking: false,
+      reranker_model: None,
+      reranker_api_url: None,
+      reranker_api_key: None,
+      enable_agent_reflection: true,
+      reflection_threshold: 0.7,
+      created_at: now,
+      updated_at: now,
+      metadata: HashMap::new(),
+    }
+  }
+
+  /// 检查配置是否有效
+  pub fn is_valid(&self) -> bool {
+    self.chunk_size > 0
+      && self.chunk_overlap >= 0
+      && self.chunk_overlap < self.chunk_size
+      && self.vector_weight >= 0.0
+      && self.keyword_weight >= 0.0
+      && (self.vector_weight + self.keyword_weight - 1.0).abs() < 0.01 // 允许小的浮点误差
+      && self.initial_top_k > 0
+      && self.final_top_k > 0
+      && self.final_top_k <= self.initial_top_k
+      && self.reflection_threshold >= 0.0
+      && self.reflection_threshold <= 1.0
+  }
+
+  /// 更新配置（保留未指定的字段）
+  pub fn update_from(&mut self, update: UpdateRAGSettingsRequestPB) {
+    if let Some(chunk_size) = update.chunk_size {
+      self.chunk_size = chunk_size;
+    }
+    if let Some(chunk_overlap) = update.chunk_overlap {
+      self.chunk_overlap = chunk_overlap;
+    }
+    if let Some(enable_semantic_splitting) = update.enable_semantic_splitting {
+      self.enable_semantic_splitting = enable_semantic_splitting;
+    }
+    if let Some(enable_hybrid_search) = update.enable_hybrid_search {
+      self.enable_hybrid_search = enable_hybrid_search;
+    }
+    if let Some(vector_weight) = update.vector_weight {
+      self.vector_weight = vector_weight;
+    }
+    if let Some(keyword_weight) = update.keyword_weight {
+      self.keyword_weight = keyword_weight;
+    }
+    if let Some(initial_top_k) = update.initial_top_k {
+      self.initial_top_k = initial_top_k;
+    }
+    if let Some(final_top_k) = update.final_top_k {
+      self.final_top_k = final_top_k;
+    }
+    if let Some(enable_reranking) = update.enable_reranking {
+      self.enable_reranking = enable_reranking;
+    }
+    if let Some(ref reranker_model) = update.reranker_model {
+      self.reranker_model = Some(reranker_model.clone());
+    }
+    if let Some(ref reranker_api_url) = update.reranker_api_url {
+      self.reranker_api_url = Some(reranker_api_url.clone());
+    }
+    if let Some(ref reranker_api_key) = update.reranker_api_key {
+      self.reranker_api_key = Some(reranker_api_key.clone());
+    }
+    if let Some(enable_agent_reflection) = update.enable_agent_reflection {
+      self.enable_agent_reflection = enable_agent_reflection;
+    }
+    if let Some(reflection_threshold) = update.reflection_threshold {
+      self.reflection_threshold = reflection_threshold;
+    }
+    for (key, value) in update.metadata {
+      self.metadata.insert(key, value);
+    }
+    self.updated_at = Utc::now().timestamp();
+  }
+}
+
+impl RetrievedDocumentPB {
+  /// 创建新的检索文档
+  pub fn new(document_id: String, content: String) -> Self {
+    Self {
+      document_id,
+      content,
+      metadata: HashMap::new(),
+      vector_score: None,
+      keyword_score: None,
+      combined_score: 0.0,
+      retrieval_type: RetrievalTypePB::Vector,
+    }
+  }
+
+  /// 计算综合分数（基于权重）
+  pub fn calculate_combined_score(&mut self, vector_weight: f32, keyword_weight: f32) {
+    let vector_score = self.vector_score.unwrap_or(0.0);
+    let keyword_score = self.keyword_score.unwrap_or(0.0);
+    self.combined_score = vector_score * vector_weight + keyword_score * keyword_weight;
+  }
+}
+
+impl AgentReflectionResultPB {
+  /// 创建新的反思结果
+  pub fn new(confidence: f32, is_question_solved: bool) -> Self {
+    Self {
+      confidence,
+      is_question_solved,
+      suggestion: None,
+      missing_context: Vec::new(),
+      reflection_prompt: String::new(),
+    }
+  }
 }

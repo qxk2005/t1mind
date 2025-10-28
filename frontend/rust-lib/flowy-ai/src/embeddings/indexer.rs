@@ -1,12 +1,13 @@
 use crate::embeddings::document_indexer::DocumentIndexer;
 use crate::embeddings::embedder::Embedder;
+use crate::rag::RAGConfigManager;
 use flowy_ai_pub::cloud::CollabType;
 use flowy_ai_pub::entities::EmbeddedChunk;
 use flowy_error::FlowyError;
 use lib_infra::async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -50,14 +51,25 @@ pub trait Indexer: Send + Sync {
 /// including access permission checks for the specific workspaces.
 pub struct IndexerProvider {
   indexer_cache: HashMap<CollabType, Arc<dyn Indexer>>,
+  rag_config: Option<Weak<RAGConfigManager>>,
 }
 
 impl IndexerProvider {
   pub fn new() -> Arc<Self> {
     let mut cache: HashMap<CollabType, Arc<dyn Indexer>> = HashMap::new();
-    cache.insert(CollabType::Document, Arc::new(DocumentIndexer));
+    cache.insert(CollabType::Document, Arc::new(DocumentIndexer::new(None)));
     Arc::new(Self {
       indexer_cache: cache,
+      rag_config: None,
+    })
+  }
+
+  pub fn new_with_config(rag_config: Arc<RAGConfigManager>) -> Arc<Self> {
+    let mut cache: HashMap<CollabType, Arc<dyn Indexer>> = HashMap::new();
+    cache.insert(CollabType::Document, Arc::new(DocumentIndexer::new(Some(Arc::downgrade(&rag_config)))));
+    Arc::new(Self {
+      indexer_cache: cache,
+      rag_config: Some(Arc::downgrade(&rag_config)),
     })
   }
 
@@ -66,5 +78,10 @@ impl IndexerProvider {
   /// returns `None`.
   pub fn indexer_for(&self, collab_type: CollabType) -> Option<Arc<dyn Indexer>> {
     self.indexer_cache.get(&collab_type).cloned()
+  }
+
+  /// 获取RAG配置（如果存在）
+  pub fn get_rag_config(&self) -> Option<Arc<RAGConfigManager>> {
+    self.rag_config.as_ref().and_then(|weak| weak.upgrade())
   }
 }

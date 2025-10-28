@@ -2,6 +2,7 @@ use crate::embeddings::document_indexer::split_text_into_chunks;
 use crate::embeddings::embedder::{Embedder, OllamaEmbedder};
 use crate::embeddings::indexer::{EmbeddingModel, IndexerProvider};
 use crate::local_ai::chat::retriever::MultipleSourceRetrieverStore;
+use crate::rag::RAGConfigManager;
 use async_trait::async_trait;
 use flowy_ai_pub::cloud::CollabType;
 use flowy_ai_pub::entities::{RAG_IDS, SOURCE_ID};
@@ -24,6 +25,7 @@ pub struct SqliteVectorStore {
   ollama: Weak<OllamaClient>,
   vector_db: Weak<VectorSqliteDB>,
   indexer_provider: Arc<IndexerProvider>,
+  rag_config: Option<Arc<RAGConfigManager>>,
 }
 
 impl SqliteVectorStore {
@@ -32,6 +34,16 @@ impl SqliteVectorStore {
       ollama,
       vector_db,
       indexer_provider: IndexerProvider::new(),
+      rag_config: None,
+    }
+  }
+
+  pub fn new_with_config(ollama: Weak<OllamaClient>, vector_db: Weak<VectorSqliteDB>, rag_config: Arc<RAGConfigManager>) -> Self {
+    Self {
+      ollama,
+      vector_db,
+      indexer_provider: IndexerProvider::new_with_config(rag_config.clone()),
+      rag_config: Some(rag_config),
     }
   }
 
@@ -222,6 +234,7 @@ impl VectorStore for SqliteVectorStore {
       .collect::<Vec<(Uuid, Uuid, String)>>();
 
     let concurrency_limit = 4;
+    let rag_config_clone = self.rag_config.clone();
     let document_ids = stream::iter(documents)
       .map(|(workspace_id, object_id, paragraph)| {
         // Clone values that need to be moved into the async block
@@ -230,14 +243,24 @@ impl VectorStore for SqliteVectorStore {
         let vector_db_clone = vector_db.clone();
         let embedder_clone = embedder.clone();
         let indexer_clone = indexer.clone();
+        let rag_config = rag_config_clone.clone();
 
         async move {
+          // 从配置中读取 chunk_size 和 overlap，如果没有配置则使用默认值
+          // 默认值与 DocumentIndexer 保持一致
+          let (chunk_size, overlap) = if let Some(ref config) = rag_config {
+            let settings = config.get_rag_settings();
+            (settings.chunk_size as usize, settings.chunk_overlap as usize)
+          } else {
+            (1000, 200)  // 默认值与 DocumentIndexer 保持一致
+          };
+          
           let chunks_result = split_text_into_chunks(
             &object_id_str,
             vec![paragraph],
             EmbeddingModel::NomicEmbedText,
-            2000,
-            200,
+            chunk_size,
+            overlap,
           );
 
           match chunks_result {

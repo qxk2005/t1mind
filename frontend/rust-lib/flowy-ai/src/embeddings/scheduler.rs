@@ -1,5 +1,7 @@
 use crate::embeddings::embedder::{Embedder, OllamaEmbedder, OpenAIEmbedder};
 use crate::embeddings::indexer::IndexerProvider;
+use crate::rag::{HybridRetriever, HybridRetrieverConfig};
+use crate::rag::RAGConfigManager;
 use crate::search::summary::{LLMDocument, summarize_documents};
 use flowy_ai_pub::cloud::search_dto::{
   SearchContentType, SearchDocumentResponseItem, SearchResult, SearchSummaryResult, Summary,
@@ -77,17 +79,69 @@ impl EmbeddingScheduler {
     Ok(this)
   }
 
+  pub fn new_with_config(
+    ollama: Arc<Ollama>,
+    vector_db: Arc<VectorSqliteDB>,
+    rag_config: Arc<RAGConfigManager>,
+  ) -> FlowyResult<Arc<EmbeddingScheduler>> {
+    let indexer_provider = IndexerProvider::new_with_config(rag_config);
+    let (write_embedding_tx, write_embedding_rx) = unbounded_channel::<EmbeddingRecord>();
+    let (generate_embedding_tx, gen_embedding_rx) = mpsc::channel::<UnindexedCollabContext>(100);
+    let (stop_tx, _) = broadcast::channel::<()>(1);
+
+    let this = Arc::new(Self {
+      indexer_provider,
+      write_embedding_tx,
+      generate_embedding_tx,
+      ollama,
+      openai_config: ArcSwapOption::new(None),
+      vector_db,
+      stop_tx,
+    });
+
+    let weak_this = Arc::downgrade(&this);
+    let stop_rx = this.stop_tx.subscribe();
+    tokio::spawn(spawn_generate_embeddings(
+      gen_embedding_rx,
+      weak_this.clone(),
+      stop_rx,
+    ));
+
+    let weak_this = Arc::downgrade(&this);
+    let stop_rx = this.stop_tx.subscribe();
+    tokio::spawn(spawn_write_embeddings(
+      write_embedding_rx,
+      weak_this,
+      stop_rx,
+    ));
+
+    Ok(this)
+  }
+
   /// 设置 OpenAI 兼容嵌入服务配置
   pub fn set_openai_config(&self, config: Option<OpenAIEmbeddingConfig>) {
     if let Some(ref cfg) = config {
       info!(
-        "[Embedding] 🔄 切换到 OpenAI 兼容嵌入服务: {} (模型: {})",
-        cfg.base_url, cfg.model
+        "[Embedding] 🔄 切换到 OpenAI 兼容嵌入服务: {} (模型: {}), RAG阈值: {:.2}",
+        cfg.base_url, cfg.model, cfg.rag_score_threshold
       );
       self.openai_config.store(Some(Arc::new(cfg.clone())));
     } else {
       trace!("[Embedding] 🔄 切换回 Ollama 嵌入服务");
       self.openai_config.store(None);
+    }
+  }
+  
+  /// 更新相似度阈值（从外部调用）
+  pub fn update_score_threshold(&self, new_threshold: f32) {
+    if let Some(current_config) = self.openai_config.load_full() {
+      let mut updated_config = (*current_config).clone();
+      updated_config.rag_score_threshold = new_threshold.clamp(0.0, 1.0);
+      info!(
+        "[Embedding] 🔄 更新相似度阈值: {:.2} -> {:.2}",
+        current_config.rag_score_threshold, updated_config.rag_score_threshold
+      );
+      self.openai_config.store(Some(Arc::new(updated_config)));
     }
   }
 
@@ -163,6 +217,22 @@ impl EmbeddingScheduler {
       Some(query_embed) => {
         let object_ids_slice = object_ids.as_deref().unwrap_or(&[]);
         
+        // 尝试从 RAG 配置管理器读取配置
+        let rag_config = self.indexer_provider.get_rag_config();
+        let (initial_top_k, final_top_k, enable_hybrid, vector_weight, keyword_weight) = if let Some(config) = rag_config {
+          let settings = config.get_rag_settings();
+          let result = (settings.initial_top_k as usize, settings.final_top_k as usize, 
+           settings.enable_hybrid_search, settings.vector_weight, settings.keyword_weight);
+          info!("[RAG Config] 从配置管理器读取: initial_top_k={}, final_top_k={}, enable_hybrid={}, vector_weight={}, keyword_weight={}", 
+                result.0, result.1, result.2, result.3, result.4);
+          result
+        } else {
+          // 如果没有配置，使用传入的 limit 作为两阶段的 top_k
+          let result = (limit, limit, false, 1.0, 0.0);
+          warn!("[RAG Config] 未找到 RAG 配置管理器，使用默认值: initial_top_k={}, final_top_k={}", result.0, result.1);
+          result
+        };
+        
         // 从配置中读取相似度阈值，如果未配置则使用默认值 0.25
         let score_threshold = self.openai_config
           .load()
@@ -171,79 +241,136 @@ impl EmbeddingScheduler {
           .unwrap_or(0.25);
         
         trace!(
-          "[Embedding] 🔍 执行向量搜索: query='{}', limit={}, score_threshold={:.2} (来源: {}), object_ids={:?}",
+          "[Embedding] 🔍 执行检索: query='{}', initial_top_k={}, final_top_k={}, enable_hybrid={}, limit={}, score_threshold={:.2} (来源: {}), object_ids={:?}",
           query, 
+          initial_top_k,
+          final_top_k,
+          enable_hybrid,
           limit, 
           score_threshold, 
           if self.openai_config.load().is_some() { "配置" } else { "默认" },
           object_ids
         );
         
-        // 添加调试：检查object_ids是否为空
-        if let Some(ref ids) = object_ids {
-          if ids.is_empty() {
-            warn!("[Embedding] ⚠️ object_ids为空，将搜索所有文档");
-          } else {
-            info!("[Embedding] 📋 将搜索指定的 {} 个文档ID", ids.len());
-          }
-        } else {
-          info!("[Embedding] 📋 未指定object_ids，将搜索所有文档");
-        }
-        
-        let result = self
-          .vector_db
-          .search_with_score(
-            &workspace_id.to_string(),
-            object_ids_slice,
-            query_embed,
-            limit as i32,
+        // 根据配置决定使用混合检索还是单向量检索
+        let results = if enable_hybrid {
+          // 使用混合检索
+          info!("[Embedding] 🎯 启用混合检索模式");
+          
+          let hybrid_config = HybridRetrieverConfig {
+            vector_weight,
+            keyword_weight,
+            top_k: initial_top_k,
             score_threshold,
-          )
-          .await
-          .map_err(|err| {
-            error!("[Embedding] Failed to search: {}", err);
-            FlowyError::new(ErrorCode::LocalEmbeddingNotReady, "Failed to search")
+          };
+          
+          let hybrid_retriever = HybridRetriever::new(
+            Arc::downgrade(&self.vector_db),
+            hybrid_config,
+          );
+          
+          // 准备对象ID列表
+          let object_ids_vec: Vec<String> = object_ids_slice.iter().map(|s| s.to_string()).collect();
+          
+          let hybrid_results = hybrid_retriever.search(
+            query,
+            workspace_id,
+            &object_ids_vec,
+            query_embed,
+          ).await.map_err(|err| {
+            error!("[Embedding] Hybrid search failed: {}", err);
+            FlowyError::new(ErrorCode::LocalEmbeddingNotReady, "Hybrid search failed")
           })?;
-
+          
+          // 转换为 SearchDocumentResponseItem
+          hybrid_results.into_iter()
+            .take(final_top_k)
+            .filter_map(|doc| {
+              // 将 document_id (String) 解析为 Uuid
+              match Uuid::parse_str(&doc.document_id) {
+                Ok(object_id) => Some(SearchDocumentResponseItem {
+                  object_id,
+                  workspace_id: *workspace_id,
+                  score: doc.combined_score as f64,
+                  content_type: Some(SearchContentType::PlainText),
+                  content: doc.content,
+                  preview: None,
+                  created_by: "".to_string(),
+                  created_at: Utc::now(),
+                }),
+                Err(e) => {
+                  warn!("[Embedding] Failed to parse document_id '{}' as Uuid: {}", doc.document_id, e);
+                  None
+                }
+              }
+            })
+            .collect::<Vec<_>>()
+        } else {
+          // 使用单向量检索（向后兼容）
+          info!("[Embedding] 📍 使用单向量检索模式");
+          
+          let effective_limit = if limit < initial_top_k { limit } else { initial_top_k };
+          
+          let result = self
+            .vector_db
+            .search_with_score(
+              &workspace_id.to_string(),
+              object_ids_slice,
+              query_embed,
+              effective_limit as i32,
+              score_threshold,
+            )
+            .await
+            .map_err(|err| {
+              error!("[Embedding] Failed to search: {}", err);
+              FlowyError::new(ErrorCode::LocalEmbeddingNotReady, "Failed to search")
+            })?;
+          
+          // 取前 final_top_k 个结果
+          let rows: Vec<_> = result
+            .into_iter()
+            .take(final_top_k.min(limit))
+            .map(|v| SearchDocumentResponseItem {
+              object_id: v.oid,
+              workspace_id: *workspace_id,
+              score: v.score as f64,
+              content_type: Some(SearchContentType::PlainText),
+              content: v.content,
+              preview: None,
+              created_by: "".to_string(),
+              created_at: Utc::now(),
+            })
+            .collect();
+          
+          rows
+        };
+        
         // 添加调试：显示搜索结果的详细信息
-        if result.is_empty() {
+        if results.is_empty() {
           warn!(
             "[Embedding] ⚠️ 搜索返回0个结果 - 可能原因: 1)相似度分数低于阈值{:.2} 2)指定的object_ids不存在 3)向量数据库为空",
             score_threshold
           );
         } else {
           info!(
-            "[Embedding] 🎯 搜索完成: 找到 {} 个结果",
-            result.len()
+            "[Embedding] 🎯 搜索完成: 找到 {} 个结果 (初始: {} 个候选项)",
+            results.len(),
+            initial_top_k
           );
         }
         
         // 输出每个结果的分数，帮助调试
-        for (idx, item) in result.iter().enumerate() {
+        for (idx, item) in results.iter().enumerate() {
           trace!(
             "[Embedding] 📄 结果 #{}: object_id={}, score={:.4}, content_preview='{}'",
             idx + 1,
-            item.oid,
+            item.object_id,
             item.score,
             item.content.chars().take(100).collect::<String>()
           );
         }
 
-        let rows = result
-          .into_iter()
-          .map(|v| SearchDocumentResponseItem {
-            object_id: v.oid,
-            workspace_id: *workspace_id,
-            score: v.score as f64,
-            content_type: Some(SearchContentType::PlainText),
-            content: v.content,
-            preview: None,
-            created_by: "".to_string(),
-            created_at: Utc::now(),
-          })
-          .collect::<Vec<_>>();
-
-        Ok(rows)
+        Ok(results)
       },
     }
   }
@@ -410,7 +537,18 @@ async fn spawn_generate_embeddings(
                   embedder.model(),
                 ) {
                   Ok(mut chunks) => {
+                    info!(
+                        "[Embedding] 📊 Document {}: Created {} chunks",
+                        record.object_id,
+                        chunks.len()
+                    );
+                    
                     if let Some(fragment_ids) = existing_embeddings.get(&record.object_id) {
+                      info!(
+                          "[Embedding] 🔄 Document {}: Found {} existing fragments, checking for updates",
+                          record.object_id,
+                          fragment_ids.len()
+                      );
                       for chunk in chunks.iter_mut() {
                         if fragment_ids.contains(&chunk.fragment_id) {
                           chunk.content = None;
@@ -419,11 +557,20 @@ async fn spawn_generate_embeddings(
                     }
 
                     if chunks.iter().all(|c| c.content.is_none()) {
-                      trace!(
-                        "[Embedding] content doesn't change, skip generating embeddings for collab: {}",
+                      info!(
+                        "[Embedding] ⏭️ Document {}: No content changes, skip regenerating embeddings",
                         record.object_id
                       );
                       continue;
+                    }
+                    
+                    let new_chunks_count = chunks.iter().filter(|c| c.content.is_some()).count();
+                    if new_chunks_count > 0 {
+                      info!(
+                          "[Embedding] ✨ Document {}: Will generate embeddings for {} new/updated chunks",
+                          record.object_id,
+                          new_chunks_count
+                      );
                     }
 
                     let result = indexer.embed(&embedder, chunks).await;

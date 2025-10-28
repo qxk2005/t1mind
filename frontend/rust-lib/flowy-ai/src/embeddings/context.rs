@@ -1,4 +1,5 @@
 use crate::embeddings::scheduler::{EmbeddingScheduler, OpenAIEmbeddingConfig};
+use crate::rag::RAGConfigManager;
 use arc_swap::ArcSwapOption;
 use flowy_error::{ErrorCode, FlowyError, FlowyResult};
 use flowy_sqlite_vec::db::VectorSqliteDB;
@@ -66,8 +67,8 @@ pub async fn test_embedding_model_dimension(
     model: model.to_string(),
   };
   
-  // 使用测试文本生成嵌入
-  let test_texts = vec!["测试文本".to_string()];
+  // 使用通用测试文本生成嵌入（使用英文，大多数模型都能处理）
+  let test_texts = vec!["test".to_string()];
   
   match embedder.embed_texts(test_texts).await {
     Ok(embeddings) => {
@@ -102,6 +103,8 @@ pub struct EmbedContext {
   scheduler: ArcSwapOption<EmbeddingScheduler>,
   // 维度缓存：存储已测试过的模型维度
   dimension_cache: ArcSwapOption<HashMap<String, usize>>,
+  // RAG 配置管理器
+  rag_config: ArcSwapOption<RAGConfigManager>,
 }
 
 impl EmbedContext {
@@ -113,12 +116,30 @@ impl EmbedContext {
         vector_db: ArcSwapOption::new(None),
         scheduler: ArcSwapOption::new(None),
         dimension_cache: ArcSwapOption::from(Some(Arc::new(HashMap::new()))),
+        rag_config: ArcSwapOption::new(None),
       })
     })
   }
 
   pub fn get_vector_db(&self) -> Option<Arc<VectorSqliteDB>> {
     self.vector_db.load_full()
+  }
+
+  /// 设置 RAG 配置管理器
+  pub fn set_rag_config(&self, rag_config: Option<Arc<RAGConfigManager>>) {
+    self.rag_config.store(rag_config);
+  }
+
+  /// 重新创建 scheduler（用于应用新的 RAG 配置）
+  pub fn try_recreate_scheduler(&self) {
+    info!("[Embedding] 🔄 尝试重新创建 scheduler...");
+    // 先清除旧的 scheduler
+    if let Some(old_scheduler) = self.scheduler.swap(None) {
+      info!("[Embedding] 🗑️ 清除旧的 scheduler");
+      let _ = old_scheduler.stop_tx.send(());
+    }
+    // 重新创建
+    self.try_create_scheduler();
   }
 
   pub fn init_vector_db(&self, db_path: PathBuf) {
@@ -433,22 +454,25 @@ impl EmbedContext {
         Arc::new(Ollama::new("http://localhost".to_string(), 11434))
       });
       
-      info!("[Embedding] 🔍 调用 EmbeddingScheduler::new...");
-      match EmbeddingScheduler::new(ollama, vector_db) {
-        Ok(s) => {
-          info!("[Embedding] ✅ Scheduler created successfully!");
-          info!("[Embedding] 🔍 准备存储 scheduler 到 ArcSwapOption...");
-          self.scheduler.store(Some(s));
-          info!("[Embedding] ✅ Scheduler 已成功存储到 ArcSwapOption");
-          
-          // 🔧 验证存储是否成功
-          if let Some(_) = self.scheduler.load_full() {
-            info!("[Embedding] ✅ 验证：scheduler 存储成功，可以获取");
-          } else {
-            error!("[Embedding] ❌ 验证失败：scheduler 存储后无法获取");
-          }
-        },
-        Err(err) => error!("[Embedding] ❌ Failed to create scheduler: {}", err),
+      // 检查是否有 RAG 配置，有则使用带配置的版本
+      if let Some(rag_config) = self.rag_config.load_full() {
+        info!("[Embedding] 🔍 调用 EmbeddingScheduler::new_with_config (使用 RAG 配置)...");
+        match EmbeddingScheduler::new_with_config(ollama, vector_db, rag_config.clone()) {
+          Ok(s) => {
+            info!("[Embedding] ✅ Scheduler created with RAG config!");
+            self.scheduler.store(Some(s));
+          },
+          Err(err) => error!("[Embedding] ❌ Failed to create scheduler with config: {}", err),
+        }
+      } else {
+        info!("[Embedding] 🔍 调用 EmbeddingScheduler::new (无 RAG 配置)...");
+        match EmbeddingScheduler::new(ollama, vector_db) {
+          Ok(s) => {
+            info!("[Embedding] ✅ Scheduler created successfully!");
+            self.scheduler.store(Some(s));
+          },
+          Err(err) => error!("[Embedding] ❌ Failed to create scheduler: {}", err),
+        }
       }
     } else {
       warn!("[Embedding] ⚠️ Vector db is not initialized, cannot create scheduler");

@@ -133,6 +133,12 @@ pub fn init(ai_manager: Weak<AIManager>) -> AFPlugin {
       .event(AIEvent::CheckDimensionCompatibility, check_dimension_compatibility_handler)
       .event(AIEvent::SmartResetVectorDatabaseWithTest, smart_reset_vector_database_with_test_handler);
     
+    // RAG配置事件注册
+    use crate::rag::event_handler::{get_rag_settings_handler, update_rag_settings_handler};
+    plugin = plugin
+      .event(AIEvent::GetRAGSettings, get_rag_settings_handler)
+      .event(AIEvent::UpdateRAGSettings, update_rag_settings_handler);
+    
     plugin
 }
 
@@ -392,4 +398,14 @@ pub enum AIEvent {
   /// 智能重置向量数据库（自动检测维度）
   #[event()]
   SmartResetVectorDatabaseWithTest = 77,
+
+  // ==================== RAG配置相关事件 ====================
+  
+  /// 获取RAG设置
+  #[event(input = "GetRAGSettingsRequestPB", output = "GetRAGSettingsResponsePB")]
+  GetRAGSettings = 78,
+  
+  /// 更新RAG设置
+  #[event(input = "UpdateRAGSettingsRequestPB", output = "UpdateRAGSettingsResponsePB")]
+  UpdateRAGSettings = 79,
 }
