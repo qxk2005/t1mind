@@ -527,76 +527,11 @@ impl AIManager {
           
           trace!("[Chat] 🔍 Collected {} unique tool names", discovered_tool_names.len());
           
-          // 🆕 确保内置工具总是被包含（无论工具列表是否为空）
-          if config.capabilities.enable_tool_calling {
-            let mut needs_update = false;
-            let mut all_tools = config.available_tools.clone();
-            
-            // 添加内置网络搜索工具（如果不存在）
-            #[cfg(feature = "web-search")]
-            {
-              let web_search_tools = vec![
-                "web_search".to_string(),
-                // "quick_search".to_string(), // 已注释以避免重复调用
-              ];
-              for tool in web_search_tools {
-                if !all_tools.contains(&tool) {
-                  all_tools.push(tool.clone());
-                  needs_update = true;
-                  trace!("[Chat] ✅ 添加内置网络搜索工具: {}", tool);
-                }
-              }
-            }
-            
-            // 添加其他内置工具（如果不存在）
-            let other_builtin_tools = vec![
-              "search_documents".to_string(),
-              "create_document".to_string(),
-              "update_document".to_string(),
-              "delete_document".to_string(),
-            ];
-            for tool in other_builtin_tools {
-              if !all_tools.contains(&tool) {
-                all_tools.push(tool.clone());
-                needs_update = true;
-                trace!("[Chat] ✅ 添加内置工具: {}", tool);
-              }
-            }
-            
-            // 如果工具列表为空，添加发现的 MCP 工具
-            if config.available_tools.is_empty() {
-              trace!("[Chat] 智能体工具列表为空，开始自动发现工具...");
-              all_tools.extend(discovered_tool_names.clone());
-              needs_update = true;
-            }
-            
-            if needs_update {
-              config.available_tools = all_tools;
-              config.updated_at = chrono::Utc::now().timestamp();
-              trace!("[Chat] ✅ 已将 {} 个工具添加到智能体配置（包含内置工具）", config.available_tools.len());
-              
-              // 使用更新方法保存配置
-              let update_request = crate::entities::UpdateAgentRequestPB {
-                id: config.id.clone(),
-                name: None,
-                description: None,
-                avatar: None,
-                personality: None,
-                capabilities: None,
-                available_tools: config.available_tools.clone(),
-                status: None,
-                metadata: std::collections::HashMap::new(),
-                selected_mcp_servers: config.selected_mcp_servers.clone(),
-                has_available_tools: true,
-              };
-              
-              if let Err(e) = self.agent_manager.update_agent(update_request) {
-                warn!("Failed to save agent config after tool population: {}", e);
-              } else {
-                info!("为智能体 {} 自动发现并填充了 {} 个工具", 
-                      config.name, config.available_tools.len());
-              }
-            }
+          // 🔧 完全尊重用户的工具配置，不自动添加任何工具
+          if config.available_tools.is_empty() {
+            trace!("[Chat] 智能体工具列表为空，尊重用户配置，不自动添加工具");
+          } else {
+            trace!("[Chat] 智能体已配置工具列表 ({} 个工具)，尊重用户配置", config.available_tools.len());
           }
           
           // 🆕 构建增强的系统提示（包含工具详情）
@@ -1306,58 +1241,8 @@ impl AIManager {
         warn!("⚠️ [Create Agent] 已选择的服务器未返回任何工具");
       }
     }
-    // 如果没有指定服务器，且工具列表为空，则自动发现所有工具
-    else if request.available_tools.is_empty() && request.capabilities.enable_tool_calling {
-      let tool_details = self.discover_available_tools().await;
-      
-      // 提取所有工具名称（去重）
-      #[cfg(feature = "mcp")]
-      let discovered_tool_names: Vec<String> = {
-        use std::collections::HashSet;
-        let mut unique_names = HashSet::new();
-        tool_details.iter()
-          .filter_map(|(_, tool)| {
-            if unique_names.insert(tool.name.clone()) {
-              Some(tool.name.clone())
-            } else {
-              None
-            }
-          })
-          .collect()
-      };
-      #[cfg(not(feature = "mcp"))]
-      let discovered_tool_names: Vec<String> = vec![];
-      
-      // 🆕 首先添加内置工具（包括网络搜索工具）
-      let mut all_tools = Vec::new();
-      
-      // 添加内置网络搜索工具
-      #[cfg(feature = "web-search")]
-      {
-        all_tools.extend(vec![
-          "web_search".to_string(),
-          "quick_search".to_string(),
-        ]);
-      }
-      
-      // 添加其他内置工具
-      all_tools.extend(vec![
-        "search_documents".to_string(),
-        "create_document".to_string(),
-        "update_document".to_string(),
-        "delete_document".to_string(),
-      ]);
-      
-      // 添加发现的 MCP 工具
-      all_tools.extend(discovered_tool_names);
-      
-      if !all_tools.is_empty() {
-        info!("为新智能体 '{}' 自动发现了 {} 个工具（包含内置工具）", request.name, all_tools.len());
-        request.available_tools = all_tools;
-      } else {
-        warn!("未发现任何可用的工具，智能体 '{}' 将以空工具列表创建", request.name);
-      }
-    }
+    // 🔧 完全尊重用户的工具配置，不自动填充任何工具
+    // 即使用户的工具列表为空，也保持为空，不自动添加任何工具
     
     self.agent_manager.create_agent(request)
   }
@@ -1415,84 +1300,8 @@ impl AIManager {
       }
     }
     
-    // 如果更新了能力配置，且启用了工具调用，但请求中的工具列表为空
-    if let Some(ref capabilities) = request.capabilities {
-      info!("🔄 [Agent Update] 新能力配置 - enable_tool_calling: {}", capabilities.enable_tool_calling);
-      
-      if capabilities.enable_tool_calling && request.available_tools.is_empty() && !request.has_available_tools {
-        info!("🔄 [Agent Update] 条件满足：工具调用已启用且工具列表为空");
-        
-        if let Some(existing) = existing_config {
-          let should_discover = existing.available_tools.is_empty() || 
-                                capabilities.enable_tool_calling != existing.capabilities.enable_tool_calling;
-          
-          info!("🔄 [Agent Update] 是否需要发现工具: {}", should_discover);
-          
-          if should_discover {
-            info!("✨ [Agent Update] 检测到工具调用能力变更或工具列表为空，开始自动发现工具...");
-            let tool_details = self.discover_available_tools().await;
-            
-            // 提取所有工具名称（支持同名工具）
-            #[cfg(feature = "mcp")]
-            let discovered_tool_names: Vec<String> = {
-              use std::collections::HashSet;
-              let mut unique_names = HashSet::new();
-              tool_details.iter()
-                .filter_map(|(_, tool)| {
-                  if unique_names.insert(tool.name.clone()) {
-                    Some(tool.name.clone())
-                  } else {
-                    None
-                  }
-                })
-                .collect()
-            };
-            #[cfg(not(feature = "mcp"))]
-            let discovered_tool_names: Vec<String> = vec![];
-            
-            // 🆕 首先添加内置工具（包括网络搜索工具）
-            let mut all_tools = Vec::new();
-            
-            // 添加内置网络搜索工具
-            #[cfg(feature = "web-search")]
-            {
-              all_tools.extend(vec![
-                "web_search".to_string(),
-                "quick_search".to_string(),
-              ]);
-            }
-            
-            // 添加其他内置工具
-            all_tools.extend(vec![
-              "search_documents".to_string(),
-              "create_document".to_string(),
-              "update_document".to_string(),
-              "delete_document".to_string(),
-            ]);
-            
-            // 添加发现的 MCP 工具
-            all_tools.extend(discovered_tool_names);
-            
-            if !all_tools.is_empty() {
-              info!("✅ [Agent Update] 为智能体 '{}' 自动发现了 {} 个工具（包含内置工具）", 
-                    existing.name, all_tools.len());
-              request.available_tools = all_tools;
-              request.has_available_tools = true;
-            } else {
-              warn!("⚠️  [Agent Update] 未发现任何可用的工具");
-            }
-          } else {
-            info!("ℹ️  [Agent Update] 智能体已有工具且能力未变更，跳过工具发现");
-          }
-        }
-      } else if !capabilities.enable_tool_calling {
-        info!("ℹ️  [Agent Update] 工具调用未启用，跳过工具发现");
-      } else {
-        info!("ℹ️  [Agent Update] 请求中已包含 {} 个工具，跳过自动发现", request.available_tools.len());
-      }
-    } else {
-      info!("ℹ️  [Agent Update] 未更新能力配置，跳过工具发现");
-    }
+    // 🔧 完全尊重用户的工具配置，不自动填充任何工具
+    // 即使用户的工具列表为空或更新了能力配置，也不自动添加工具
     
     let result = self.agent_manager.update_agent(request);
     info!("🔄 [Agent Update] 更新完成");

@@ -112,17 +112,18 @@ MetadataCollection parseMetadata(String? s) {
         metadata.add(ChatMessageRefSource.fromJson(map));
       } else if (map.containsKey("SOURCE_ID") && map["SOURCE_ID"] != null) {
         // 处理文档检索引用（RAG）
-        // 格式: { "SOURCE_ID": "uuid", "SOURCE": "appflowy", "SOURCE_NAME": "document" }
+        // 🔧 修复：后端只发送SOURCE_ID，不发送SOURCE_NAME，前端会根据ID自动获取文档名称
+        // 格式: { "SOURCE_ID": "uuid", "SOURCE": "appflowy" }
         final sourceId = map["SOURCE_ID"].toString();
         final source = map["SOURCE"]?.toString() ?? "appflowy";
         
-        // name留空让AIMessageMetadata组件异步加载真实文档名称
-        // 组件会使用ViewBackendService.getView(sourceId)查询并显示view.nameOrDefault
-        Log.info("📄 [DOC_RETRIEVAL] Found document reference: id=$sourceId, source=$source");
+        // 🔧 修复：不设置名称（空字符串），让前端通过ViewBackendService.getView自动获取
+        // 这样可以确保前端总是使用正确的文档ID来获取文档名称
+        Log.info("📄 [DOC_RETRIEVAL] Found document reference: id=$sourceId, source=$source, 前端将通过ID获取名称");
         
         metadata.add(ChatMessageRefSource(
           id: sourceId,
-          name: "Loading...", // 临时占位符，加载时显示，成功后替换为真实名称
+          name: "", // 空字符串，前端会通过ID自动获取文档名称
           source: source,
         ));
       } else if (map.containsKey("reasoning_delta")) {
@@ -241,7 +242,7 @@ List<ChatMessageRefSource> _extractCitationsFromSearchResult(String result) {
     final matches = pattern.allMatches(result);
     
     for (final match in matches) {
-      final index = match.group(1); // 引用序号
+      // final index = match.group(1); // 引用序号（未使用）
       final title = match.group(2)?.trim(); // 标题
       final url = match.group(3)?.trim(); // URL
       

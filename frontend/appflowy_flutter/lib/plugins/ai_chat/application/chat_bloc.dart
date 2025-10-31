@@ -21,6 +21,10 @@ import 'chat_message_stream.dart';
 import 'reasoning_manager.dart';
 import 'chat_settings_manager.dart';
 import 'chat_stream_manager.dart';
+import 'package:appflowy/workspace/application/view/prelude.dart';
+import 'package:appflowy/workspace/application/view/view_ext.dart';
+import 'package:appflowy/generated/locale_keys.g.dart';
+import 'package:easy_localization/easy_localization.dart';
 
 part 'chat_bloc.freezed.dart';
 
@@ -169,6 +173,162 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     await _settingsManager.updateSelectedSources(selectedSourcesIds);
   }
 
+  /// Extract document IDs from @mentions in the message text and merge with existing selected sources
+  /// This ensures that all @mention documents are included in the RAG context
+  /// ⚠️ 重要：必须等待完成后再发送消息，否则后端读取数据库时可能还没有更新rag_ids
+  Future<void> _extractAndMergeMentionDocumentIds(String message) async {
+    // Handle empty message gracefully
+    if (message.isEmpty) {
+      return;
+    }
+
+    // 🔧 修复：等待文档ID更新完成，确保后端读取数据库时能获取到最新的rag_ids
+    await _loadDocumentsAndExtractMentions(message);
+  }
+
+  /// Load all documents and extract mention document IDs from message text
+  Future<void> _loadDocumentsAndExtractMentions(String message) async {
+    try {
+      // Get all views from backend
+      final viewsResult = await ViewBackendService.getAllViews().fold(
+        (result) {
+          // Filter to only document views (same logic as ChatInputControlCubit.refreshViews)
+          return result.items
+              .where(
+                (v) =>
+                    !v.isSpace &&
+                    v.layout.isDocumentView &&
+                    v.parentViewId != v.id,
+              )
+              .toList();
+        },
+        (err) {
+          Log.error("Error loading views for mention extraction: $err");
+          return <ViewPB>[];
+        },
+      );
+
+      if (viewsResult.isEmpty) {
+        return;
+      }
+
+      // Create document name to ID mapping
+      final documentIdMap = <String, String>{};
+      for (final view in viewsResult) {
+        final documentName = view.name.isEmpty
+            ? LocaleKeys.document_title_placeholder.tr()
+            : view.name;
+        documentIdMap[documentName] = view.id;
+      }
+
+      // Extract mention patterns using regex (same pattern as DocumentMentionExtractor)
+      final mentionPattern = RegExp(r'@([^\s@]+)', unicode: true);
+      final matches = mentionPattern.allMatches(message);
+      final mentionDocumentIds = <String>{};
+
+      for (final match in matches) {
+        final documentName = match.group(1);
+        if (documentName != null && documentName.isNotEmpty) {
+          final documentId = documentIdMap[documentName];
+          if (documentId != null && documentId.isNotEmpty) {
+            Log.info(
+              "[ChatBloc] 📄 找到@mention文档: name='$documentName', id=$documentId"
+            );
+            mentionDocumentIds.add(documentId);
+          } else {
+            Log.warn(
+              "[ChatBloc] ⚠️ 未找到@mention文档: name='$documentName', "
+              "可用文档: ${documentIdMap.keys.join(', ')}"
+            );
+          }
+        }
+      }
+
+      // If no mentions found, skip merging
+      if (mentionDocumentIds.isEmpty) {
+        return;
+      }
+
+      // Get current selected sources
+      final currentSources = List<String>.from(selectedSourcesNotifier.value);
+      final currentSourcesSet = currentSources.toSet();
+
+      // 🔧 修复：检查是否有@mention的文档ID不在现有列表中
+      final missingMentionIds = mentionDocumentIds
+          .where((id) => !currentSourcesSet.contains(id))
+          .toSet();
+
+      // 🔧 修复：确保至少包含所有@mention的文档ID
+      // 即使所有@mention ID都在列表中，也要确保数据库中的rag_ids与当前@mention的ID匹配
+      // 因为selectedSourcesNotifier.value可能包含之前聊天的错误ID
+      // 强制更新以确保数据库中的rag_ids与当前@mention的ID一致
+      if (missingMentionIds.isNotEmpty) {
+        // 有缺失的@mention文档，需要更新
+        // Merge mention document IDs with existing selected sources
+        // Use Set to avoid duplicates, but prioritize @mention IDs
+        final mergedSources = <String>{...currentSources, ...mentionDocumentIds}.toList();
+
+        Log.info(
+          "[ChatBloc] 🔄 准备更新rag_ids: "
+          "现有=${currentSources.length}, @mention=${mentionDocumentIds.length}, "
+          "缺失=${missingMentionIds.length}, "
+          "合并后=${mergedSources.length}, "
+          "mention IDs=${mentionDocumentIds.join(', ')}, "
+          "缺失的IDs=${missingMentionIds.join(', ')}, "
+          "即将保存的IDs=${mergedSources.join(', ')}"
+        );
+        
+        // Update selected sources (this will also update the backend)
+        await _settingsManager.updateSelectedSources(mergedSources);
+
+        Log.info(
+          "[ChatBloc] ✅ rag_ids更新完成，已保存到数据库"
+        );
+      } else {
+        // 🔧 修复：即使所有@mention的ID都在列表中，也要确保数据库中的rag_ids与当前@mention的ID匹配
+        // 重新加载设置以确保同步，然后强制更新以确保一致性
+        await _settingsManager.loadSettings();
+        final loadedSources = List<String>.from(_settingsManager.selectedSourcesNotifier.value);
+        
+        // 检查数据库中的rag_ids是否包含所有@mention的ID
+        final loadedSourcesSet = loadedSources.toSet();
+        final missingInLoaded = mentionDocumentIds
+            .where((id) => !loadedSourcesSet.contains(id))
+            .toSet();
+        
+        if (missingInLoaded.isNotEmpty || loadedSources.length != currentSources.length) {
+          // 数据库中的rag_ids与当前@mention的ID不一致，需要强制更新
+          final mergedSources = <String>{...currentSources, ...mentionDocumentIds}.toList();
+          
+          Log.info(
+            "[ChatBloc] 🔄 强制更新rag_ids（数据库不一致）: "
+            "本地=${currentSources.length}, 数据库=${loadedSources.length}, "
+            "@mention=${mentionDocumentIds.length}, "
+            "数据库缺失=${missingInLoaded.length}, "
+            "mention IDs=${mentionDocumentIds.join(', ')}, "
+            "数据库IDs=${loadedSources.join(', ')}, "
+            "即将保存的IDs=${mergedSources.join(', ')}"
+          );
+          
+          await _settingsManager.updateSelectedSources(mergedSources);
+          
+          Log.info(
+            "[ChatBloc] ✅ rag_ids强制更新完成，已保存到数据库"
+          );
+        } else {
+          // 所有@mention的ID都在列表中，且数据库中的rag_ids与本地一致
+          Log.info(
+            "[ChatBloc] ℹ️ 无需更新rag_ids（所有@mention文档已存在且数据库一致）: "
+            "现有=${currentSources.length}, @mention=${mentionDocumentIds.length}"
+          );
+        }
+      }
+    } catch (e) {
+      Log.error("Error in _loadDocumentsAndExtractMentions: $e");
+      // Continue even if mention extraction fails
+    }
+  }
+
   // Agent selection handler
   Future<void> _handleSelectAgent(String? agentId) async {
     selectedAgentId = agentId;
@@ -239,13 +399,13 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   }
 
   // Message sending handlers
-  void _handleSendMessage(
+  Future<void> _handleSendMessage(
     String message,
     PredefinedFormat? format,
     Map<String, dynamic>? metadata,
     String? promptId,
     Emitter<ChatState> emit,
-  ) {
+  ) async {
     // 防止重复发送消息
     if (_isSendingMessage) {
       Log.warn("Message sending already in progress, ignoring duplicate request");
@@ -262,6 +422,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     // 清理之前的推理状态，为新的对话做准备
     final reasoningManager = ReasoningManager();
     reasoningManager.clearReasoning(chatId);
+    
+    // 🔧 修复：等待文档ID提取和更新完成，确保后端能获取到正确的rag_ids
+    // Extract document IDs from @mentions and merge with existing selected sources
+    await _extractAndMergeMentionDocumentIds(message);
     
     _startStreamingMessage(message, format, metadata, promptId);
     lastSentMessage = null;

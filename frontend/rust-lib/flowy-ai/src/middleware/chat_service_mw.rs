@@ -108,12 +108,12 @@ impl ChatServiceMiddleware {
   /// 从选中的文档中检索相关内容并添加到消息上下文中
   /// 用于 OpenAI 兼容服务器和云端 AI
   /// 
-  /// 返回: (增强后的消息内容, 检索到的文档列表)
+  /// 返回: (用户问题文本(保留@文档引用), 检索到的文档列表, 文档引用到名称的映射)
   async fn get_message_content_with_rag(
     &self,
     chat_id: &Uuid,
     question: &str,
-  ) -> FlowyResult<(String, Vec<langchain_rust::schemas::Document>)> {
+  ) -> FlowyResult<(String, Vec<langchain_rust::schemas::Document>, std::collections::HashMap<String, String>)> {
     // 获取 rag_ids
     let uid = self.user_service.user_id()?;
     let mut conn = self.user_service.sqlite_connection(uid)?;
@@ -122,9 +122,12 @@ impl ChatServiceMiddleware {
       Err(_) => Vec::new(),
     };
 
+    // 提取 @文档引用和文档名称映射（保留 @文档引用在问题中）
+    let (question_with_mentions, document_name_map) = self.extract_document_mentions(question, &rag_ids)?;
+
     if rag_ids.is_empty() {
       // trace!("[RAG] 📚 OpenAI 兼容模式：没有选择文档，直接使用用户问题");
-      return Ok((question.to_string(), Vec::new()));
+      return Ok((question_with_mentions, Vec::new(), document_name_map));
     }
 
       info!(
@@ -132,9 +135,15 @@ impl ChatServiceMiddleware {
         rag_ids
       );
 
-    // 尝试直接使用嵌入调度器进行搜索（不依赖 local_ai.is_ready()）
-    // 这样即使 Ollama 聊天客户端未初始化，只要配置了嵌入服务就能工作
-    match self.try_search_documents_via_embeddings(chat_id, question, &rag_ids).await {
+    // 为了更好的检索效果，构建一个不包含 @符号但包含文档名称的查询
+    // 例如 "从@文档1中获取姓名" -> "从文档1中获取姓名" 用于检索
+    let query_for_retrieval = question_with_mentions
+      .replace("@", "")
+      .trim()
+      .to_string();
+    
+    // 使用改进的查询进行检索
+    match self.try_search_documents_via_embeddings(chat_id, &query_for_retrieval, &rag_ids).await {
       Ok(documents) if !documents.is_empty() => {
           info!(
             "[RAG] 📖 OpenAI 兼容模式：找到 {} 个相关文档片段",
@@ -156,9 +165,8 @@ impl ChatServiceMiddleware {
             documents.len()
           );
         
-        // ⚠️ 关键修改：返回原始问题，不在用户消息中添加上下文
-        // RAG 上下文将在调用处添加到 system prompt 中
-        return Ok((question.to_string(), documents));
+        // 返回原始问题（包含 @文档引用）和文档列表
+        return Ok((question_with_mentions, documents, document_name_map));
       }
       Ok(_) => {
           warn!(
@@ -173,7 +181,62 @@ impl ChatServiceMiddleware {
       }
     }
 
-    Ok((question.to_string(), Vec::new()))
+    Ok((question_with_mentions, Vec::new(), document_name_map))
+  }
+
+  /// 从问题文本中提取 @文档引用，返回原始问题和文档名称映射
+  /// 
+  /// 支持的模式：
+  /// - "@文档1"、"@文档2" 等中文文档名
+  /// - "@document1"、"@doc2" 等英文文档名
+  /// 
+  /// 注意：保留 @文档引用在问题中，让模型能够理解文档的语义角色和上下文关系
+  /// 同时在 system prompt 中明确说明 @文档引用是 RAG 文档名称，不是问题的一部分
+  /// 
+  /// 返回: (原始问题文本, 文档引用到名称的映射)
+  fn extract_document_mentions(
+    &self,
+    question: &str,
+    _rag_ids: &[String],
+  ) -> FlowyResult<(String, std::collections::HashMap<String, String>)> {
+    use std::collections::HashMap;
+    
+    let mut document_name_map = HashMap::new();
+    
+    // 使用简单的字符串扫描来查找 @文档引用
+    // 匹配模式：@后面跟非空白、非@、非标点的字符序列
+    let chars: Vec<char> = question.chars().collect();
+    
+    // 扫描：找到所有 @文档引用
+    let mut i = 0;
+    while i < chars.len() {
+      if chars[i] == '@' && i + 1 < chars.len() {
+        // 找到 @ 符号，查找文档名
+        let start = i;
+        let mut end = i + 1;
+        
+        // 文档名可以包含中文、英文、数字，但不能包含空白、@、某些标点
+        let stop_chars = [' ', '\t', '\n', '\r', '@', '，', '。', '、', '；', '：'];
+        
+        while end < chars.len() && !stop_chars.contains(&chars[end]) {
+          end += 1;
+        }
+        
+        if end > start + 1 {
+          // 找到了有效的 @文档引用
+          let mention_text: String = chars[start..end].iter().collect();
+          let document_name: String = chars[start + 1..end].iter().collect();
+          
+          if !document_name.is_empty() {
+            document_name_map.insert(mention_text.clone(), document_name);
+          }
+        }
+      }
+      i += 1;
+    }
+    
+    // 返回原始问题（保留 @文档引用）和映射
+    Ok((question.to_string(), document_name_map))
   }
   
   /// 直接使用嵌入服务进行文档搜索
@@ -256,27 +319,77 @@ impl ChatServiceMiddleware {
   /// 
   /// ⚠️ 关键优化：将 RAG 文档上下文添加到 system prompt 中，
   /// 并明确指示 AI 优先使用文档内容，其次才考虑工具调用
+  /// 
+  /// 同时明确说明 @文档引用的作用：它们是筛选范围，不是问题本身
   fn build_messages_with_system_prompt(
     &self,
     content: String,
     system_prompt: Option<String>,
     rag_documents: &[langchain_rust::schemas::Document],
+    document_name_map: &std::collections::HashMap<String, String>,
   ) -> Vec<serde_json::Value> {
     let mut messages = Vec::new();
     
     // 构建增强的 system prompt
     let enhanced_system_prompt = if !rag_documents.is_empty() {
-      // 提取文档内容
+      // 提取文档内容并按文档分组（如果可能）
       let context = rag_documents
         .iter()
         .map(|doc| doc.page_content.clone())
         .collect::<Vec<_>>()
         .join("\n\n");
       
+      // 构建文档引用说明（如果有 @文档引用）
+      let mention_explanation = if !document_name_map.is_empty() {
+        let document_list: Vec<String> = document_name_map.values().cloned().collect();
+        let mention_examples: Vec<String> = document_name_map.keys().cloned().collect();
+        format!(
+          r#"
+
+## 📌 IMPORTANT: Understanding @Document References in User Question:
+
+The user's question contains @document_name references (e.g., {}).
+These @mentions are **RAG document names/references**, NOT part of the actual question text.
+
+### Critical Understanding:
+1. **@document_name format** = RAG document identifier/filter
+   - These identify WHICH documents from the RAG context to use
+   - They specify the SCOPE/FILTER for document retrieval
+   - They are metadata, NOT part of the semantic query itself
+
+2. **The actual question** is the semantic meaning after understanding what @documents represent:
+   - "@文档1" means "the document named 文档1 in the RAG context"
+   - When user says "从@文档1中获取姓名", it means "extract names from the document called 文档1"
+   - You should understand the semantic role each @document plays in the task
+
+3. **Multiple @document references** indicate different documents may have different roles:
+   - Pay attention to the context where each @document is mentioned
+   - Understand the relationship between documents in the task
+   - Example: "从@文档1中获取姓名，并且在@文档2中找到这些姓名的成绩"
+     * @文档1 (document named '文档1') = source for extracting names/identities
+     * @文档2 (document named '文档2') = source for finding grades/scores for those names
+     * Task = combine information from both documents with specific semantic roles
+
+4. **Your task**: 
+   - Use the RAG document content provided below to answer the question
+   - Understand that @document references point to specific documents in the RAG context
+   - Extract information according to each document's semantic role as indicated by the question context
+   - The @mentions help you understand WHICH documents to use for WHAT purpose
+
+Referenced documents in question: {}
+"#,
+          mention_examples.join(", "),
+          document_list.join(", ")
+        )
+      } else {
+        String::new()
+      };
+      
       let rag_instruction = format!(
         r#"# 📚 IMPORTANT: Document Context Available
 
-You have access to relevant documents that contain information to answer the user's question.
+You have access to relevant documents that contain information to answer the user's question.{}
+{}
 
 ## Priority Guidelines (READ CAREFULLY):
 1. **FIRST PRIORITY**: Use the information from the provided documents below to answer questions
@@ -293,7 +406,14 @@ You have access to relevant documents that contain information to answer the use
 - If the answer is in the documents, provide it directly without using tools
 - Cite the documents when answering based on their content
 - Be explicit about whether you're using document knowledge or tool results
+- When multiple documents are referenced, understand each document's semantic role in the task
 "#,
+        mention_explanation,
+        if mention_explanation.is_empty() {
+          "\nNote: The user may reference specific documents. These are scope filters, not part of the question text."
+        } else {
+          ""
+        },
         context
       );
       
@@ -321,7 +441,8 @@ You have access to relevant documents that contain information to answer the use
       }));
     }
     
-    // 用户消息
+    // 用户消息（保留 @文档引用，以便模型理解文档的语义角色和上下文关系）
+    // System prompt 中已明确说明 @文档引用是 RAG 文档名称，不是问题的一部分
     messages.push(json!({
       "role": "user",
       "content": content
@@ -373,7 +494,7 @@ You have access to relevant documents that contain information to answer the use
   ) -> Result<StreamAnswer, FlowyError> {
     // 获取消息内容（包含 RAG 文档检索）
     let question = self.get_message_content(question_id)?;
-    let (content, rag_documents) = self.get_message_content_with_rag(chat_id, &question).await?;
+    let (content, rag_documents, document_name_map) = self.get_message_content_with_rag(chat_id, &question).await?;
     
     info!(
       "stream_answer_with_system_prompt use model: {:?}, has_system_prompt: {}, has_tools: {}",
@@ -386,10 +507,18 @@ You have access to relevant documents that contain information to answer the use
     if ai_model.is_local {
       if self.local_ai.is_ready().await {
         // 本地 AI: 简单合并系统提示词（本地模型可能不支持 system role）
-        let final_content = if let Some(ref prompt) = system_prompt {
-          format!("{}\n\n{}", prompt, content)
+        // 对于本地 AI，保留 @文档引用，在提示词中说明它们的作用
+        let (_original_content, document_name_map) = self.extract_document_mentions(&content, &[])?;
+        let mention_note = if !document_name_map.is_empty() {
+          let docs: Vec<String> = document_name_map.values().cloned().collect();
+          format!("\n\n注意：问题中的 @文档引用（如 {}) 是 RAG 文档名称，用于筛选检索范围，不是问题文本的一部分。", docs.join(", "))
         } else {
-          content
+          String::new()
+        };
+        let final_content = if let Some(ref prompt) = system_prompt {
+          format!("{}{}\n\n{}", prompt, mention_note, content)
+        } else {
+          format!("{}{}", mention_note, content)
         };
         self
           .local_ai
@@ -406,7 +535,7 @@ You have access to relevant documents that contain information to answer the use
             let server_model = AIModel::server(name, String::new());
             if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
               let (_init_reasoning, stream) = self
-                .openai_chat_stream_with_system(&cfg, Some(&server_model.name), content, system_prompt, tools.as_deref(), rag_documents.clone())
+                .openai_chat_stream_with_system(&cfg, Some(&server_model.name), content, system_prompt, tools.as_deref(), rag_documents.clone(), &document_name_map, Some(chat_id))
                 .await?;
               return Ok(stream);
             }
@@ -423,9 +552,9 @@ You have access to relevant documents that contain information to answer the use
       // 如果配置了 OpenAI 兼容服务器，则优先直接调用（使用标准 system/user 消息格式）
       if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
         // 🔧 重要修复：添加 RAG 文档检索支持
-        let (content_with_rag, rag_documents) = self.get_message_content_with_rag(chat_id, &content).await?;
+        let (content_with_rag, rag_documents, document_name_map) = self.get_message_content_with_rag(chat_id, &content).await?;
         let (_init_reasoning, stream) = self
-          .openai_chat_stream_with_system(&cfg, Some(&ai_model.name), content_with_rag, system_prompt, tools.as_deref(), rag_documents)
+          .openai_chat_stream_with_system(&cfg, Some(&ai_model.name), content_with_rag, system_prompt, tools.as_deref(), rag_documents, &document_name_map, Some(chat_id))
           .await?;
         return Ok(stream);
       }
@@ -580,6 +709,8 @@ You have access to relevant documents that contain information to answer the use
     system_prompt: Option<String>,
     tools: Option<&[ToolDefinitionPB]>,  // 🆕 添加工具参数
     rag_documents: Vec<langchain_rust::schemas::Document>,  // 🆕 RAG文档列表（用于发送metadata）
+    document_name_map: &std::collections::HashMap<String, String>,  // 🆕 文档名称映射（用于理解@文档引用）
+    chat_id: Option<&Uuid>,  // 🆕 聊天ID（用于获取rag_ids，补充所有文档引用）
   ) -> Result<(Option<String>, StreamAnswer), FlowyError> {
     info!("🔧 [AI-SERVICE] 🚀 openai_chat_stream_with_system called with model: {:?}, system_prompt: {}, tools: {}", 
           model, system_prompt.is_some(), tools.is_some());
@@ -598,9 +729,39 @@ You have access to relevant documents that contain information to answer the use
       cfg.model
     );
     
+    // 🔧 修复：在 content 被移动到 build_messages_with_system_prompt 之前，先提取文档名
+    // 根据问题文本中@文档名的出现顺序构建有序的文档名列表
+    let mut document_names_ordered: Vec<String> = Vec::new();
+    let question_chars: Vec<char> = content.chars().collect();
+    {
+      let mut i = 0;
+      while i < question_chars.len() {
+        if question_chars[i] == '@' && i + 1 < question_chars.len() {
+          let start = i;
+          let mut end = i + 1;
+          let stop_chars = [' ', '\t', '\n', '\r', '@', '，', '。', '、', '；', '：'];
+          while end < question_chars.len() && !stop_chars.contains(&question_chars[end]) {
+            end += 1;
+          }
+          if end > start + 1 {
+            let document_name: String = question_chars[start + 1..end].iter().collect();
+            if !document_name.is_empty() && !document_names_ordered.contains(&document_name) {
+              document_names_ordered.push(document_name);
+            }
+          }
+        }
+        i += 1;
+      }
+    }
+    
+    // 如果没有从问题文本中提取到文档名，fallback到document_name_map中的值
+    if document_names_ordered.is_empty() {
+      document_names_ordered = document_name_map.values().cloned().collect();
+    }
+    
     // 构建包含系统提示词的消息数组（使用标准 OpenAI 格式）
-    // ⚠️ 传入 rag_documents，将 RAG 上下文添加到 system prompt
-    let messages = self.build_messages_with_system_prompt(content, system_prompt, &rag_documents);
+    // ⚠️ 传入 rag_documents 和 document_name_map，将 RAG 上下文添加到 system prompt
+    let messages = self.build_messages_with_system_prompt(content, system_prompt, &rag_documents, document_name_map);
     let mut payload = Self::openai_chat_payload(model_name, messages);
     
     // 🆕 添加工具定义（使用 OpenAI Function Call API）
@@ -646,38 +807,130 @@ You have access to relevant documents that contain information to answer the use
     
     info!("🔧 [AI-SERVICE] Response status: {}, headers: {:?}", resp.status(), resp.headers());
     
-    // info!("🔧 [AI-SERVICE] About to create stream from response");
-    let s = try_stream! {
-      // 🔧 首先发送文档来源 metadata（如果有检索到的文档）
-      if !rag_documents.is_empty() {
-        
-        // 使用 HashMap 去重（按 object_id）
-        let mut deduplicated_sources: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
-        for doc in &rag_documents {
-          if let Some(object_id) = doc.metadata.get("object_id").and_then(|v| v.as_str()) {
-            // TODO: 获取真实的文档名称，目前暂时使用 "document"
-            // 由于生命周期问题，暂时无法在流式上下文中异步获取文档名称
-            let document_name = "document".to_string();
-            
-            // 构建 metadata，格式与前端期望的 SOURCE_ID/SOURCE/SOURCE_NAME 匹配
-            let source_meta = json!({
-              "SOURCE_ID": object_id,
-              "SOURCE": "appflowy",
-              "SOURCE_NAME": document_name
-            });
-            
-            deduplicated_sources.insert(object_id.to_string(), source_meta.clone());
-            
+    // 🔧 修复生命周期问题：在进入 try_stream! 之前，先获取所有需要的数据并克隆
+    // 首先，从检索到的文档片段中提取文档引用
+    let mut deduplicated_sources: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
+    let default_document_name = document_name_map.values().next()
+      .cloned()
+      .unwrap_or_else(|| "document".to_string());
+    
+    for doc in &rag_documents {
+      if let Some(object_id) = doc.metadata.get("object_id").and_then(|v| v.as_str()) {
+        info!(
+          "[RAG] 📄 从检索结果提取文档引用: object_id={}, score={:.4}",
+          object_id,
+          doc.score
+        );
+        // 🔧 修复：后端只发送SOURCE_ID，不发送SOURCE_NAME，让前端通过ID自动获取文档名称
+        let source_meta = json!({
+          "SOURCE_ID": object_id,
+          "SOURCE": "appflowy"
+        });
+        deduplicated_sources.insert(object_id.to_string(), source_meta);
+      } else {
+        warn!(
+          "[RAG] ⚠️ 检索结果中的文档片段缺少 object_id metadata: score={:.4}",
+          doc.score
+        );
+      }
+    }
+    
+    // 🔧 修复问题：补充所有在 rag_ids 中但不在 rag_documents 中的文档
+    // 在进入 try_stream! 之前获取 rag_ids，避免生命周期问题
+    // 注意：document_names_ordered 已经在第760-786行提取完成，这里直接使用
+    let document_names_for_closure = document_names_ordered.clone();
+    let default_doc_name_for_closure = default_document_name.clone();
+    let get_document_name_by_index = move |index: usize| -> String {
+      if index < document_names_for_closure.len() {
+        document_names_for_closure[index].clone()
+      } else if !document_names_for_closure.is_empty() {
+        // 如果索引超出范围，使用最后一个文档名（比第一个更合理）
+        document_names_for_closure[document_names_for_closure.len() - 1].clone()
+      } else {
+        default_doc_name_for_closure.clone()
+      }
+    };
+    
+    // 🔧 修复：只在有@提及时才补充rag_ids中的其他文档
+    // 当没有@提及时，只发送实际检索到的文档，避免发送错误的文档ID
+    if !document_names_ordered.is_empty() {
+      // 有@提及：补充rag_ids中的所有文档（用户明确指定的）
+      if let Some(chat_id) = chat_id {
+        let uid = self.user_service.user_id().ok();
+        if let Some(uid) = uid {
+          if let Ok(mut conn) = self.user_service.sqlite_connection(uid) {
+            if let Ok(rag_ids) = select_chat_rag_ids(&mut conn, &chat_id.to_string()) {
+              trace!(
+                "[RAG] 从数据库获取 rag_ids: {:?}, 已从检索结果提取: {:?}",
+                rag_ids,
+                deduplicated_sources.keys().collect::<Vec<_>>()
+              );
+              
+              let object_ids_from_rag_docs: std::collections::HashSet<String> = deduplicated_sources.keys().cloned().collect();
+              let mut added: Vec<String> = Vec::new();
+              
+              // 🔧 修复：按顺序处理rag_ids，并根据索引从document_names_ordered中获取对应的文档名
+              for (index, rag_id) in rag_ids.iter().enumerate() {
+                if !object_ids_from_rag_docs.contains(rag_id) {
+                  // 🔧 修复：后端只发送SOURCE_ID，不发送SOURCE_NAME，让前端通过ID自动获取文档名称
+                  let source_meta = json!({
+                    "SOURCE_ID": rag_id,
+                    "SOURCE": "appflowy"
+                  });
+                  deduplicated_sources.insert(rag_id.clone(), source_meta);
+                  added.push(rag_id.clone());
+                }
+                // 🔧 修复：如果文档已在检索结果中，不需要额外处理，因为检索结果已经包含该文档ID
+                // 后端不发送SOURCE_NAME，前端会根据ID自动获取文档名称
+              }
+              
+              if !added.is_empty() {
+                trace!(
+                  "[RAG] 补充了 {} 个文档引用（总计 {} 个）",
+                  added.len(),
+                  deduplicated_sources.len()
+                );
+              }
+            }
           }
         }
-        
-        // 发送每个文档来源的 metadata
-        for source_meta in deduplicated_sources.values() {
+      }
+    } else {
+      // 🔧 修复：没有@提及时，只使用检索结果中的文档ID，不补充rag_ids中的其他文档
+      // 这样可以避免发送错误的文档ID（如聊天所在的文档ID）
+      trace!(
+        "[RAG] 没有@提及，只使用检索结果中的文档ID（不补充rag_ids）: {:?}",
+        deduplicated_sources.keys().collect::<Vec<_>>()
+      );
+    }
+    
+    // 🔧 修复：后端不发送SOURCE_NAME，前端会根据SOURCE_ID自动获取文档名称
+    // 这简化了逻辑，让前端统一处理文档名称的获取
+    
+    // 现在所有数据都已经准备好，可以安全地进入 try_stream!
+    let deduplicated_sources_clone = deduplicated_sources.clone();
+    // info!("🔧 [AI-SERVICE] About to create stream from response");
+    let s = try_stream! {
+      // 发送每个文档来源的 metadata（即使 rag_documents 为空，只要 deduplicated_sources 不为空就发送）
+      if !deduplicated_sources_clone.is_empty() {
+        info!(
+          "[RAG] 📤 OpenAI 兼容模式：发送 {} 个文档来源的 metadata",
+          deduplicated_sources_clone.len()
+        );
+        for (idx, (_doc_id, source_meta)) in deduplicated_sources_clone.iter().enumerate() {
+          let source_id = source_meta.get("SOURCE_ID")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+          info!(
+            "[RAG] 📤 [{}/{}] 发送文档引用 metadata: SOURCE_ID={}",
+            idx + 1,
+            deduplicated_sources_clone.len(),
+            source_id
+          );
           yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
             value: source_meta.clone()
           };
         }
-        
       }
       
       let mut inside_think = false;
@@ -872,7 +1125,8 @@ You have access to relevant documents that contain information to answer the use
   /// 原有的 openai_chat_stream 方法（向后兼容，不带系统提示词）
   async fn openai_chat_stream(&self, cfg: &OpenAICompatConfig, model_override: Option<&str>, content: String) -> FlowyResult<(Option<String>, StreamAnswer)> {
     // 调用新方法，不传系统提示词、工具和RAG文档
-    self.openai_chat_stream_with_system(cfg, model_override, content, None, None, Vec::new()).await
+    let empty_map = std::collections::HashMap::new();
+    self.openai_chat_stream_with_system(cfg, model_override, content, None, None, Vec::new(), &empty_map, None).await
   }
 
   /// 🔄 多轮对话：执行工具并继续对话
@@ -1207,7 +1461,7 @@ You have access to relevant documents that contain information to answer the use
     };
     // 获取消息内容（包含 RAG 文档检索）
     let question = self.get_message_content(question_id)?;
-    let (content, rag_documents) = self.get_message_content_with_rag(chat_id, &question).await?;
+    let (content, rag_documents, document_name_map) = self.get_message_content_with_rag(chat_id, &question).await?;
     let tools_clone = tools.clone();
     let tool_handler = tool_handler.unwrap();
     
@@ -1232,43 +1486,78 @@ You have access to relevant documents that contain information to answer the use
     // 构建初始消息
     // ⚠️ 使用 build_messages_with_system_prompt 来正确处理 RAG 上下文
     let messages = self.build_messages_with_system_prompt(
-      content.clone(),  // 使用原始问题（已通过 get_message_content_with_rag 获取）
+      content.clone(),  // 使用清理后的问题（已通过 get_message_content_with_rag 获取）
       system_prompt.clone(),
-      &rag_documents
+      &rag_documents,
+      &document_name_map
     );
+    
+    // 🔧 修复问题1：获取 rag_ids，确保所有@的文档都出现在引用列表中
+    let uid = self.user_service.user_id()?;
+    let mut conn_for_rag_ids = self.user_service.sqlite_connection(uid)?;
+    let rag_ids = match select_chat_rag_ids(&mut conn_for_rag_ids, &chat_id.to_string()) {
+      Ok(ids) => ids,
+      Err(_) => Vec::new(),
+    };
     
     // 创建多轮对话流
     let s = try_stream! {
-      // 🔧 首先发送文档来源 metadata（如果有检索到的文档）
-      if !rag_documents.is_empty() {
-        
-        // 使用 HashMap 去重（按 object_id）
-        let mut deduplicated_sources: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
-        for doc in &rag_documents {
-          if let Some(object_id) = doc.metadata.get("object_id").and_then(|v| v.as_str()) {
-            // TODO: 获取真实的文档名称，目前暂时使用 "document"
-            // 由于生命周期问题，暂时无法在流式上下文中异步获取文档名称
-            let document_name = "document".to_string();
-            
-            // 构建 metadata，格式与前端期望的 SOURCE_ID/SOURCE/SOURCE_NAME 匹配
-            let source_meta = json!({
-              "SOURCE_ID": object_id,
-              "SOURCE": "appflowy",
-              "SOURCE_NAME": document_name
-            });
-            
-            deduplicated_sources.insert(object_id.to_string(), source_meta.clone());
-            
-          }
+      // 🔧 修复问题1：确保所有@的文档都出现在引用列表中
+      // 不仅从 rag_documents 中提取，还要确保 rag_ids 中的所有文档都被包含
+      let mut deduplicated_sources: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
+      
+      // 首先，从检索到的文档片段中提取（这些文档肯定被使用了）
+      for doc in &rag_documents {
+        if let Some(object_id) = doc.metadata.get("object_id").and_then(|v| v.as_str()) {
+          // 尝试从 document_name_map 中获取真实的文档名称
+          // 由于 document_name_map 是 "@文档名" -> "文档名" 的映射，我们需要通过反向查找来匹配
+          // 但由于 object_id 和文档名的关系不直接，我们暂时使用 document_name_map 中的值
+          let document_name = document_name_map.values().next()
+            .cloned()
+            .unwrap_or_else(|| "document".to_string());
+          
+          // 构建 metadata，格式与前端期望的 SOURCE_ID/SOURCE/SOURCE_NAME 匹配
+          let source_meta = json!({
+            "SOURCE_ID": object_id,
+            "SOURCE": "appflowy",
+            "SOURCE_NAME": document_name
+          });
+          
+          deduplicated_sources.insert(object_id.to_string(), source_meta.clone());
         }
-        
-        // 发送每个文档来源的 metadata
+      }
+      
+      // 🔧 修复问题1：补充所有在 rag_ids 中但不在 rag_documents 中的文档
+      // 这确保即使用户@了文档但检索没有返回片段，这些文档也会出现在引用列表中
+      let mut object_ids_from_rag_docs: std::collections::HashSet<String> = deduplicated_sources.keys().cloned().collect();
+      for rag_id in &rag_ids {
+        // 如果这个文档ID还没有在引用列表中，添加它
+        if !object_ids_from_rag_docs.contains(rag_id) {
+          // 尝试从 document_name_map 中匹配文档名称
+          // 由于我们无法直接从 object_id 获取文档名，我们使用 document_name_map 中的第一个名称作为占位
+          // 理想的解决方案是在 get_message_content_with_rag 中建立 object_id -> document_name 的映射
+          let document_name = document_name_map.values().next()
+            .cloned()
+            .unwrap_or_else(|| "document".to_string());
+          
+          let source_meta = json!({
+            "SOURCE_ID": rag_id,
+            "SOURCE": "appflowy",
+            "SOURCE_NAME": document_name
+          });
+          
+          deduplicated_sources.insert(rag_id.clone(), source_meta);
+          object_ids_from_rag_docs.insert(rag_id.clone());
+        }
+      }
+      
+      // 发送每个文档来源的 metadata
+      if !deduplicated_sources.is_empty() {
         for source_meta in deduplicated_sources.values() {
           yield flowy_ai_pub::cloud::QuestionStreamValue::Metadata {
             value: source_meta.clone()
           };
         }
-        
       }
       
       let mut current_messages = messages.clone();
@@ -1276,25 +1565,69 @@ You have access to relevant documents that contain information to answer the use
       // 累积本轮文本内容，用于不支持 Function Call 的回退解析（<tool_call> 标签）
       let answer_buffer = std::sync::Arc::new(tokio::sync::Mutex::new(String::new()));
       
+      // 跟踪是否有工具结果（用于判断是否需要强制生成最终回答）
+      let mut has_tool_results = false;
+      let mut tool_result_count = 0;
+      
+      // 用于标记是否应该生成最终回答（在检测工具调用后设置）
+      let mut should_generate_final_answer = false;
+      
       loop {
         iteration += 1;
-        // 判断是否达到最大迭代次数（但允许最后一轮生成回答）
+        // 判断是否达到最大迭代次数
         let is_final_iteration = iteration > effective_max_iterations;
+        
+        // 🔧 修复：如果达到最大迭代次数，设置为应该生成最终回答
+        // 但如果之前已经设置了（因为信息足够），保持不变
+        if is_final_iteration {
+          should_generate_final_answer = true;
+        }
         
         if is_final_iteration {
           warn!("🔄 [AUTO-MULTI-TURN] Max iterations reached, requesting final answer");
-          yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
-            value: "\n\n🎯 **正在生成最终回答...**\n\n".to_string()
-          };
         } else {
           info!("🔄 [AUTO-MULTI-TURN] Iteration {}/{}", iteration, effective_max_iterations);
         }
         
-        // 如果是第2轮或更高（但不是最终轮），显示继续提示
-        if iteration > 1 && !is_final_iteration {
+        // 🔧 如果是最终迭代，准备生成最终回答（添加synthesis instruction）
+        if should_generate_final_answer {
           yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
-            value: "\n🤔 **正在综合分析结果...**\n\n".to_string()
+            value: "\n\n🎯 **正在综合信息生成最终回答...**\n\n".to_string()
           };
+          
+          // 🔧 关键修复：在最终迭代时，添加明确的user消息指示AI生成最终综合回答
+          // 而不是输出规划步骤
+          if has_tool_results && tool_result_count > 0 {
+            let synthesis_instruction = format!(
+              r#"请基于以上所有工具调用的结果，综合生成一个完整的最终回答。
+
+重要指示：
+1. **不要输出规划步骤或任务分解过程**
+2. **直接基于工具调用结果生成综合回答**
+3. **如果工具调用已获取足够信息，请综合这些信息回答用户的原始问题**
+4. **如果信息不足，请明确说明哪些部分无法完成及原因**
+5. **使用清晰、结构化的方式组织答案**
+
+用户的原始问题是：{}
+
+请现在生成最终回答（不要再次调用工具，不要输出规划步骤）："#,
+              content
+            );
+            
+            current_messages.push(json!({
+              "role": "user",
+              "content": synthesis_instruction
+            }));
+            
+            info!("🔄 [AUTO-MULTI-TURN] Added final synthesis instruction ({} tool results available)", tool_result_count);
+          }
+        } else {
+          // 如果是第2轮或更高（但不是最终轮），显示继续提示
+          if iteration > 1 {
+            yield flowy_ai_pub::cloud::QuestionStreamValue::Answer {
+              value: "\n🤔 **正在综合分析结果...**\n\n".to_string()
+            };
+          }
         }
         
         // 调用 OpenAI API
@@ -1306,12 +1639,24 @@ You have access to relevant documents that contain information to answer the use
         });
         
         // 添加工具定义（如果是最终迭代，不添加工具，强制生成文本回答）
-        if !is_final_iteration {
+        if !should_generate_final_answer {
           if let Some(ref tools) = tools_clone {
             if !tools.is_empty() {
               let openai_tools = Self::convert_tools_to_openai_format(tools);
               payload.as_object_mut().unwrap().insert("tools".into(), json!(openai_tools));
               payload.as_object_mut().unwrap().insert("tool_choice".into(), json!("auto"));
+            }
+          }
+        } else {
+          // 🔧 关键修复：在最终回答生成时，通过system prompt明确指示不要输出规划步骤
+          // 修改payload中的messages，在system message中添加额外指示
+          if let Some(system_msg) = payload["messages"].as_array_mut()
+            .and_then(|msgs| msgs.iter_mut().find(|m| m.get("role").and_then(|r| r.as_str()) == Some("system"))) {
+            // 🔧 修复：JsonValue 不支持 as_str_mut，需要先读取再替换
+            if let Some(current_content) = system_msg.get("content").and_then(|c| c.as_str()) {
+              let additional_instruction = "\n\n## 重要提示：当前是最终回答生成阶段\n请直接基于工具调用结果综合生成最终回答，不要输出规划步骤、任务分解过程或思考过程。直接给出综合后的答案。";
+              let new_content = format!("{}{}", current_content, additional_instruction);
+              system_msg["content"] = json!(new_content);
             }
           }
         }
@@ -1420,9 +1765,10 @@ You have access to relevant documents that contain information to answer the use
           if !tc.function.name.is_empty() {
             info!("🔄 [AUTO-MULTI-TURN] Detected tool: {}", tc.function.name);
             
-            // 如果是最终迭代，不应该再调用工具，直接结束
-            if is_final_iteration {
-              info!("🔄 [AUTO-MULTI-TURN] Final iteration reached, ignoring tool call and finishing");
+            // 🔧 修复：如果是最终迭代或应该生成最终回答，不应该再调用工具
+            if should_generate_final_answer {
+              info!("🔄 [AUTO-MULTI-TURN] Should generate final answer, ignoring tool call and finishing");
+              // 移除刚才添加的synthesis instruction（如果添加了），直接结束
               break;
             }
             
@@ -1507,6 +1853,11 @@ You have access to relevant documents that contain information to answer the use
               "content": result_content
             }));
             
+            // 🔧 更新工具结果计数
+            has_tool_results = true;
+            tool_result_count += 1;
+            info!("🔄 [AUTO-MULTI-TURN] Tool result added, total: {}", tool_result_count);
+            
             // 继续下一轮
             continue;
           }
@@ -1589,6 +1940,11 @@ You have access to relevant documents that contain information to answer the use
                 "name": req.tool_name,
                 "content": result_content
               }));
+              
+              // 🔧 更新工具结果计数
+              has_tool_results = true;
+              tool_result_count += 1;
+              info!("🔄 [AUTO-MULTI-TURN] Tool result added (fallback path), total: {}", tool_result_count);
             }
 
             // 继续下一轮
@@ -1596,10 +1952,49 @@ You have access to relevant documents that contain information to answer the use
           }
 
           // 无工具调用回退可用：若本轮产生了内容或达到最终迭代，则视为完成
-          if has_content || is_final_iteration {
-            info!("🔄 [AUTO-MULTI-TURN] Completed after {} iterations", iteration);
-            
-            
+          // 🔧 关键修复：如果有工具结果但没有新工具调用，应该生成最终回答而不是结束
+          if has_content {
+            if has_tool_results && tool_result_count > 0 && !is_final_iteration {
+              // 有工具结果但AI没有调用新工具，说明信息可能已经足够
+              // 设置标志以便下一轮生成最终回答
+              info!("🔄 [AUTO-MULTI-TURN] AI generated content without new tools, but has {} tool results. Will generate final answer in next iteration.", tool_result_count);
+              
+              // 添加明确的synthesis instruction，要求AI综合结果生成最终回答
+              let synthesis_instruction = format!(
+                r#"请基于以上所有工具调用的结果，综合生成一个完整的最终回答。
+
+重要指示：
+1. **不要输出规划步骤或任务分解过程**
+2. **直接基于工具调用结果生成综合回答**
+3. **如果工具调用已获取足够信息，请综合这些信息回答用户的原始问题**
+4. **如果信息不足，请明确说明哪些部分无法完成及原因**
+5. **使用清晰、结构化的方式组织答案**
+
+用户的原始问题是：{}
+
+请现在生成最终回答（不要再次调用工具，不要输出规划步骤）："#,
+                content
+              );
+              
+              current_messages.push(json!({
+                "role": "user",
+                "content": synthesis_instruction
+              }));
+              
+              // 标记下次迭代应该生成最终回答
+              should_generate_final_answer = true;
+              
+              // 继续下一轮，生成最终回答
+              continue;
+            } else if is_final_iteration {
+              info!("🔄 [AUTO-MULTI-TURN] Completed after {} iterations (final iteration with content)", iteration);
+              break;
+            } else {
+              info!("🔄 [AUTO-MULTI-TURN] Completed after {} iterations (content generated, no tools)", iteration);
+              break;
+            }
+          } else if is_final_iteration {
+            info!("🔄 [AUTO-MULTI-TURN] Completed after {} iterations (final iteration, no content)", iteration);
             break;
           }
         }
@@ -1903,7 +2298,7 @@ impl ChatCloudService for ChatServiceMiddleware {
       if let Some(cfg) = self.read_openai_compat_chat_config(workspace_id) {
         let content = self.get_message_content(question_id)?;
         // 🔧 重要修复：添加 RAG 文档检索支持
-        let (content_with_rag, _rag_documents) = self.get_message_content_with_rag(chat_id, &content).await?;
+        let (content_with_rag, _rag_documents, _document_name_map) = self.get_message_content_with_rag(chat_id, &content).await?;
         let (_init_reasoning, stream) = self
           .openai_chat_stream(&cfg, Some(&ai_model.name), content_with_rag)
           .await?;

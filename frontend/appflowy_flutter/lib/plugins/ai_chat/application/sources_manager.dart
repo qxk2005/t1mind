@@ -30,52 +30,94 @@ class SourcesManager {
   }
 
   /// 设置指定消息的 sources（智能合并，保留现有sources）
+  /// 🔧 修复：优先保留有名称的文档（来自@mention），对于相同ID的文档，优先使用有名称的版本
   void setSources(String chatId, String questionId, List<ChatMessageRefSource> sources) {
     final key = _generateKey(chatId, questionId);
     final existingSources = _sourcesMap[key] ?? [];
     
     // 🔧 修复：智能合并sources而不是完全替换
     // 使用 source + id 作为唯一标识进行去重和合并
+    // 对于相同ID的文档，优先保留有名称的版本（来自@mention）
     final Map<String, ChatMessageRefSource> sourceMap = {};
     
-    // 首先保留现有的sources（特别是RAG文档sources）
+    // 首先保留现有的sources
     for (final existingSource in existingSources) {
       final sourceKey = '${existingSource.source}:${existingSource.id}';
       sourceMap[sourceKey] = existingSource;
     }
     
-    // 然后添加新的sources（web搜索等）
+    // 然后添加新的sources，对于相同ID的文档，优先使用有名称的版本
     for (final newSource in sources) {
       final sourceKey = '${newSource.source}:${newSource.id}';
-      sourceMap[sourceKey] = newSource;
+      final existing = sourceMap[sourceKey];
+      
+      // 如果新source有名称且现有source没有名称，或者两者都没有名称，则替换
+      // 如果现有source有名称，则保留现有的（不覆盖）
+      if (existing == null) {
+        sourceMap[sourceKey] = newSource;
+      } else {
+        // 优先保留有名称的版本
+        final newHasName = newSource.name.isNotEmpty && 
+                          newSource.name != "Loading..." && 
+                          newSource.name != "加载中...";
+        final existingHasName = existing.name.isNotEmpty && 
+                               existing.name != "Loading..." && 
+                               existing.name != "加载中...";
+        
+        if (newHasName && !existingHasName) {
+          // 新source有名称，现有source没有名称，使用新的
+          sourceMap[sourceKey] = newSource;
+        }
+        // 其他情况保持现有的（existingHasName时保留现有的，都不有名称时也保留现有的）
+      }
     }
     
     // 更新sources列表
     final mergedSources = sourceMap.values.toList();
     _sourcesMap[key] = mergedSources;
-    
-    
   }
 
   /// 追加 sources 到指定消息（累积）
+  /// 🔧 修复：对于相同ID的文档，优先保留有名称的版本（来自@mention）
   void appendSources(String chatId, String questionId, List<ChatMessageRefSource> newSources) {
     final key = _generateKey(chatId, questionId);
     final existingSources = _sourcesMap[key] ?? [];
     
-    // 使用 source + id 作为唯一标识进行去重
-    final Set<String> existingKeys = existingSources
-        .map((source) => '${source.source}:${source.id}')
-        .toSet();
+    // 使用 source + id 作为唯一标识进行去重，同时优先保留有名称的版本
+    final Map<String, ChatMessageRefSource> sourceMap = {};
     
+    // 首先添加现有的sources
+    for (final existingSource in existingSources) {
+      final sourceKey = '${existingSource.source}:${existingSource.id}';
+      sourceMap[sourceKey] = existingSource;
+    }
+    
+    // 然后添加新的sources，对于相同ID的文档，优先使用有名称的版本
     for (final newSource in newSources) {
       final sourceKey = '${newSource.source}:${newSource.id}';
-      if (!existingKeys.contains(sourceKey)) {
-        existingSources.add(newSource);
-        existingKeys.add(sourceKey);
+      final existing = sourceMap[sourceKey];
+      
+      if (existing == null) {
+        // 新文档，直接添加
+        sourceMap[sourceKey] = newSource;
+      } else {
+        // 已存在，优先保留有名称的版本
+        final newHasName = newSource.name.isNotEmpty && 
+                          newSource.name != "Loading..." && 
+                          newSource.name != "加载中...";
+        final existingHasName = existing.name.isNotEmpty && 
+                               existing.name != "Loading..." && 
+                               existing.name != "加载中...";
+        
+        if (newHasName && !existingHasName) {
+          // 新source有名称，现有source没有名称，使用新的
+          sourceMap[sourceKey] = newSource;
+        }
+        // 其他情况保持现有的
       }
     }
     
-    _sourcesMap[key] = existingSources;
+    _sourcesMap[key] = sourceMap.values.toList();
   }
 
   /// 清除指定消息的 sources

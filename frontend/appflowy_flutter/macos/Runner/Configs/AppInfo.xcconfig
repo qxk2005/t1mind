@@ -14,9 +14,9 @@ PRODUCT_BUNDLE_IDENTIFIER = io.appflowy.appflowy
 PRODUCT_COPYRIGHT = Copyright © 2025 AppFlowy.IO. All rights reserved.
 
 // Architectures - Only build for ARM64 (M4 chip)
-//ARCHS = arm64;
-//EXCLUDED_ARCHS[sdk=macosx*] = x86_64;
+ARCHS = arm64;
+EXCLUDED_ARCHS[sdk=macosx*] = x86_64;
 
 // Architectures 打包通用版本
-ARCHS = "$(ARCHS_STANDARD)";
-EXCLUDED_ARCHS[sdk=macosx*] = "";
+//ARCHS = "$(ARCHS_STANDARD)";
+//EXCLUDED_ARCHS[sdk=macosx*] = "";

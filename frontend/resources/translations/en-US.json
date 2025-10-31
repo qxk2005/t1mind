@@ -278,6 +278,10 @@
     "webSearchReferences": "Web Search References",
     "documentReferences": "Document References",
     "mcpToolReferences": "MCP Tool Calls",
+    "atMentionPlaceholder": "Type @ to select document",
+    "atMentionNoDocuments": "No matching documents found",
+    "atMentionSelectDocument": "Select Document",
+    "atMentionDocumentSelected": "{} documents selected",
     "webSearchCitations": {
       "zero": "0 web search results",
       "one": "{count} web search result",

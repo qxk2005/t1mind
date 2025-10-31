@@ -59,6 +59,9 @@ class _PromptInputDesktopSelectSourcesButtonState
     },
   );
   final popoverController = PopoverController();
+  
+  // 🔧 修复问题2：记录打开时的选择状态，避免未更改时触发更新
+  List<String>? _selectedSourcesOnOpen;
 
   @override
   void initState() {
@@ -91,6 +94,9 @@ class _PromptInputDesktopSelectSourcesButtonState
             margin: EdgeInsets.zero,
             controller: popoverController,
             onOpen: () async {
+              // 🔧 修复问题2：记录打开时的选择状态
+              _selectedSourcesOnOpen = List<String>.from(cubit.selectedSourceIds);
+              
               // 🔧 修复：如果没有 spaces，则直接获取所有文档
               List<ViewPB> views = state.spaces;
               if (views.isEmpty) {
@@ -117,7 +123,19 @@ class _PromptInputDesktopSelectSourcesButtonState
               }
             },
             onClose: () async {
-              widget.onUpdateSelectedSources(cubit.selectedSourceIds);
+              // 🔧 修复问题2：只有当选择真正改变时才更新
+              final currentSelected = cubit.selectedSourceIds.toSet();
+              final previousSelected = (_selectedSourcesOnOpen ?? []).toSet();
+              
+              // 只有选择改变时才调用onUpdateSelectedSources
+              if (currentSelected.length != previousSelected.length ||
+                  !currentSelected.containsAll(previousSelected) ||
+                  !previousSelected.containsAll(currentSelected)) {
+                widget.onUpdateSelectedSources(cubit.selectedSourceIds);
+              }
+              
+              _selectedSourcesOnOpen = null; // 重置状态
+              
               // 🔧 修复：如果没有 spaces，则直接获取所有文档
               List<ViewPB> views = state.spaces;
               if (views.isEmpty) {

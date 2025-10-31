@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/ai-chat-at-mention-documents/requirements.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-10-28T11:20:58.098Z",
+      "trigger": "initial",
+      "approvalId": "approval_1761650458094_ty6j7ozxt",
+      "approvalTitle": "AI聊天@文档选择功能需求文档"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-10-28T11:21:56.414Z",
+      "trigger": "approved",
+      "approvalId": "approval_1761650458094_ty6j7ozxt",
+      "approvalTitle": "AI聊天@文档选择功能需求文档"
+    }
+  ]
+}

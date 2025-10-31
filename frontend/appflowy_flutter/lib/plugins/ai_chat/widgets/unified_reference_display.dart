@@ -298,8 +298,28 @@ class _UnifiedReferenceDisplayState extends State<UnifiedReferenceDisplay> {
     ThemeData theme,
     bool isDark,
   ) {
-    // 基于 source==appflowy 时，始终依据 id 异步解析真实文档名称
+    // 基于 source==appflowy 时，通过 id 异步解析文档名称
+    // 🔧 修复：后端只发送SOURCE_ID，前端统一通过ID自动获取文档名称
+    // 这样可以确保前端总是使用正确的文档ID来获取文档名称，同时支持@mention文档（有名称）和RAG文档（无名称）
     if (ref.source == 'appflowy') {
+      // 如果已经有有效的名称（来自@mention），直接使用
+      // 如果没有名称或为空（来自RAG），通过ID异步获取
+      final hasValidName = ref.name.isNotEmpty && 
+                          ref.name != "Loading..." && 
+                          ref.name != "加载中...";
+      
+      if (hasValidName) {
+        // 已经有有效的文档名（来自@mention），直接使用，不重新加载
+        return _buildDocumentContentInternal(
+          ref.name,
+          ref,
+          theme,
+          isDark,
+          null, // 不需要view对象
+        );
+      }
+      
+      // 没有有效的文档名（来自RAG），通过 id 异步解析真实文档名称
       return FutureBuilder<ViewPB?>(
         future: ViewBackendService.getView(ref.id).then((f) => f.toNullable()),
         builder: (context, snapshot) {
@@ -311,8 +331,8 @@ class _UnifiedReferenceDisplayState extends State<UnifiedReferenceDisplay> {
               view != null) {
             displayName = view.nameOrDefault;
           } else {
-            // 加载中时显示占位或后端提供的 name
-            displayName = ref.name.isNotEmpty ? ref.name : '加载中...';
+            // 加载中时显示占位
+            displayName = '加载中...';
           }
 
           return _buildDocumentContentInternal(

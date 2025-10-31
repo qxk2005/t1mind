@@ -110,12 +110,7 @@ impl AgentConfigManager {
         let agent_id = self.generate_agent_id();
         let now = Utc::now().timestamp();
         
-        // 自动填充可用工具（如果为空且启用了工具调用）
-        let mut available_tools = request.available_tools;
-        if available_tools.is_empty() && request.capabilities.enable_tool_calling {
-            available_tools = self.get_default_tools();
-        }
-        
+        // 🔧 完全尊重用户的工具配置，不自动填充任何工具
         // 创建智能体配置
         let mut agent_config = AgentConfigPB {
             id: agent_id.clone(),
@@ -124,7 +119,7 @@ impl AgentConfigManager {
             avatar: request.avatar,
             personality: request.personality,
             capabilities: request.capabilities,
-            available_tools,
+            available_tools: request.available_tools,
             status: AgentStatusPB::AgentActive,
             selected_mcp_servers: request.selected_mcp_servers,  // 🆕 保存选中的服务器
             created_at: now,

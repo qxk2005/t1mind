@@ -1,18 +1,23 @@
 import 'package:appflowy/ai/ai.dart';
+import 'package:appflowy/generated/locale_keys.g.dart';
 import 'package:appflowy/plugins/ai_chat/application/chat_input_control_cubit.dart';
 import 'package:appflowy/plugins/ai_chat/application/chat_user_cubit.dart';
+import 'package:appflowy/plugins/ai_chat/application/document_mention_extractor.dart';
 import 'package:appflowy/plugins/ai_chat/presentation/layout_define.dart';
 import 'package:appflowy/startup/startup.dart';
 import 'package:appflowy/util/theme_extension.dart';
 import 'package:appflowy/workspace/application/command_palette/command_palette_bloc.dart';
 import 'package:appflowy_backend/protobuf/flowy-folder/protobuf.dart';
 import 'package:appflowy_ui/appflowy_ui.dart';
+import 'package:easy_localization/easy_localization.dart';
+import 'package:extended_text_field/extended_text_field.dart';
 import 'package:flowy_infra/file_picker/file_picker_service.dart';
 import 'package:flowy_infra_ui/flowy_infra_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'at_mention_text_span.dart';
 import 'browse_prompts_button.dart';
 
 typedef OnPromptInputSubmitted = void Function(
@@ -61,11 +66,29 @@ class _DesktopPromptInputState extends State<DesktopPromptInput> {
   late SendButtonState sendButtonState;
   bool isComposing = false;
 
+  // Bidirectional sync state
+  late final DocumentMentionExtractor _mentionExtractor;
+  bool _isSyncingFromText = false; // Flag to prevent loop when syncing from text
+  bool _isSyncingFromSelector = false; // Flag to prevent loop when syncing from selector
+
   @override
   void initState() {
     super.initState();
 
+    // Initialize mention extractor
+    _mentionExtractor = DocumentMentionExtractor(inputControlCubit);
+
     widget.textController.addListener(handleTextControllerChanged);
+    
+    // Listen to selectedSourcesNotifier changes for bidirectional sync
+    widget.selectedSourcesNotifier.addListener(_onSelectedSourcesChanged);
+    
+    // Enable mention tracking in ChatInputControlCubit
+    inputControlCubit.enableMentionTracking(widget.textController);
+    
+    // Refresh views to populate document mapping
+    inputControlCubit.refreshViews();
+    
     focusNode
       ..addListener(
         () {
@@ -84,6 +107,8 @@ class _DesktopPromptInputState extends State<DesktopPromptInput> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       focusNode.requestFocus();
       checkForAskingAI();
+      // Initial sync of @mentions in text to selector
+      _syncMentionsToSelector();
     });
   }
 
@@ -95,6 +120,7 @@ class _DesktopPromptInputState extends State<DesktopPromptInput> {
 
   @override
   void dispose() {
+    widget.selectedSourcesNotifier.removeListener(_onSelectedSourcesChanged);
     focusNode.dispose();
     widget.textController.removeListener(handleTextControllerChanged);
     inputControlCubit.close();
@@ -264,12 +290,24 @@ class _DesktopPromptInputState extends State<DesktopPromptInput> {
     if (!focusNode.hasFocus) {
       focusNode.requestFocus();
     }
-    widget.textController.text += '@';
+    
+    // Insert @ symbol at current cursor position
+    final textController = widget.textController;
+    final text = textController.text;
+    final selection = textController.selection;
+    final cursorPos = selection.baseOffset;
+    
+    final newText = text.substring(0, cursorPos) + '@' + text.substring(cursorPos);
+    textController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(
+        offset: cursorPos + 1,
+      ),
+    );
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (context.mounted) {
-        context
-            .read<ChatInputControlCubit>()
-            .startSearching(widget.textController.value);
+        inputControlCubit.startSearching(widget.textController.value);
         overlayController.show();
       }
     });
@@ -331,72 +369,311 @@ class _DesktopPromptInputState extends State<DesktopPromptInput> {
       return;
     }
 
-    // disable mention
-    return;
-
-    // handle text and selection changes ONLY when mentioning a page
-    // ignore: dead_code
-    if (!overlayController.isShowing ||
-        inputControlCubit.filterStartPosition == -1) {
-      return;
-    }
-
-    // handle cases where mention a page is cancelled
     final textController = widget.textController;
     final textSelection = textController.value.selection;
-    final isSelectingMultipleCharacters = !textSelection.isCollapsed;
-    final isCaretBeforeStartOfRange =
-        textSelection.baseOffset < inputControlCubit.filterStartPosition;
-    final isCaretAfterEndOfRange =
-        textSelection.baseOffset > inputControlCubit.filterEndPosition;
-    final isTextSame = inputControlCubit.inputText == textController.text;
+    final text = textController.text;
 
+    // Check if mention menu is currently showing
+    if (overlayController.isShowing) {
+      // Menu is showing, handle filtering and cancellation
+      if (inputControlCubit.filterStartPosition != -1) {
+        _handleMentionFiltering(text, textSelection);
+      }
+    } else {
+      // Menu is not showing, check if we need to show it
+      _checkForAtMention(text, textSelection);
+    }
+
+    // Sync @mentions from text to document selector (if not already syncing from selector)
+    if (!_isSyncingFromSelector) {
+      _syncMentionsToSelector();
+    }
+  }
+
+  /// Sync @mentions from text to document selector
+  /// Extracts all @mention document IDs from text and updates selectedSourcesNotifier
+  void _syncMentionsToSelector() {
+    if (_isSyncingFromSelector) {
+      return; // Already syncing, prevent loop
+    }
+
+    try {
+      _isSyncingFromText = true;
+
+      final text = widget.textController.text;
+      final mentions = _mentionExtractor.parseMentions(text);
+      
+      // Extract document IDs from mentions, filtering out invalid ones
+      // Also handle renamed/deleted documents by checking if document still exists
+      final documentIdsFromText = <String>[];
+      for (final mention in mentions) {
+        if (mention.documentId.isEmpty) {
+          continue; // Invalid mention (document renamed or deleted)
+        }
+        // Verify document still exists and name matches
+        final documentName = _getDocumentNameById(mention.documentId);
+        if (documentName != null && documentName == mention.documentName) {
+          documentIdsFromText.add(mention.documentId);
+        }
+        // If document name doesn't match, it might have been renamed
+        // We don't add it to avoid syncing invalid references
+      }
+
+      final documentIdsFromTextSet = documentIdsFromText.toSet();
+
+      // Get current selected sources
+      final currentSelectedSources = widget.selectedSourcesNotifier.value.toSet();
+
+      // Only update if there's a difference to avoid unnecessary notifications
+      if (currentSelectedSources != documentIdsFromTextSet) {
+        // Merge: keep documents selected in selector that aren't in text
+        // This allows users to manually add documents via selector
+        final mergedIds = <String>[];
+        
+        // Add all document IDs from text
+        mergedIds.addAll(documentIdsFromText);
+        
+        // Add non-document sources or documents manually selected via selector
+        for (final id in currentSelectedSources) {
+          if (!documentIdsFromTextSet.contains(id)) {
+            // Check if this is a document or other source type
+            final documentName = _getDocumentNameById(id);
+            if (documentName == null) {
+              // Not a document ID, keep it (might be a web source or other type)
+              mergedIds.add(id);
+            } else {
+              // It's a document manually added via selector, keep it
+              mergedIds.add(id);
+            }
+          }
+        }
+
+        // Update selectedSourcesNotifier (this will trigger _onSelectedSourcesChanged,
+        // but _isSyncingFromText flag prevents it from modifying text)
+        widget.selectedSourcesNotifier.value = mergedIds;
+      }
+    } finally {
+      _isSyncingFromText = false;
+    }
+  }
+
+  /// Handle changes to selectedSourcesNotifier
+  /// Removes @mentions from text when documents are removed from selector
+  void _onSelectedSourcesChanged() {
+    if (_isSyncingFromText) {
+      return; // Ignore changes that we triggered ourselves
+    }
+
+    try {
+      _isSyncingFromSelector = true;
+
+      final currentSelectedIds = widget.selectedSourcesNotifier.value.toSet();
+      final text = widget.textController.text;
+      final mentions = _mentionExtractor.parseMentions(text);
+
+      // Find mentions whose document IDs are no longer in selectedSources
+      final mentionsToRemove = mentions.where((mention) {
+        if (mention.documentId.isEmpty) {
+          return false; // Invalid mention, skip
+        }
+        return !currentSelectedIds.contains(mention.documentId);
+      }).toList();
+
+      // Remove mentions from text if they were removed from selector
+      String currentText = text;
+      int offset = 0; // Track cumulative offset changes for cursor position
+      
+      if (mentionsToRemove.isNotEmpty) {
+        // Sort mentions by position in reverse order to remove from end to start
+        // This preserves positions when removing multiple mentions
+        final sortedMentions = List<DocumentMention>.from(mentionsToRemove)
+          ..sort((a, b) => b.startPosition.compareTo(a.startPosition));
+
+        for (final mention in sortedMentions) {
+          // Adjust mention positions based on previous removals
+          final adjustedStartPos = mention.startPosition + offset;
+          final adjustedEndPos = mention.endPosition + offset;
+          
+          // Remove the mention text from the text
+          final beforeRemoval = currentText.substring(0, adjustedStartPos);
+          final afterRemoval = currentText.substring(adjustedEndPos);
+          currentText = beforeRemoval + afterRemoval;
+
+          // Update offset for cursor position
+          offset -= mention.endPosition - mention.startPosition;
+        }
+
+        // Update text controller with removed mentions
+        final currentSelection = widget.textController.selection;
+        final newCursorPosition = (currentSelection.baseOffset + offset).clamp(0, currentText.length);
+        
+        widget.textController.value = TextEditingValue(
+          text: currentText,
+          selection: TextSelection.collapsed(offset: newCursorPosition),
+        );
+      }
+
+      // Also add @mentions for documents that were added via selector but not in text
+      // Requirement 5: "IF 在文档选择框中手动添加文档时 THEN 系统 SHALL 同时在输入框中添加 @文档名称 标记（如果不存在）"
+      final currentSelectedIdsList = widget.selectedSourcesNotifier.value;
+      // Use currentText (which may have been modified by removals) instead of original text
+      final documentIdsFromText = _mentionExtractor.extractDocumentIds(currentText).toSet();
+      
+      // Find documents added via selector that aren't in text
+      final documentsToAdd = <String>[];
+      for (final selectedId in currentSelectedIdsList) {
+        // Check if this is a document ID (not a web source)
+        final documentName = _getDocumentNameById(selectedId);
+        if (documentName != null && !documentIdsFromText.contains(selectedId)) {
+          documentsToAdd.add(selectedId);
+        }
+      }
+      
+      // Add mentions to text for newly selected documents
+      if (documentsToAdd.isNotEmpty) {
+        String newText = currentText;
+        for (final documentId in documentsToAdd) {
+          final documentName = _getDocumentNameById(documentId);
+          if (documentName != null) {
+            final mentionText = '@$documentName';
+            // Add separator if needed
+            if (newText.isNotEmpty && !newText.endsWith(' ') && !newText.endsWith('\n')) {
+              newText += ' ';
+            }
+            newText += mentionText;
+          }
+        }
+        
+        if (newText != currentText) {
+          widget.textController.value = TextEditingValue(
+            text: newText,
+            selection: TextSelection.collapsed(offset: newText.length),
+          );
+        }
+      }
+    } finally {
+      _isSyncingFromSelector = false;
+    }
+  }
+
+  /// Get document name by ID, return null if not found (might be web source or deleted)
+  String? _getDocumentNameById(String documentId) {
+    try {
+      final view = inputControlCubit.allViews.firstWhere(
+        (v) => v.id == documentId,
+        orElse: () => ViewPB(),
+      );
+      
+      if (view.id.isEmpty) {
+        return null; // Document not found (might be deleted or renamed)
+      }
+      
+      return view.name.isNotEmpty
+          ? view.name
+          : LocaleKeys.document_title_placeholder.tr();
+    } catch (e) {
+      return null; // Error finding document
+    }
+  }
+
+  /// Check if @ symbol is typed and show mention menu
+  void _checkForAtMention(String text, TextSelection selection) {
+    final cursorPos = selection.baseOffset;
+    
+    // Check if cursor is in a valid position
+    if (cursorPos <= 0 || cursorPos > text.length) {
+      return;
+    }
+    
+    // Check if character before cursor is @
+    final charBeforeCursor = text[cursorPos - 1];
+    if (charBeforeCursor == '@') {
+      // @ symbol detected, show mention menu
+      // ChatInputControlCubit._onTextChanged() will handle the state tracking,
+      // we just need to show the overlay menu if it's not already showing
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.mounted && !overlayController.isShowing) {
+          // Ensure cubit is ready for searching
+          if (inputControlCubit.filterStartPosition == -1) {
+            inputControlCubit.startSearching(widget.textController.value);
+          }
+          overlayController.show();
+        }
+      });
+    }
+  }
+
+  /// Handle mention filtering when menu is showing
+  void _handleMentionFiltering(String text, TextSelection selection) {
+    // Handle cases where mention is cancelled
+    final isSelectingMultipleCharacters = !selection.isCollapsed;
+    final isCaretBeforeStartOfRange =
+        selection.baseOffset < inputControlCubit.filterStartPosition;
+    final isCaretAfterEndOfRange =
+        selection.baseOffset > inputControlCubit.filterEndPosition;
+    final isTextSame = inputControlCubit.inputText == text;
+
+    // Cancel if selecting multiple characters or cursor moved outside mention range
     if (isSelectingMultipleCharacters ||
-        isTextSame && (isCaretBeforeStartOfRange || isCaretAfterEndOfRange)) {
+        (isTextSame && (isCaretBeforeStartOfRange || isCaretAfterEndOfRange))) {
       cancelMentionPage();
       return;
     }
 
     final previousLength = inputControlCubit.inputText.characters.length;
-    final currentLength = textController.text.characters.length;
+    final currentLength = text.characters.length;
 
-    // delete "@"
+    // Cancel if @ symbol is deleted
     if (previousLength != currentLength && isCaretBeforeStartOfRange) {
       cancelMentionPage();
       return;
     }
 
-    // handle cases where mention the filter is updated
+    // Update filter when text changes
     if (previousLength != currentLength) {
       final diff = currentLength - previousLength;
       final newEndPosition = inputControlCubit.filterEndPosition + diff;
-      final newFilter = textController.text.substring(
+      
+      // Ensure positions are valid
+      if (newEndPosition < inputControlCubit.filterStartPosition ||
+          inputControlCubit.filterStartPosition < 0 ||
+          newEndPosition > text.length) {
+        cancelMentionPage();
+        return;
+      }
+      
+      final newFilter = text.substring(
         inputControlCubit.filterStartPosition,
         newEndPosition,
       );
       inputControlCubit.updateFilter(
-        textController.text,
+        text,
         newFilter,
         newEndPosition: newEndPosition,
       );
     } else if (!isTextSame) {
-      final newFilter = textController.text.substring(
+      // Text changed without length change (e.g., paste)
+      if (inputControlCubit.filterEndPosition > text.length ||
+          inputControlCubit.filterStartPosition < 0) {
+        cancelMentionPage();
+        return;
+      }
+      
+      final newFilter = text.substring(
         inputControlCubit.filterStartPosition,
         inputControlCubit.filterEndPosition,
       );
-      inputControlCubit.updateFilter(textController.text, newFilter);
+      inputControlCubit.updateFilter(text, newFilter);
     }
   }
 
   KeyEventResult handleKeyEvent(FocusNode node, KeyEvent event) {
-    // if (event.character == '@') {
-    //   WidgetsBinding.instance.addPostFrameCallback((_) {
-    //     inputControlCubit.startSearching(widget.textController.value);
-    //     overlayController.show();
-    //   });
-    // }
     if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.escape) {
+      if (overlayController.isShowing) {
+        cancelMentionPage();
+        return KeyEventResult.handled;
+      }
       node.unfocus();
       return KeyEventResult.handled;
     }
@@ -404,18 +681,47 @@ class _DesktopPromptInputState extends State<DesktopPromptInput> {
   }
 
   void handlePageSelected(ViewPB view) {
-    final newText = widget.textController.text.replaceRange(
-      inputControlCubit.filterStartPosition,
-      inputControlCubit.filterEndPosition,
-      view.id,
-    );
-    widget.textController.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection.collapsed(
-        offset: inputControlCubit.filterStartPosition + view.id.length,
-        affinity: TextAffinity.upstream,
-      ),
-    );
+    // Get document name (use placeholder if empty)
+    final documentName = view.name.isNotEmpty
+        ? view.name
+        : LocaleKeys.document_title_placeholder.tr();
+    
+    // Replace the range from @ to cursor with @documentName
+    // 🔧 修复问题3：自动在文档名后添加空格，使@文档名称自动变为蓝色
+    final mentionText = '@$documentName ';
+    
+    // Ensure positions are valid
+    final startPos = inputControlCubit.filterStartPosition;
+    final endPos = inputControlCubit.filterEndPosition;
+    
+    if (startPos < 0 || endPos < startPos || endPos > widget.textController.text.length) {
+      // Invalid positions, just insert at cursor
+      final cursorPos = widget.textController.selection.baseOffset;
+      final text = widget.textController.text;
+      final newText = text.substring(0, cursorPos) + mentionText + text.substring(cursorPos);
+      
+      widget.textController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(
+          offset: cursorPos + mentionText.length,
+        ),
+      );
+    } else {
+      // Replace the range from @ symbol to cursor
+      final newText = widget.textController.text.replaceRange(
+        startPos - 1, // Include the @ symbol
+        endPos,
+        mentionText,
+      );
+      
+      widget.textController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(
+          offset: startPos - 1 + mentionText.length,
+          affinity: TextAffinity.upstream,
+        ),
+      );
+    }
 
     inputControlCubit.selectPage(view);
     overlayController.hide();
@@ -430,25 +736,33 @@ class _DesktopPromptInputState extends State<DesktopPromptInput> {
           link: layerLink,
           child: BlocBuilder<AIPromptInputBloc, AIPromptInputState>(
             builder: (context, state) {
-              Widget textField = PromptInputTextField(
-                key: textFieldKey,
-                editable: state.modelState.isEditable,
-                cubit: inputControlCubit,
-                textController: widget.textController,
-                textFieldFocusNode: focusNode,
-                contentPadding:
-                    calculateContentPadding(state.showPredefinedFormats),
-                hintText: state.modelState.hintText,
+              // Use ValueListenableBuilder to rebuild text field when text changes
+              // This ensures that AtMentionTextSpanBuilder is recreated and 
+              // finishText() is called again to re-validate document mentions
+              return ValueListenableBuilder<TextEditingValue>(
+                valueListenable: widget.textController,
+                builder: (context, textValue, child) {
+                  Widget textField = PromptInputTextField(
+                    key: textFieldKey,
+                    editable: state.modelState.isEditable,
+                    cubit: inputControlCubit,
+                    textController: widget.textController,
+                    textFieldFocusNode: focusNode,
+                    contentPadding:
+                        calculateContentPadding(state.showPredefinedFormats),
+                    hintText: state.modelState.hintText,
+                  );
+
+                  if (state.modelState.tooltip != null) {
+                    textField = FlowyTooltip(
+                      message: state.modelState.tooltip!,
+                      child: textField,
+                    );
+                  }
+
+                  return textField;
+                },
               );
-
-              if (state.modelState.tooltip != null) {
-                textField = FlowyTooltip(
-                  message: state.modelState.tooltip!,
-                  child: textField,
-                );
-              }
-
-              return textField;
             },
           ),
         ),
@@ -594,7 +908,7 @@ class PromptInputTextField extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = AppFlowyTheme.of(context);
 
-    return TextField(
+    return ExtendedTextField(
       controller: textController,
       focusNode: textFieldFocusNode,
       readOnly: !editable,
@@ -615,6 +929,13 @@ class PromptInputTextField extends StatelessWidget {
       maxLines: null,
       style: theme.textStyle.body.standard(
         color: theme.textColorScheme.primary,
+      ),
+      specialTextSpanBuilder: AtMentionTextSpanBuilder(
+        inputControlCubit: cubit,
+        atMentionTextStyle: theme.textStyle.body.standard().copyWith(
+          color: Colors.blue,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }

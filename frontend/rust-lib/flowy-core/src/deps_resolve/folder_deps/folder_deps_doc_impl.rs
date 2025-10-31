@@ -788,7 +788,7 @@ impl FolderOperationHandler for DocumentFolderOperation {
     debug_assert_eq!(layout, ViewLayout::Document);
     
     // 检查文档是否已经存在（比如通过导入创建）
-    // 尝试获取文档数据，如果成功说明文档已存在
+    // 尝试获取文档数据，如果成功说明文档已存在，跳过创建
     info!("Checking if document {} already exists", view_id);
     match self.document_manager()?.get_document_data(view_id).await {
       Ok(_) => {
@@ -796,25 +796,32 @@ impl FolderOperationHandler for DocumentFolderOperation {
         return Ok(());
       },
       Err(err) => {
-        info!("Document {} does not exist yet, error: {}", view_id, err);
+        // 如果是 RecordNotFound 错误，说明文档不存在，需要创建
+        // 其他错误可能是网络或权限问题，但不应该阻止创建
+        if err.is_record_not_found() {
+          info!("Document {} does not exist, will create it", view_id);
+        } else {
+          info!("Document {} check failed with error: {}, will try to create anyway", view_id, err);
+        }
       }
     }
     
-    // 如果文档名称为空，说明这是一个自动创建的视图（比如导入后自动打开）
-    // 不创建空白文档，直接返回
-    if name.is_empty() {
-      info!("Document name is empty, skipping default document creation for {}", view_id);
-      return Ok(());
-    }
-    
+    // 文档不存在，创建空白文档
+    // 即使名称为空也应该创建，因为用户可能还没命名（比如通过"新页面"按钮创建的根节点文章）
+    info!("Creating default document for view {}", view_id);
     match self
       .document_manager()?
       .create_document(user_id, view_id, None)
       .await
     {
-      Ok(_) => Ok(()),
+      Ok(_) => {
+        info!("Successfully created default document for view {}", view_id);
+        Ok(())
+      },
       Err(err) => {
         if err.is_already_exists() {
+          // 文档在创建过程中被其他地方创建了，这不算错误
+          info!("Document {} already exists (created concurrently)", view_id);
           Ok(())
         } else {
           Err(err)
