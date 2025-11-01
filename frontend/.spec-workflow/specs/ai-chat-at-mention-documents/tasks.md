@@ -81,7 +81,7 @@
   - _Requirements: 3, Usability_
   - _Prompt: Implement the task for spec ai-chat-at-mention-documents, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Flutter/Dart Developer with expertise in custom text rendering and styling | Task: Add @mention text highlighting by implementing AtMentionTextSpanBuilder extending SpecialTextSpanBuilder, identifying and highlighting @文档名称 text (blue, bold), integrating into PromptInputTextField following requirements 3 and Usability | Restrictions: Do not interfere with existing text formatting, ensure efficient text rendering, handle overlapping styles gracefully | Success: @mention text is visually distinct (blue and bold) in the input field, text rendering performance is maintained, existing formatting continues to work_
 
-- [ ] 8. 添加移动端 @mention 支持（可选，仅在需求扩展时）
+- [x] 8. 添加移动端 @mention 支持（可选，仅在需求扩展时）
   - 文件: `appflowy_flutter/lib/plugins/ai_chat/presentation/chat_input/mobile_chat_input.dart`
   - 注意: 根据需求 #7，移动端不在此次范围内，此任务预留
   - 如需实现: 启用 `mentionPage()` 方法，添加 @ 符号检测，显示移动端底部菜单
@@ -90,7 +90,7 @@
   - _Requirements: 7（明确不实现）_
   - _Prompt: This task is marked as optional and not to be implemented in current scope as per requirement 7 which states mobile platforms are NOT supported. Keep as placeholder for future expansion._
 
-- [ ] 9. 添加单元测试
+- [x] 9. 添加单元测试
   - 文件: `appflowy_flutter/test/plugins/ai_chat/document_mention_extractor_test.dart` (新建)
   - 测试 `extractDocumentIds()` 各种文本格式
   - 测试 `parseMentions()` 多个 @mention 场景

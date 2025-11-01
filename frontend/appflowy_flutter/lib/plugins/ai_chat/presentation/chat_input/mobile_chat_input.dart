@@ -241,6 +241,20 @@ class _MobileChatInputState extends State<MobileChatInput> {
   //   return KeyEventResult.ignored;
   // }
 
+  /// 移动端 @mention 支持（占位符，不在当前范围内实现）
+  /// 
+  /// 注意：根据需求 #7（跨平台支持），移动平台不支持 @mention 功能。
+  /// 此方法作为未来扩展的占位符保留。
+  /// 
+  /// 如需在未来实现移动端支持，需要：
+  /// 1. 取消注释并启用 `handleKeyEvent()` 方法中的 @ 符号检测逻辑
+  /// 2. 在 `handleTextControllerChanged()` 中添加 @mention 检测
+  /// 3. 取消注释 `leadingButtons()` 中的 `onMention` 回调
+  /// 4. 确保移动端底部菜单显示正常工作
+  /// 
+  /// 参考：
+  /// - 需求文档：`.spec-workflow/specs/ai-chat-at-mention-documents/requirements.md`
+  /// - 任务文档：`.spec-workflow/specs/ai-chat-at-mention-documents/tasks.md` (任务 #8)
   Future<void> mentionPage(BuildContext context) async {
     // if the focus node is on focus, unfocus it for better animation
     // otherwise, the page sheet animation will be blocked by the keyboard
