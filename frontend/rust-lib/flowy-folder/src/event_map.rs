@@ -32,6 +32,8 @@ pub fn init(folder: Weak<FolderManager>) -> AFPlugin {
     .event(FolderEvent::PermanentlyDeleteAllTrashItem, delete_my_trash_handler)
     .event(FolderEvent::ImportData, import_data_handler)
     .event(FolderEvent::ImportZipFile, import_zip_file_handler)
+    .event(FolderEvent::RegisterImportProgressStream, register_import_progress_stream_handler)
+    .event(FolderEvent::GetImportProgress, get_import_progress_handler)
     .event(FolderEvent::GetFolderSnapshots, get_folder_snapshots_handler)
     .event(FolderEvent::UpdateViewIcon, update_view_icon_handler)
     .event(FolderEvent::ReadFavorites, read_favorites_handler)
@@ -150,6 +152,12 @@ pub enum FolderEvent {
 
   #[event(input = "ImportPayloadPB", output = "RepeatedViewPB")]
   ImportData = 30,
+
+  #[event(input = "RegisterImportProgressStreamPB")]
+  RegisterImportProgressStream = 70,
+
+  #[event(input = "GetImportProgressPB", output = "ImportProgressPB")]
+  GetImportProgress = 71,
 
   #[event(input = "WorkspaceIdPB", output = "RepeatedFolderSnapshotPB")]
   GetFolderSnapshots = 31,

@@ -125,8 +125,9 @@ impl OpenAIEmbedder {
       }
     };
     
+    // 请求体和响应体可能很长，不打印完整内容以避免日志过长
     trace!("[Embedding] 🌐 请求 URL: {}", url);
-    trace!("[Embedding] 📤 请求体: {:?}", openai_request);
+    trace!("[Embedding] 📤 请求模型: {}, 文本片段数: {}", openai_request.model, openai_request.input.len());
 
     let client = reqwest::Client::new();
     let response = client
@@ -160,7 +161,8 @@ impl OpenAIEmbedder {
       FlowyError::internal().with_context(format!("读取嵌入响应失败: {}", e))
     })?;
     
-    trace!("[Embedding] 📥 收到响应: {}", response_text);
+    // 响应体可能很长（包含大量嵌入向量），不打印完整内容以避免日志过长
+    trace!("[Embedding] 📥 收到响应，长度: {} 字符", response_text.len());
     
     let openai_response: OpenAIEmbeddingResponse = serde_json::from_str(&response_text).map_err(|e| {
       error!("[Embedding] ❌ 解析 OpenAI 响应失败: {}", e);

@@ -1,0 +1,46 @@
+#!/bin/bash
+# Marker tool wrapper script
+# This script runs marker_single (for single PDF files) using the pipx installation
+# IMPORTANT: This wrapper MUST use marker_single, not marker, because marker expects a directory
+
+set -e
+
+# Try to find marker_single in various locations
+MARKER_PYTHON=""
+MARKER_SCRIPT=""
+
+# First, try to use marker_single from pipx if available (REQUIRED for single files)
+if [ -f "$HOME/.local/pipx/venvs/marker-pdf/bin/marker_single" ]; then
+    MARKER_PYTHON="$HOME/.local/pipx/venvs/marker-pdf/bin/python"
+    MARKER_SCRIPT="$HOME/.local/pipx/venvs/marker-pdf/bin/marker_single"
+    # Verify the script exists and is readable
+    if [ ! -r "$MARKER_SCRIPT" ]; then
+        echo "Error: marker_single script is not readable: $MARKER_SCRIPT" >&2
+        exit 1
+    fi
+# Try system PATH for marker_single
+elif command -v marker_single >/dev/null 2>&1; then
+    exec marker_single "$@"
+else
+    echo "Error: marker_single not found. This wrapper requires marker_single (not marker)." >&2
+    echo "Please install marker-pdf using: pipx install marker-pdf" >&2
+    echo "Expected location: $HOME/.local/pipx/venvs/marker-pdf/bin/marker_single" >&2
+    exit 1
+fi
+
+# If we found marker_single, execute it with Python
+if [ -n "$MARKER_PYTHON" ] && [ -n "$MARKER_SCRIPT" ] && [ -f "$MARKER_SCRIPT" ]; then
+    # Set environment variables to force CPU usage and avoid Metal shader errors
+    # This prevents crashes on macOS with Python 3.14 and PyTorch MPS backend
+    export PYTORCH_ENABLE_MPS_FALLBACK=1
+    export PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0
+    export PYTORCH_MPS_FORCE_CPU=1
+    export CUDA_VISIBLE_DEVICES=""
+    export TORCH_DEVICE=cpu
+    # Use the Python from the pipx venv to execute marker_single
+    exec "$MARKER_PYTHON" "$MARKER_SCRIPT" "$@"
+else
+    echo "Error: Failed to execute marker_single. Python: $MARKER_PYTHON, Script: $MARKER_SCRIPT" >&2
+    exit 1
+fi
+

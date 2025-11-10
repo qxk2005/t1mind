@@ -1,0 +1,9 @@
+# LLDB 初始化文件 - 配置调试器忽略 SIGHUP 信号
+# 这个文件会在 Xcode 启动调试时自动加载
+
+# 忽略 SIGHUP 信号（不停止、不打印、不传递）
+# -n false: 不停止 (notify = false)
+# -p false: 不打印 (print = false)  
+# -s false: 不传递 (stop = false)
+process handle SIGHUP -n false -p false -s false
+

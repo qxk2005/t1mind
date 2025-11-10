@@ -19,6 +19,8 @@ pub struct ImportItem {
   pub data: ImportData,
   pub view_layout: ViewLayout,
   pub import_type: ImportType,
+  /// 可选的视图 ID。如果提供，将使用此 ID 作为 import_id 和 view_id
+  pub view_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug)]

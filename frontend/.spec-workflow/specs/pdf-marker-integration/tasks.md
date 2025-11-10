@@ -1,0 +1,170 @@
+# PDF Marker 集成任务清单
+
+- [x] 1. 创建 Marker 工具管理器
+  - 文件: rust-lib/flowy-document/src/import/marker_tool_manager.rs
+  - 实现 Marker 工具的查找、验证和管理功能
+  - 支持从应用包内查找 Marker 工具
+  - 目的: 提供 Marker 工具的统一管理接口
+  - _Leverage: rust-lib/flowy-document/src/import/converter.rs, rust-lib/flowy-error/src/lib.rs_
+  - _Requirements: 需求1, 需求5_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust Backend Developer specializing in system integration and tool management | Task: Create MarkerToolManager following requirements 1 and 5, implementing marker tool discovery from application bundle (macOS and Windows), verification, and path management. The manager should find marker tool in bundle resources directory, verify it's executable, and cache the path | Restrictions: Must handle cross-platform path differences (macOS .app bundle vs Windows installation directory), verify tool exists and is executable, provide clear error messages if tool not found, do not hardcode paths | Success: MarkerToolManager correctly finds marker tool in application bundle on both macOS and Windows, verifies tool availability, caches path for performance, provides clear error messages when tool is missing_
+
+- [x] 2. 实现 Marker PDF 转换核心功能
+  - 文件: rust-lib/flowy-document/src/import/marker_pdf_converter.rs
+  - 实现使用 Marker 工具进行 PDF 到 Markdown 的转换
+  - 处理 Marker 工具的执行和输出捕获
+  - 目的: 提供 PDF 到 Markdown 的直接转换能力
+  - _Leverage: rust-lib/flowy-document/src/import/marker_tool_manager.rs, rust-lib/flowy-document/src/import/converter.rs, std::process::Command_
+  - _Requirements: 需求1, 需求2, 需求6_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust Backend Developer with expertise in subprocess management and PDF processing | Task: Implement MarkerPdfConverter core functionality following requirements 1, 2, and 6, using MarkerToolManager to execute marker tool via std::process::Command, capture stdout/stderr, handle errors, and extract markdown output. Support timeout mechanism and proper error handling | Restrictions: Must use MarkerToolManager for tool path, handle subprocess execution safely, capture both stdout and stderr, implement timeout mechanism, validate PDF input, handle conversion errors gracefully, do not execute arbitrary commands | Success: Marker tool is executed correctly via subprocess, markdown output is captured properly, errors are handled with detailed messages, timeout mechanism works, PDF validation prevents invalid inputs_
+
+- [x] 3. 实现图片提取功能
+  - 文件: rust-lib/flowy-document/src/import/marker_pdf_converter.rs (继续任务2)
+  - 从 Marker 工具的输出目录提取图片
+  - 处理图片文件读取和转换
+  - 目的: 提取并处理 PDF 中的图片
+  - _Leverage: rust-lib/flowy-document/src/import/converter.rs (ExtractedImage), rust-lib/flowy-document/src/import/pdf_converter_native.rs (图片提取逻辑)_
+  - _Requirements: 需求4_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust Developer with expertise in image processing and file I/O | Task: Implement image extraction from marker output directory following requirement 4, reading image files from marker's output directory, converting to ExtractedImage format, handling different image formats (PNG, JPEG, GIF), and implementing image compression if needed | Restrictions: Must handle missing images gracefully, support common image formats, implement image size validation, compress large images appropriately, do not fail conversion if image extraction fails | Success: Images are extracted from marker output directory correctly, different image formats are supported, large images are compressed, conversion continues even if some images fail to extract_
+
+- [x] 4. 创建 Markdown 到 AppFlowy 转换器
+  - 文件: rust-lib/flowy-document/src/import/markdown_to_appflowy.rs
+  - 实现 Markdown 解析和转换为 AppFlowy 文档格式
+  - 处理标题、表格、列表、代码块等元素
+  - 目的: 将 Marker 生成的 Markdown 转换为 AppFlowy 文档结构
+  - _Leverage: pulldown-cmark crate, collab-document crate, rust-lib/flowy-document/src/lib.rs (NestedBlock), appflowy_flutter/lib/shared/markdown_to_document.dart (参考)_
+  - _Requirements: 需求3_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust Developer with expertise in Markdown parsing and document structure conversion | Task: Create MarkdownToAppFlowyConverter following requirement 3, using pulldown-cmark to parse markdown, converting headings (H1-H6), tables, lists (ordered/unordered), code blocks, and image references to AppFlowy NestedBlock structure. Reference Flutter implementation in markdown_to_document.dart for conversion patterns | Restrictions: Must preserve markdown structure correctly, handle all markdown elements (headings, tables, lists, code blocks, images), convert LaTeX formulas if present, maintain document hierarchy, do not lose content during conversion | Success: All markdown elements are correctly converted to AppFlowy format, document structure is preserved, headings maintain hierarchy, tables and lists are properly formatted, code blocks preserve syntax, images are correctly referenced_
+
+- [x] 5. 实现图片引用处理
+  - 文件: rust-lib/flowy-document/src/import/markdown_to_appflowy.rs (继续任务4)
+  - 处理 Markdown 中的图片引用并嵌入到 AppFlowy 文档
+  - 匹配图片路径和 ExtractedImage 列表
+  - 目的: 确保图片正确嵌入到最终文档中
+  - _Leverage: rust-lib/flowy-document/src/import/converter.rs (ExtractedImage), rust-lib/flowy-document/src/import/marker_pdf_converter.rs (图片提取结果)_
+  - _Requirements: 需求4_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust Developer with expertise in document embedding and image processing | Task: Implement image reference processing in MarkdownToAppFlowyConverter following requirement 4, matching markdown image references with ExtractedImage list, embedding images into AppFlowy document structure, and handling missing images gracefully | Restrictions: Must match image paths correctly, handle relative and absolute paths, embed images into document structure, handle missing images without breaking conversion, do not duplicate images | Success: Image references in markdown are correctly matched with extracted images, images are properly embedded into AppFlowy documents, missing images are handled gracefully without breaking conversion_
+
+- [x] 6. 实现完整的 MarkerPdfConverter (实现 DocumentConverter trait)
+  - 文件: rust-lib/flowy-document/src/import/marker_pdf_converter.rs (整合所有功能)
+  - 实现 DocumentConverter trait 的所有方法
+  - 整合 PDF 转换、Markdown 转换和图片处理
+  - 目的: 提供完整的 PDF 转换器实现
+  - _Leverage: rust-lib/flowy-document/src/import/converter.rs (DocumentConverter trait), rust-lib/flowy-document/src/import/marker_tool_manager.rs, rust-lib/flowy-document/src/import/markdown_to_appflowy.rs_
+  - _Requirements: 需求1, 需求2, 需求3, 需求4_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust Backend Developer with expertise in trait implementation and document processing | Task: Complete MarkerPdfConverter implementation by implementing DocumentConverter trait following requirements 1, 2, 3, and 4, integrating MarkerToolManager, PDF-to-Markdown conversion, Markdown-to-AppFlowy conversion, and image processing into a cohesive converter. Implement convert(), validate_file(), and get_file_info() methods | Restrictions: Must implement all trait methods correctly, maintain error handling consistency, follow existing converter patterns, do not break existing conversion queue integration | Success: MarkerPdfConverter fully implements DocumentConverter trait, all conversion steps work together correctly, error handling is comprehensive, integration with conversion queue is seamless_
+
+- [x] 7. 集成 MarkerPdfConverter 到转换系统
+  - 文件: rust-lib/flowy-document/src/import/mod.rs (修改现有)
+  - 导出新的 MarkerPdfConverter
+  - 更新转换器注册逻辑（如果需要）
+  - 目的: 将新转换器集成到现有转换系统中
+  - _Leverage: rust-lib/flowy-document/src/import/mod.rs, rust-lib/flowy-document/src/import/conversion_queue.rs_
+  - _Requirements: 需求1, 需求2_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust Backend Developer with expertise in module integration and system architecture | Task: Integrate MarkerPdfConverter into existing conversion system following requirements 1 and 2, exporting the new converter module, updating conversion queue to use new converter, and ensuring backward compatibility with existing conversion flow | Restrictions: Must maintain existing module structure, ensure new converter is properly exported, do not break existing conversion functionality, maintain interface compatibility | Success: MarkerPdfConverter is properly integrated into conversion system, conversion queue can use new converter, existing functionality remains intact, module exports are correct_
+
+- [x] 8. 更新 macOS 构建脚本以包含 Marker 工具
+  - 文件: scripts/makefile/flutter.toml (修改现有) 或 scripts/flutter_release_build/*.sh (修改现有)
+  - 在构建过程中复制 Marker 工具到应用包
+  - 处理 macOS .app 包结构
+  - 目的: 确保 Marker 工具打包到 macOS 应用中
+  - _Leverage: scripts/makefile/flutter.toml, scripts/flutter_release_build/build_universal_package_for_macos.sh, scripts/package_dmg.sh_
+  - _Requirements: 需求5_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: DevOps Engineer with expertise in build automation and macOS packaging | Task: Update macOS build scripts following requirement 5, adding steps to copy marker tool and its dependencies to AppFlowy.app/Contents/Resources/marker/ directory during build process, ensuring marker tool is executable and properly packaged | Restrictions: Must integrate with existing build process, handle marker tool dependencies (Python environment if needed), ensure proper permissions, do not break existing build steps | Success: Marker tool is correctly copied to macOS app bundle during build, tool is executable, dependencies are included, build process completes successfully_
+
+- [x] 9. 更新 Windows 构建脚本以包含 Marker 工具
+  - 文件: scripts/makefile/flutter.toml (修改现有) 或 scripts/windows_installer/* (修改现有)
+  - 在构建过程中复制 Marker 工具到安装目录
+  - 处理 Windows 安装包结构
+  - 目的: 确保 Marker 工具打包到 Windows 应用中
+  - _Leverage: scripts/makefile/flutter.toml, scripts/windows_installer/inno_setup_config.iss, scripts/windows_installer/README.md_
+  - _Requirements: 需求5_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: DevOps Engineer with expertise in Windows packaging and build automation | Task: Update Windows build scripts following requirement 5, adding steps to copy marker tool and its dependencies to AppFlowy/Resources/marker/ directory during build/installation process, updating Inno Setup configuration if needed | Restrictions: Must integrate with existing Windows build process, handle marker tool dependencies, ensure proper installation paths, do not break existing installer configuration | Success: Marker tool is correctly copied to Windows installation directory during build, tool is included in installer package, dependencies are properly handled, installation completes successfully_
+
+- [x] 10. 添加应用启动时 Marker 工具验证
+  - 文件: rust-lib/flowy-document/src/import/marker_tool_manager.rs (修改现有)
+  - 在应用启动时验证 Marker 工具是否可用
+  - 记录警告或错误信息
+  - 目的: 确保 Marker 工具在运行时可用
+  - _Leverage: rust-lib/flowy-document/src/import/marker_tool_manager.rs, rust-lib/lib-infra/src/log.rs_
+  - _Requirements: 需求5, 需求6_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust Backend Developer with expertise in application initialization and validation | Task: Add marker tool validation during application startup following requirements 5 and 6, checking if marker tool exists in bundle and is executable, logging warnings/errors if tool is missing, and providing clear diagnostic information | Restrictions: Must not block application startup if tool is missing, log appropriate warnings, provide clear error messages, do not fail silently | Success: Marker tool is validated at startup, appropriate warnings are logged if tool is missing, error messages are clear and helpful, application startup is not blocked_
+
+- [x] 11. 移除 pdftohtml 相关代码
+  - 文件: rust-lib/flowy-document/src/import/pdf_converter_native.rs (修改现有)
+  - 移除所有 pdftohtml 相关的代码和方法
+  - 清理相关的工具查找逻辑
+  - 目的: 移除不再使用的 HTML 转换代码
+  - _Leverage: rust-lib/flowy-document/src/import/pdf_converter_native.rs_
+  - _Requirements: 需求2, 需求8_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust Developer with expertise in code refactoring and cleanup | Task: Remove all pdftohtml-related code from pdf_converter_native.rs following requirements 2 and 8, including try_pdftohtml() method, pdftohtml tool finding logic, and all references to pdftohtml | Restrictions: Must ensure no remaining references to pdftohtml, remove unused imports, maintain code structure, do not break other functionality in the file | Success: All pdftohtml code is removed, no remaining references, unused imports are cleaned up, file structure is maintained, other functionality is not affected_
+
+- [x] 12. 移除 html2md 转换相关代码
+  - 文件: rust-lib/flowy-document/src/import/pdf_converter_native.rs (修改现有)
+  - 移除 html_to_markdown() 方法
+  - 移除 clean_html_before_markdown() 方法
+  - 移除所有 HTML 清理和转换逻辑
+  - 目的: 移除不再使用的 HTML 到 Markdown 转换代码
+  - _Leverage: rust-lib/flowy-document/src/import/pdf_converter_native.rs_
+  - _Requirements: 需求2, 需求8_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust Developer with expertise in code cleanup and refactoring | Task: Remove all HTML-to-Markdown conversion code from pdf_converter_native.rs following requirements 2 and 8, including html_to_markdown(), clean_html_before_markdown(), and all HTML processing logic | Restrictions: Must remove all HTML conversion methods, clean up unused code paths, maintain file structure, do not break other PDF conversion functionality | Success: All HTML-to-Markdown code is removed, unused methods are deleted, code paths are cleaned up, other functionality remains intact_
+
+- [x] 13. 更新 Cargo.toml 移除不需要的依赖
+  - 文件: rust-lib/flowy-document/Cargo.toml (修改现有)
+  - 移除 html2md 依赖（如果不再需要）
+  - 移除 html-escape 依赖（如果不再需要）
+  - 添加 pulldown-cmark 依赖（如果尚未添加）
+  - 目的: 清理不再使用的依赖项
+  - _Leverage: rust-lib/flowy-document/Cargo.toml_
+  - _Requirements: 需求2, 需求8_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Rust Developer with expertise in dependency management | Task: Update Cargo.toml following requirements 2 and 8, removing html2md and html-escape dependencies if no longer needed, adding pulldown-cmark if not already present, ensuring all dependencies are correctly specified | Restrictions: Must verify dependencies are not used elsewhere before removing, ensure pulldown-cmark is correctly configured, do not break existing builds | Success: Unused dependencies are removed, pulldown-cmark is added correctly, Cargo.toml is clean and accurate, builds succeed without errors_
+
+- [ ] 14. 创建 MarkerPdfConverter 单元测试
+  - 文件: rust-lib/flowy-document/src/import/tests/marker_pdf_converter_test.rs (新建)
+  - 测试 Marker 工具查找和验证
+  - 测试 PDF 转换功能
+  - 测试错误处理
+  - 目的: 确保转换器功能正确
+  - _Leverage: rust-lib/flowy-document/src/import/marker_pdf_converter.rs, rust-lib/flowy-document/src/import/marker_tool_manager.rs, rust-lib/flowy-error/src/lib.rs_
+  - _Requirements: 需求1, 需求6_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: QA Engineer with expertise in Rust unit testing | Task: Create comprehensive unit tests for MarkerPdfConverter following requirements 1 and 6, testing marker tool discovery, PDF conversion functionality, error handling scenarios, and timeout mechanisms. Use mock marker tool or test fixtures as needed | Restrictions: Must test both success and failure scenarios, test error handling thoroughly, use appropriate test fixtures, do not test external marker tool execution directly | Success: Unit tests cover all major functionality, error scenarios are tested, tests run reliably, good test coverage achieved_
+
+- [ ] 15. 创建 MarkdownToAppFlowyConverter 单元测试
+  - 文件: rust-lib/flowy-document/src/import/tests/markdown_to_appflowy_test.rs (新建)
+  - 测试 Markdown 解析
+  - 测试各种 Markdown 元素转换（标题、表格、列表、代码块）
+  - 测试图片引用处理
+  - 目的: 确保 Markdown 转换正确
+  - _Leverage: rust-lib/flowy-document/src/import/markdown_to_appflowy.rs, pulldown-cmark crate_
+  - _Requirements: 需求3, 需求4_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: QA Engineer with expertise in Rust testing and Markdown processing | Task: Create comprehensive unit tests for MarkdownToAppFlowyConverter following requirements 3 and 4, testing markdown parsing, conversion of headings, tables, lists, code blocks, and image references to AppFlowy format | Restrictions: Must test all markdown elements, verify correct AppFlowy structure generation, test edge cases, do not test pulldown-cmark library itself | Success: All markdown elements are tested, conversion results match expected AppFlowy structure, edge cases are covered, tests are maintainable_
+
+- [ ] 16. 创建集成测试
+  - 文件: rust-lib/flowy-document/src/import/tests/integration_test.rs (修改现有或新建)
+  - 测试完整的 PDF 到 AppFlowy 转换流程
+  - 测试各种复杂度的 PDF 文件
+  - 测试错误场景
+  - 目的: 确保端到端转换功能正确
+  - _Leverage: rust-lib/flowy-document/src/import/marker_pdf_converter.rs, rust-lib/flowy-document/src/import/conversion_queue.rs, test fixtures_
+  - _Requirements: 所有需求_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Integration Test Engineer with expertise in end-to-end testing | Task: Create integration tests following all requirements, testing complete PDF-to-AppFlowy conversion flow with various PDF complexities (simple text, tables, images, multi-column layouts), testing error scenarios (missing marker tool, invalid PDF, timeout), and verifying conversion quality | Restrictions: Must use appropriate test PDF fixtures, test real conversion flows, handle missing marker tool gracefully, do not require marker tool to be installed in test environment | Success: Integration tests cover complete conversion flow, various PDF types are tested, error scenarios are validated, tests run reliably_
+
+- [ ] 17. 更新文档和注释
+  - 文件: rust-lib/flowy-document/src/import/*.rs (修改现有文件)
+  - 更新代码注释说明新的转换流程
+  - 添加 Marker 工具使用说明
+  - 更新模块文档
+  - 目的: 保持代码文档的准确性和完整性
+  - _Leverage: rust-lib/flowy-document/src/import/*.rs_
+  - _Requirements: 需求8_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: Technical Writer with expertise in Rust documentation | Task: Update all documentation and comments following requirement 8, updating code comments to reflect new conversion flow (PDF -> Markdown -> AppFlowy), adding marker tool usage documentation, updating module-level documentation | Restrictions: Must maintain documentation accuracy, follow Rust documentation conventions, keep comments up-to-date with code, do not leave outdated documentation | Success: All documentation is updated and accurate, code comments reflect new implementation, module documentation is comprehensive, documentation follows Rust conventions_
+
+- [ ] 18. 验证所有测试通过
+  - 文件: N/A (运行测试)
+  - 运行所有单元测试和集成测试
+  - 修复任何测试失败
+  - 目的: 确保重构后所有功能正常工作
+  - _Leverage: 所有测试文件_
+  - _Requirements: 需求8_
+  - _Prompt: Implement the task for spec pdf-marker-integration, first run spec-workflow-guide to get the workflow guide then implement the task: Role: QA Engineer with expertise in test validation and debugging | Task: Run all unit and integration tests following requirement 8, verify all tests pass, fix any test failures, and ensure test coverage is adequate | Restrictions: Must not skip failing tests, fix root causes of failures, maintain test quality, do not lower test coverage | Success: All tests pass, no test failures, test coverage is maintained or improved, tests are reliable and maintainable_
+

@@ -3,7 +3,6 @@ use crate::import::converter::{
     DocumentType, DocumentContent, ConversionStatistics, ExtractedImage,
 };
 use flowy_error::{FlowyError, FlowyResult};
-use lopdf::{Document, Object};
 use std::path::Path;
 use std::fs::File;
 use std::io::Read;

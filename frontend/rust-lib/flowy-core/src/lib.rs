@@ -5,6 +5,7 @@ use collab_integrate::instant_indexed_data_provider::InstantIndexedDataWriter;
 use collab_plugins::CollabKVDB;
 use flowy_ai::ai_manager::AIManager;
 use flowy_database2::DatabaseManager;
+use flowy_document::import::MarkerToolManager;
 use flowy_document::manager::DocumentManager;
 use flowy_error::{FlowyError, FlowyResult};
 use flowy_folder::manager::FolderManager;
@@ -20,7 +21,7 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 use sysinfo::System;
 use tokio::sync::RwLock;
-use tracing::{debug, error, event, info, instrument};
+use tracing::{debug, error, event, info, instrument, warn};
 use uuid::Uuid;
 
 use lib_dispatch::prelude::*;
@@ -318,6 +319,9 @@ impl AppFlowyCore {
     ));
     tracing::info!("🔧 [CORE] Event dispatcher created successfully");
 
+    // 验证 Marker 工具是否可用（不阻塞启动）
+    Self::validate_marker_tool();
+
     Self {
       config,
       user_manager,
@@ -333,6 +337,58 @@ impl AppFlowyCore {
       storage_manager,
       collab_builder,
       full_indexed_data_writer,
+    }
+  }
+
+  /// 验证 Marker 工具是否在应用包中可用
+  /// 
+  /// 此函数在应用启动时调用，用于检查 Marker 工具是否存在且可执行。
+  /// 如果工具缺失，会记录警告信息，但不会阻塞应用启动。
+  /// 
+  /// 根据需求5和需求6：
+  /// - 需求5：应用启动时应验证 Marker 工具是否在应用包中可用
+  /// - 需求6：如果 Marker 工具在应用包中不可用时，应提供清晰的错误提示
+  fn validate_marker_tool() {
+    let manager = MarkerToolManager::new();
+    
+    match manager.find_marker_in_bundle() {
+      Ok(path) => {
+        // 验证工具是否可执行
+        match manager.verify_marker(&path) {
+          Ok(_) => {
+            info!(
+              "✅ Marker 工具验证成功: {}",
+              path.display()
+            );
+          }
+          Err(e) => {
+            warn!(
+              "⚠️  Marker 工具验证失败: {}\n\
+               路径: {}\n\
+               说明: Marker 工具存在于应用包中，但可能没有执行权限或存在其他问题。\n\
+               影响: PDF 导入功能可能无法正常工作。\n\
+               建议: 请检查应用包完整性，或联系技术支持。",
+              e,
+              path.display()
+            );
+          }
+        }
+      }
+      Err(e) => {
+        warn!(
+          "⚠️  Marker 工具未在应用包中找到\n\
+           错误: {}\n\
+           说明: Marker 工具是 PDF 导入功能的核心组件，缺失将导致 PDF 导入功能不可用。\n\
+           影响: 用户将无法使用 PDF 导入功能。\n\
+           建议: \n\
+             - 请确保应用已正确安装\n\
+             - 如果是从开发环境运行，请检查 Marker 工具是否正确打包\n\
+             - macOS 期望路径: AppFlowy.app/Contents/Resources/marker/marker\n\
+             - Windows 期望路径: AppFlowy/Resources/marker/marker.exe\n\
+           注意: 应用将继续启动，但 PDF 导入功能将不可用。",
+          e
+        );
+      }
     }
   }
 

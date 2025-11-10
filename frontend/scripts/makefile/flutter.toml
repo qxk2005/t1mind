@@ -26,6 +26,7 @@ run_task = { name = [
   "code_generation",
   "set-app-version",
   "flutter-build",
+  "copy-marker-to-build-output-windows",
   "copy-to-product",
 ] }
 
@@ -103,6 +104,7 @@ dependencies = ["appflowy-core-dev"]
 run_task = { name = [
   "code_generation",
   "flutter-build",
+  "copy-marker-to-build-output-windows",
   "copy-to-product",
 ] }
 
@@ -170,6 +172,65 @@ script = [
   product=${PRODUCT_NAME}.${PRODUCT_EXT}
   cp -R ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/appflowy_flutter/build/${TARGET_OS}/Build/Products/${FLUTTER_OUTPUT_DIR}/${product} \
   ${output_path}/${product}
+
+  # Copy marker tool to app bundle
+  echo "Copying marker tool to app bundle..."
+  marker_resources_dir="${output_path}/${product}/Contents/Resources/marker"
+  mkdir -p "${marker_resources_dir}"
+
+  # Try to find marker tool from various possible locations
+  marker_source=""
+  if [ -n "${MARKER_TOOL_PATH}" ] && [ -f "${MARKER_TOOL_PATH}" ]; then
+    marker_source="${MARKER_TOOL_PATH}"
+    echo "Using marker tool from MARKER_TOOL_PATH: ${marker_source}"
+  elif [ -f "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/tools/marker/marker" ]; then
+    marker_source="${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/tools/marker/marker"
+    echo "Using marker tool from tools/marker/marker"
+  elif [ -f "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/resources/marker/marker" ]; then
+    marker_source="${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/resources/marker/marker"
+    echo "Using marker tool from resources/marker/marker"
+  elif command -v marker >/dev/null 2>&1; then
+    marker_source=$(command -v marker)
+    echo "Using marker tool from system PATH: ${marker_source}"
+  fi
+
+  if [ -n "${marker_source}" ] && [ -f "${marker_source}" ]; then
+    # Copy marker tool
+    cp "${marker_source}" "${marker_resources_dir}/marker"
+    
+    # Make marker tool executable
+    chmod +x "${marker_resources_dir}/marker"
+    echo "✓ Marker tool copied and made executable: ${marker_resources_dir}/marker"
+    
+    # Copy marker tool dependencies if they exist (e.g., Python environment)
+    marker_source_dir=$(dirname "${marker_source}")
+    if [ -d "${marker_source_dir}/python" ]; then
+      echo "Copying marker Python environment..."
+      cp -R "${marker_source_dir}/python" "${marker_resources_dir}/"
+      echo "✓ Marker Python environment copied"
+    fi
+    
+    # Copy any other marker dependencies
+    if [ -d "${marker_source_dir}/lib" ]; then
+      echo "Copying marker libraries..."
+      cp -R "${marker_source_dir}/lib" "${marker_resources_dir}/"
+      echo "✓ Marker libraries copied"
+    fi
+    
+    # Verify marker tool is executable
+    if [ -x "${marker_resources_dir}/marker" ]; then
+      echo "✓ Marker tool verification: executable"
+    else
+      echo "⚠ Warning: Marker tool may not be executable"
+    fi
+  else
+    echo "⚠ Warning: Marker tool not found. Expected locations:"
+    echo "  - MARKER_TOOL_PATH environment variable"
+    echo "  - ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/tools/marker/marker"
+    echo "  - ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/resources/marker/marker"
+    echo "  - System PATH"
+    echo "Marker tool will not be included in the app bundle."
+  fi
   """,
 ]
 script_runner = "@shell"
@@ -204,6 +265,93 @@ script = [
   product= set ${PRODUCT_NAME}
   glob_cp ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/appflowy_flutter/build/${TARGET_OS}/${BUILD_ARCHS}/runner/${FLUTTER_OUTPUT_DIR}/**/* \
   ${output_path}/${product}
+
+  # Copy marker tool to app bundle
+  echo Copying marker tool to app bundle...
+  marker_resources_dir= set ${output_path}/${product}/Resources/marker
+  mkdir ${marker_resources_dir}
+
+  # Try to find marker tool from various possible locations
+  marker_source= set ""
+  marker_tool_path= get_env MARKER_TOOL_PATH
+  if not is_empty ${marker_tool_path}
+    if is_path_exists ${marker_tool_path}
+      marker_source= set ${marker_tool_path}
+      echo Using marker tool from MARKER_TOOL_PATH: ${marker_source}
+    end
+  end
+
+  if is_empty ${marker_source}
+    tools_marker= set ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/tools/marker/marker.exe
+    if is_path_exists ${tools_marker}
+      marker_source= set ${tools_marker}
+      echo Using marker tool from tools/marker/marker.exe
+    end
+  end
+
+  if is_empty ${marker_source}
+    resources_marker= set ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/resources/marker/marker.exe
+    if is_path_exists ${resources_marker}
+      marker_source= set ${resources_marker}
+      echo Using marker tool from resources/marker/marker.exe
+    end
+  end
+
+  if is_empty ${marker_source}
+    # Try to find marker.exe in system PATH
+    marker_path_output= exec where marker.exe
+    marker_path_stdout= set ${marker_path_output.stdout}
+    if not is_empty ${marker_path_stdout}
+      marker_lines= split ${marker_path_stdout} "\\n"
+      marker_first_line= array_get ${marker_lines} 0
+      if not is_empty ${marker_first_line}
+        marker_source= set ${marker_first_line}
+        echo Using marker tool from system PATH: ${marker_source}
+      end
+    end
+  end
+
+  if not is_empty ${marker_source}
+    if is_path_exists ${marker_source}
+      # Copy marker tool
+      cp ${marker_source} ${marker_resources_dir}/marker.exe
+      echo Marker tool copied: ${marker_resources_dir}/marker.exe
+      
+      # Copy marker tool dependencies if they exist (e.g., Python environment)
+      marker_source_dir= dirname ${marker_source}
+      marker_python_dir= set ${marker_source_dir}/python
+      if is_path_exists ${marker_python_dir}
+        echo Copying marker Python environment...
+        glob_cp ${marker_python_dir}/**/* ${marker_resources_dir}/python
+        echo Marker Python environment copied
+      end
+      
+      # Copy any other marker dependencies
+      marker_lib_dir= set ${marker_source_dir}/lib
+      if is_path_exists ${marker_lib_dir}
+        echo Copying marker libraries...
+        glob_cp ${marker_lib_dir}/**/* ${marker_resources_dir}/lib
+        echo Marker libraries copied
+      end
+      
+      # Verify marker tool exists
+      marker_exe= set ${marker_resources_dir}/marker.exe
+      if is_path_exists ${marker_exe}
+        echo Marker tool verification: file exists
+      else
+        echo Warning: Marker tool may not have been copied correctly
+      end
+    else
+      echo Warning: Marker tool source path does not exist: ${marker_source}
+    end
+  else
+    echo Warning: Marker tool not found. Expected locations:
+    echo   - MARKER_TOOL_PATH environment variable
+    echo   - ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/tools/marker/marker.exe
+    echo   - ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/resources/marker/marker.exe
+    echo   - System PATH (marker.exe)
+    echo Marker tool will not be included in the app bundle.
+  end
   """,
 ]
 script_runner = "@duckscript"
@@ -276,6 +424,101 @@ script = [
   cd appflowy_flutter
   exec cmd.exe /c flutter pub get
   exec cmd.exe /c flutter build ${TARGET_OS} --${BUILD_FLAG} --build-name=${APP_VERSION}
+  """,
+]
+script_runner = "@duckscript"
+
+[tasks.copy-marker-to-build-output-windows]
+private = true
+script = [
+  """
+  # Copy marker tool to build output directory for Windows
+  echo Copying marker tool to Windows build output...
+  build_output_dir= set ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/appflowy_flutter/build/${TARGET_OS}/${BUILD_ARCHS}/runner/${FLUTTER_OUTPUT_DIR}
+  marker_resources_dir= set ${build_output_dir}/Resources/marker
+  mkdir ${marker_resources_dir}
+
+  # Try to find marker tool from various possible locations
+  marker_source= set ""
+  marker_tool_path= get_env MARKER_TOOL_PATH
+  if not is_empty ${marker_tool_path}
+    if is_path_exists ${marker_tool_path}
+      marker_source= set ${marker_tool_path}
+      echo Using marker tool from MARKER_TOOL_PATH: ${marker_source}
+    end
+  end
+
+  if is_empty ${marker_source}
+    tools_marker= set ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/tools/marker/marker.exe
+    if is_path_exists ${tools_marker}
+      marker_source= set ${tools_marker}
+      echo Using marker tool from tools/marker/marker.exe
+    end
+  end
+
+  if is_empty ${marker_source}
+    resources_marker= set ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/resources/marker/marker.exe
+    if is_path_exists ${resources_marker}
+      marker_source= set ${resources_marker}
+      echo Using marker tool from resources/marker/marker.exe
+    end
+  end
+
+  if is_empty ${marker_source}
+    # Try to find marker.exe in system PATH
+    marker_path_output= exec where marker.exe
+    marker_path_stdout= set ${marker_path_output.stdout}
+    if not is_empty ${marker_path_stdout}
+      marker_lines= split ${marker_path_stdout} "\\n"
+      marker_first_line= array_get ${marker_lines} 0
+      if not is_empty ${marker_first_line}
+        marker_source= set ${marker_first_line}
+        echo Using marker tool from system PATH: ${marker_source}
+      end
+    end
+  end
+
+  if not is_empty ${marker_source}
+    if is_path_exists ${marker_source}
+      # Copy marker tool
+      cp ${marker_source} ${marker_resources_dir}/marker.exe
+      echo Marker tool copied to build output: ${marker_resources_dir}/marker.exe
+      
+      # Copy marker tool dependencies if they exist (e.g., Python environment)
+      marker_source_dir= dirname ${marker_source}
+      marker_python_dir= set ${marker_source_dir}/python
+      if is_path_exists ${marker_python_dir}
+        echo Copying marker Python environment to build output...
+        glob_cp ${marker_python_dir}/**/* ${marker_resources_dir}/python
+        echo Marker Python environment copied
+      end
+      
+      # Copy any other marker dependencies
+      marker_lib_dir= set ${marker_source_dir}/lib
+      if is_path_exists ${marker_lib_dir}
+        echo Copying marker libraries to build output...
+        glob_cp ${marker_lib_dir}/**/* ${marker_resources_dir}/lib
+        echo Marker libraries copied
+      end
+      
+      # Verify marker tool exists
+      marker_exe= set ${marker_resources_dir}/marker.exe
+      if is_path_exists ${marker_exe}
+        echo Marker tool verification: file exists in build output
+      else
+        echo Warning: Marker tool may not have been copied correctly to build output
+      end
+    else
+      echo Warning: Marker tool source path does not exist: ${marker_source}
+    end
+  else
+    echo Warning: Marker tool not found for build output. Expected locations:
+    echo   - MARKER_TOOL_PATH environment variable
+    echo   - ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/tools/marker/marker.exe
+    echo   - ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/resources/marker/marker.exe
+    echo   - System PATH (marker.exe)
+    echo Marker tool will not be included in the build output.
+  end
   """,
 ]
 script_runner = "@duckscript"

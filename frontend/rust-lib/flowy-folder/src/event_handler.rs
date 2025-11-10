@@ -600,3 +600,46 @@ pub(crate) async fn get_shared_view_section_handler(
   let section = folder.get_shared_view_section(&view_id).await?;
   data_result_ok(GetSharedViewSectionResponsePB { section })
 }
+
+#[tracing::instrument(level = "debug", skip(folder), err)]
+pub(crate) async fn register_import_progress_stream_handler(
+  data: AFPluginData<RegisterImportProgressStreamPB>,
+  folder: AFPluginState<Weak<FolderManager>>,
+) -> Result<(), FlowyError> {
+  let folder = upgrade_folder(folder)?;
+  let data = data.into_inner();
+  folder.register_import_progress_stream(data.port).await;
+  Ok(())
+}
+
+#[tracing::instrument(level = "debug", skip(data, folder), err)]
+pub(crate) async fn get_import_progress_handler(
+  data: AFPluginData<GetImportProgressPB>,
+  folder: AFPluginState<Weak<FolderManager>>,
+) -> DataResult<ImportProgressPB, FlowyError> {
+  let folder = upgrade_folder(folder)?;
+  let data = data.into_inner();
+  
+  if let Some(progress) = folder.get_import_progress(&data.import_id) {
+    let pb = ImportProgressPB {
+      import_id: progress.import_id,
+      file_name: progress.file_name,
+      progress: progress.progress,
+      current_step: progress.current_step,
+      error: progress.error,
+      logs: progress.logs.into_iter().map(|log| {
+        ImportLogEntryPB {
+          timestamp: log.timestamp,
+          level: log.level,
+          message: log.message,
+        }
+      }).collect(),
+    };
+    data_result_ok(pb)
+  } else {
+    Err(FlowyError::new(
+      flowy_error::ErrorCode::RecordNotFound,
+      format!("Import progress not found for import_id: {}", data.import_id),
+    ))
+  }
+}

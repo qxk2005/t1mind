@@ -38,6 +38,8 @@ use collab_integrate::collab_builder::{
   AppFlowyCollabBuilder, CollabBuilderConfig, CollabPersistenceImpl,
 };
 use flowy_error::{ErrorCode, FlowyError, FlowyResult, internal_error};
+use allo_isolate::Isolate;
+use lib_infra::isolate_stream::{IsolateSink, SinkExt};
 use flowy_folder_pub::cloud::{FolderCloudService, FolderCollabParams, gen_view_id};
 use flowy_folder_pub::entities::{
   PublishDatabaseData, PublishDatabasePayload, PublishDocumentPayload, PublishPayload,
@@ -58,9 +60,10 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use std::sync::{Arc, Weak};
-use tokio::sync::RwLockWriteGuard;
-use tracing::{error, info, instrument};
+use tokio::sync::{broadcast, RwLockWriteGuard};
+use tracing::{debug, error, info, instrument};
 use uuid::Uuid;
+use serde::{Deserialize, Serialize};
 
 pub trait FolderUser: Send + Sync {
   fn user_id(&self) -> Result<i64, FlowyError>;
@@ -71,6 +74,123 @@ pub trait FolderUser: Send + Sync {
   fn get_active_user_workspace(&self) -> FlowyResult<UserWorkspace>;
 }
 
+type ImportProgressNotifier = broadcast::Sender<ImportProgress>;
+
+/// 导入日志条目
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ImportLogEntry {
+  pub timestamp: i64, // 时间戳（毫秒）
+  pub level: String,  // 'info', 'debug', 'warn', 'error'
+  pub message: String,
+}
+
+impl ImportLogEntry {
+  pub fn new(level: &str, message: String) -> Self {
+    ImportLogEntry {
+      timestamp: chrono::Utc::now().timestamp_millis(),
+      level: level.to_string(),
+      message,
+    }
+  }
+
+  pub fn info(message: String) -> Self {
+    Self::new("info", message)
+  }
+
+  pub fn debug(message: String) -> Self {
+    Self::new("debug", message)
+  }
+
+  pub fn warn(message: String) -> Self {
+    Self::new("warn", message)
+  }
+
+  pub fn error(message: String) -> Self {
+    Self::new("error", message)
+  }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ImportProgress {
+  pub import_id: String,
+  pub file_name: String,
+  pub progress: f64,
+  pub current_step: String,
+  pub error: Option<String>,
+  pub logs: Vec<ImportLogEntry>, // 日志列表
+}
+
+impl ImportProgress {
+  pub fn new(import_id: String, file_name: String, progress: f64, current_step: String) -> Self {
+    ImportProgress {
+      import_id,
+      file_name,
+      progress: (progress * 100.0).round() / 100.0, // 保留两位小数
+      current_step,
+      error: None,
+      logs: Vec::new(),
+    }
+  }
+
+  pub fn new_with_logs(
+    import_id: String,
+    file_name: String,
+    progress: f64,
+    current_step: String,
+    logs: Vec<ImportLogEntry>,
+  ) -> Self {
+    ImportProgress {
+      import_id,
+      file_name,
+      progress: (progress * 100.0).round() / 100.0,
+      current_step,
+      error: None,
+      logs,
+    }
+  }
+
+  pub fn new_error(import_id: String, file_name: String, error: String) -> Self {
+    let error_message = format!("导入失败: {}", error);
+    ImportProgress {
+      import_id,
+      file_name,
+      progress: 0.0,
+      current_step: "导入出错".to_string(),
+      error: Some(error),
+      logs: vec![ImportLogEntry::error(error_message)],
+    }
+  }
+
+  /// 添加日志条目
+  pub fn add_log(&mut self, log: ImportLogEntry) {
+    self.logs.push(log);
+    // 限制日志数量，避免内存过大（保留最近1000条）
+    if self.logs.len() > 1000 {
+      self.logs.remove(0);
+    }
+  }
+
+  /// 添加信息日志
+  pub fn log_info(&mut self, message: String) {
+    self.add_log(ImportLogEntry::info(message));
+  }
+
+  /// 添加调试日志
+  pub fn log_debug(&mut self, message: String) {
+    self.add_log(ImportLogEntry::debug(message));
+  }
+
+  /// 添加警告日志
+  pub fn log_warn(&mut self, message: String) {
+    self.add_log(ImportLogEntry::warn(message));
+  }
+
+  /// 添加错误日志
+  pub fn log_error(&mut self, message: String) {
+    self.add_log(ImportLogEntry::error(message));
+  }
+}
+
 pub struct FolderManager {
   pub(crate) mutex_folder: ArcSwapOption<RwLock<Folder>>,
   pub(crate) collab_builder: Arc<AppFlowyCollabBuilder>,
@@ -79,6 +199,8 @@ pub struct FolderManager {
   pub cloud_service: Weak<dyn FolderCloudService>,
   pub(crate) store_preferences: Arc<KVStorePreferences>,
   pub(crate) folder_ready_notifier: tokio::sync::watch::Sender<bool>,
+  pub(crate) import_progress_notifier: ImportProgressNotifier,
+  pub(crate) import_progress_trackers: Arc<std::sync::RwLock<std::collections::HashMap<String, ImportProgress>>>,
 }
 
 impl Drop for FolderManager {
@@ -95,14 +217,21 @@ impl FolderManager {
     store_preferences: Arc<KVStorePreferences>,
   ) -> FlowyResult<Self> {
     let (folder_ready_notifier, _) = tokio::sync::watch::channel(false);
+    // 使用更大的缓冲区（1000），避免在用户打开"查看导入进度"对话框之前丢失日志
+    // 注意：broadcast::channel 的缓冲区是有限的，如果接收端没有及时接收，旧消息会被丢弃
+    // 但通过 import_progress_trackers，我们可以确保所有日志都被保存，即使接收端还没有准备好
+    let (import_progress_notifier, _) = broadcast::channel(1000);
+    let import_progress_trackers = Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
     let manager = Self {
       user,
       mutex_folder: Default::default(),
       collab_builder,
+      import_progress_trackers,
       operation_handlers: Default::default(),
       cloud_service,
       store_preferences,
       folder_ready_notifier,
+      import_progress_notifier,
     };
 
     Ok(manager)
@@ -110,6 +239,81 @@ impl FolderManager {
 
   pub fn subscribe_folder_ready_notifier(&self) -> tokio::sync::watch::Receiver<bool> {
     self.folder_ready_notifier.subscribe()
+  }
+
+  /// 注册导入进度流
+  /// 类似于文件上传的进度流注册
+  pub async fn register_import_progress_stream(&self, port: i64) {
+    info!("[Import] register import progress stream: {}", port);
+    let mut sink = IsolateSink::new(Isolate::new(port));
+    let mut rx = self.import_progress_notifier.subscribe();
+    tokio::spawn(async move {
+      while let Ok(progress) = rx.recv().await {
+        if let Ok(s) = serde_json::to_string(&progress) {
+          if let Err(err) = sink.send(s).await {
+            error!("[Import]: send import progress failed: {}", err);
+          }
+        }
+      }
+    });
+  }
+
+  /// 发送导入进度更新
+  pub fn send_import_progress(&self, mut progress: ImportProgress) {
+    // 从跟踪器中获取累积的日志
+    if let Ok(mut trackers) = self.import_progress_trackers.write() {
+      if let Some(tracker) = trackers.get_mut(&progress.import_id) {
+        // 将跟踪器中的日志合并到当前进度中
+        progress.logs = tracker.logs.clone();
+      } else {
+        // 创建新的跟踪器
+        trackers.insert(progress.import_id.clone(), progress.clone());
+      }
+    }
+    
+    // 尝试发送进度更新，如果失败则记录错误但不阻塞
+    // 注意：如果接收端还没有准备好（例如用户还没有打开"查看导入进度"对话框），
+    // 发送会失败，这是正常的。我们不应该因为发送失败而阻塞导入过程。
+    if let Err(err) = self.import_progress_notifier.send(progress.clone()) {
+        // 只有在接收端已关闭时才记录错误（这通常不应该发生）
+        // 如果只是接收端还没有准备好，我们静默忽略
+        debug!("[Import]: send import progress failed (receiver not ready): {}", err);
+    }
+  }
+
+  /// 添加导入日志
+  pub fn add_import_log(&self, import_id: &str, log: ImportLogEntry) {
+    if let Ok(mut trackers) = self.import_progress_trackers.write() {
+      if let Some(tracker) = trackers.get_mut(import_id) {
+        tracker.add_log(log);
+      } else {
+        // 如果跟踪器不存在，创建一个新的
+        let mut new_progress = ImportProgress::new(
+          import_id.to_string(),
+          String::new(),
+          0.0,
+          "准备导入...".to_string(),
+        );
+        new_progress.add_log(log);
+        trackers.insert(import_id.to_string(), new_progress);
+      }
+    }
+  }
+
+  /// 获取导入进度（包括所有累积的日志）
+  pub fn get_import_progress(&self, import_id: &str) -> Option<ImportProgress> {
+    if let Ok(trackers) = self.import_progress_trackers.read() {
+      trackers.get(import_id).cloned()
+    } else {
+      None
+    }
+  }
+
+  /// 清理导入进度跟踪器
+  pub fn clear_import_progress_tracker(&self, import_id: &str) {
+    if let Ok(mut trackers) = self.import_progress_trackers.write() {
+      trackers.remove(import_id);
+    }
   }
 
   pub fn cloud_service(&self) -> FlowyResult<Arc<dyn FolderCloudService>> {
@@ -2052,18 +2256,84 @@ impl FolderManager {
     import_data: ImportItem,
   ) -> FlowyResult<(View, Vec<(String, CollabType, EncodedCollab)>)> {
     let handler = self.get_handler(&import_data.view_layout)?;
-    let view_id = gen_view_id();
+    // 如果提供了 view_id，使用它；否则生成新的
+    let view_id = import_data.view_id.unwrap_or_else(gen_view_id);
     let uid = self.user.user_id()?;
     let mut encoded_collab = vec![];
+
+    // 使用 view_id 作为导入任务 ID
+    let import_id = view_id.to_string();
+    
+    // 发送准备导入的进度
+    let mut progress = ImportProgress::new(
+      import_id.clone(),
+      import_data.name.clone(),
+      0.0,
+      "准备导入...".to_string(),
+    );
+    progress.log_info(format!("开始导入文件: {}", import_data.name));
+    self.send_import_progress(progress);
 
     info!("import single file from:{}", import_data.data);
     match import_data.data {
       ImportData::FilePath { file_path } => {
+        // 发送正在读取文件的进度
+        let mut progress = ImportProgress::new(
+          import_id.clone(),
+          import_data.name.clone(),
+          0.1,
+          "正在读取文件...".to_string(),
+        );
+        progress.log_info(format!("读取文件: {}", file_path));
+        self.send_import_progress(progress);
+        
         handler
           .import_from_file_path(&view_id.to_string(), &import_data.name, file_path)
-          .await?;
+          .await
+          .map_err(|e| {
+            // 发送错误进度
+            let mut error_progress = ImportProgress::new_error(
+              import_id.clone(),
+              import_data.name.clone(),
+              format!("导入失败: {}", e),
+            );
+            error_progress.log_error(format!("导入失败: {}", e));
+            self.send_import_progress(error_progress);
+            e
+          })?;
+        
+        // 发送导入完成的进度
+        let mut progress = ImportProgress::new(
+          import_id.clone(),
+          import_data.name.clone(),
+          1.0,
+          "导入完成".to_string(),
+        );
+        progress.log_info("导入成功完成".to_string());
+        self.send_import_progress(progress);
+        
+        // 延迟清理跟踪器，保留日志以便用户查看（10分钟后清理）
+        // 这样即使用户停留在查看导入详情的 UI 窗口中，也能看到完整的日志
+        let import_progress_trackers = self.import_progress_trackers.clone();
+        let import_id_clone = import_id.clone();
+        tokio::spawn(async move {
+          tokio::time::sleep(tokio::time::Duration::from_secs(600)).await; // 10分钟
+          if let Ok(mut trackers) = import_progress_trackers.write() {
+            trackers.remove(&import_id_clone);
+          }
+        });
       },
       ImportData::Bytes { bytes } => {
+        // 发送正在处理的进度
+        let mut progress = ImportProgress::new(
+          import_id.clone(),
+          import_data.name.clone(),
+          0.3,
+          "正在处理数据...".to_string(),
+        );
+        progress.log_info(format!("处理数据，大小: {} 字节", bytes.len()));
+        self.send_import_progress(progress);
+        
         encoded_collab = handler
           .import_from_bytes(
             uid,
@@ -2072,7 +2342,39 @@ impl FolderManager {
             import_data.import_type,
             bytes,
           )
-          .await?;
+          .await
+          .map_err(|e| {
+            // 发送错误进度
+            let mut error_progress = ImportProgress::new_error(
+              import_id.clone(),
+              import_data.name.clone(),
+              format!("导入失败: {}", e),
+            );
+            error_progress.log_error(format!("导入失败: {}", e));
+            self.send_import_progress(error_progress);
+            e
+          })?;
+        
+        // 发送导入完成的进度
+        let mut progress = ImportProgress::new(
+          import_id.clone(),
+          import_data.name.clone(),
+          1.0,
+          "导入完成".to_string(),
+        );
+        progress.log_info("导入成功完成".to_string());
+        self.send_import_progress(progress);
+        
+        // 延迟清理跟踪器，保留日志以便用户查看（10分钟后清理）
+        // 这样即使用户停留在查看导入详情的 UI 窗口中，也能看到完整的日志
+        let import_progress_trackers = self.import_progress_trackers.clone();
+        let import_id_clone = import_id.clone();
+        tokio::spawn(async move {
+          tokio::time::sleep(tokio::time::Duration::from_secs(600)).await; // 10分钟
+          if let Ok(mut trackers) = import_progress_trackers.write() {
+            trackers.remove(&import_id_clone);
+          }
+        });
       },
     }
 

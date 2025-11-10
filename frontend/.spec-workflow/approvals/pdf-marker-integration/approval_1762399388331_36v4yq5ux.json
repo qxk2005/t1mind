@@ -1,0 +1,12 @@
+{
+  "id": "approval_1762399388331_36v4yq5ux",
+  "title": "PDF Marker 集成设计文档审核",
+  "filePath": ".spec-workflow/specs/pdf-marker-integration/design.md",
+  "type": "document",
+  "status": "approve",
+  "createdAt": "2025-11-06T03:23:08.331Z",
+  "category": "spec",
+  "categoryName": "pdf-marker-integration",
+  "response": "通过仪表板批准",
+  "respondedAt": "2025-11-06T03:24:07.028Z"
+}

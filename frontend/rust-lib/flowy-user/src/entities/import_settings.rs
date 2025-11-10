@@ -541,3 +541,78 @@ impl std::default::Default for ConversionLogsPB {
     }
   }
 }
+
+/// PDF 导入工具状态
+#[derive(ProtoBuf_Enum, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub enum ImportToolStatusPB {
+  #[default]
+  ToolUnknown = 0,
+  /// 工具已安装且可用
+  ToolAvailable = 1,
+  /// 工具未安装
+  ToolNotInstalled = 2,
+  /// 工具安装但无法使用
+  ToolUnavailable = 3,
+}
+
+/// PDF 导入工具信息
+#[derive(ProtoBuf, Serialize, Deserialize, Debug, Clone)]
+pub struct ImportToolInfoPB {
+  /// 工具名称
+  #[pb(index = 1)]
+  pub name: String,
+
+  /// 工具状态
+  #[pb(index = 2)]
+  pub status: ImportToolStatusPB,
+
+  /// 工具版本（如果可用）
+  #[pb(index = 3, one_of)]
+  pub version: Option<String>,
+
+  /// 工具路径（如果可用）
+  #[pb(index = 4, one_of)]
+  pub path: Option<String>,
+
+  /// 安装说明（如果未安装）
+  #[pb(index = 5, one_of)]
+  pub install_instruction: Option<String>,
+
+  /// 工具描述
+  #[pb(index = 6)]
+  pub description: String,
+}
+
+/// PDF 导入工具检查结果
+#[derive(ProtoBuf, Serialize, Deserialize, Debug, Clone)]
+pub struct ImportToolsStatusPB {
+  /// 工具列表
+  #[pb(index = 1)]
+  pub tools: Vec<ImportToolInfoPB>,
+
+  /// 检查时间戳
+  #[pb(index = 2)]
+  pub checked_at: i64,
+}
+
+impl std::default::Default for ImportToolInfoPB {
+  fn default() -> Self {
+    ImportToolInfoPB {
+      name: String::new(),
+      status: ImportToolStatusPB::ToolUnknown,
+      version: None,
+      path: None,
+      install_instruction: None,
+      description: String::new(),
+    }
+  }
+}
+
+impl std::default::Default for ImportToolsStatusPB {
+  fn default() -> Self {
+    ImportToolsStatusPB {
+      tools: Vec::new(),
+      checked_at: 0,
+    }
+  }
+}

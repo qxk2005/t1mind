@@ -1,0 +1,14 @@
+{
+  "filePath": ".spec-workflow/specs/pdf-marker-integration/design.md",
+  "currentVersion": 1,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-11-06T03:23:08.337Z",
+      "trigger": "initial",
+      "approvalId": "approval_1762399388331_36v4yq5ux",
+      "approvalTitle": "PDF Marker 集成设计文档审核"
+    }
+  ]
+}

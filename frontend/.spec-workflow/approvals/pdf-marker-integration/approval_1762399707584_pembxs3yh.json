@@ -1,0 +1,12 @@
+{
+  "id": "approval_1762399707584_pembxs3yh",
+  "title": "PDF Marker 集成任务清单审核",
+  "filePath": ".spec-workflow/specs/pdf-marker-integration/tasks.md",
+  "type": "document",
+  "status": "approve",
+  "createdAt": "2025-11-06T03:28:27.584Z",
+  "category": "spec",
+  "categoryName": "pdf-marker-integration",
+  "response": "通过仪表板批准",
+  "respondedAt": "2025-11-06T03:29:47.248Z"
+}

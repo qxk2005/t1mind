@@ -68,7 +68,10 @@ impl Default for ConversionConfig {
             extract_images: true,
             preserve_tables: true,
             max_file_size: Some(50 * 1024 * 1024), // 50MB
-            timeout_seconds: Some(300), // 5分钟
+            // 默认超时时间设置为 30 分钟（1800 秒）
+            // Marker PDF 转换器首次运行需要下载多个大型模型（每个约 1-2GB），
+            // 总下载时间可能需要 15-30 分钟，取决于网络速度
+            timeout_seconds: Some(1800), // 30分钟（首次运行 Marker 需要下载模型）
         }
     }
 }
@@ -100,6 +103,8 @@ pub struct ConversionTask {
     pub progress: u8,
     /// 可选的字节数据（用于临时导入）
     pub bytes_data: Option<Vec<u8>>,
+    /// 导入任务ID（用于进度跟踪和日志收集）
+    pub import_id: Option<String>,
 }
 
 impl std::fmt::Debug for ConversionTask {
@@ -142,6 +147,7 @@ impl ConversionTask {
             error_message: None,
             progress: 0,
             bytes_data: None,
+            import_id: None,
         }
     }
 
@@ -166,7 +172,14 @@ impl ConversionTask {
             error_message: None,
             progress: 0,
             bytes_data: Some(bytes_data),
+            import_id: None,
         }
+    }
+
+    /// 设置导入任务ID
+    pub fn with_import_id(mut self, import_id: String) -> Self {
+        self.import_id = Some(import_id);
+        self
     }
 
     /// 标记任务为处理中
@@ -382,63 +395,56 @@ impl From<ConversionError> for FlowyError {
 #[derive(Debug)]
 pub enum DocumentConverterEnum {
     Word(crate::import::word_converter::WordConverter),
-    Pdf(crate::import::pdf_converter::PdfConverter),
-    EnhancedPdf(crate::import::pdf_converter_v2::EnhancedPdfConverter),
     NativePdf(crate::import::pdf_converter_native::NativePdfConverter),
+    MarkerPdf(crate::import::marker_pdf_converter::MarkerPdfConverter),
 }
 
 impl DocumentConverterEnum {
     pub fn name(&self) -> &str {
         match self {
             Self::Word(converter) => converter.name(),
-            Self::Pdf(converter) => converter.name(),
-            Self::EnhancedPdf(converter) => converter.name(),
             Self::NativePdf(converter) => converter.name(),
+            Self::MarkerPdf(converter) => converter.name(),
         }
     }
 
     pub fn supported_types(&self) -> Vec<DocumentType> {
         match self {
             Self::Word(converter) => converter.supported_types(),
-            Self::Pdf(converter) => converter.supported_types(),
-            Self::EnhancedPdf(converter) => converter.supported_types(),
             Self::NativePdf(converter) => converter.supported_types(),
+            Self::MarkerPdf(converter) => converter.supported_types(),
         }
     }
 
     pub fn can_handle(&self, file_path: &Path) -> bool {
         match self {
             Self::Word(converter) => converter.can_handle(file_path),
-            Self::Pdf(converter) => converter.can_handle(file_path),
-            Self::EnhancedPdf(converter) => converter.can_handle(file_path),
             Self::NativePdf(converter) => converter.can_handle(file_path),
+            Self::MarkerPdf(converter) => converter.can_handle(file_path),
         }
     }
 
     pub async fn convert(&self, task: &ConversionTask) -> FlowyResult<ConversionResult> {
         match self {
             Self::Word(converter) => converter.convert(task).await,
-            Self::Pdf(converter) => converter.convert(task).await,
-            Self::EnhancedPdf(converter) => converter.convert(task).await,
             Self::NativePdf(converter) => converter.convert(task).await,
+            Self::MarkerPdf(converter) => converter.convert(task).await,
         }
     }
 
     pub async fn validate_file(&self, file_path: &Path) -> FlowyResult<()> {
         match self {
             Self::Word(converter) => converter.validate_file(file_path).await,
-            Self::Pdf(converter) => converter.validate_file(file_path).await,
-            Self::EnhancedPdf(converter) => converter.validate_file(file_path).await,
             Self::NativePdf(converter) => converter.validate_file(file_path).await,
+            Self::MarkerPdf(converter) => converter.validate_file(file_path).await,
         }
     }
 
     pub async fn get_file_info(&self, file_path: &Path) -> FlowyResult<DocumentMetadata> {
         match self {
             Self::Word(converter) => converter.get_file_info(file_path).await,
-            Self::Pdf(converter) => converter.get_file_info(file_path).await,
-            Self::EnhancedPdf(converter) => converter.get_file_info(file_path).await,
             Self::NativePdf(converter) => converter.get_file_info(file_path).await,
+            Self::MarkerPdf(converter) => converter.get_file_info(file_path).await,
         }
     }
 }
@@ -464,19 +470,39 @@ impl ConverterFactory for DefaultConverterFactory {
             }
             DocumentType::Pdf => {
                 let config = ConversionConfig::default();
-                // 优先使用原生PDFium转换器
-                Some(DocumentConverterEnum::NativePdf(crate::import::pdf_converter_native::NativePdfConverter::new(config)))
+                // 优先使用 Marker PDF 转换器（如果 Marker 工具可用）
+                // 如果 Marker 工具不可用，回退到原生 PDFium 转换器
+                let marker_manager = crate::import::marker_tool_manager::MarkerToolManager::new();
+                if marker_manager.is_available() {
+                    tracing::info!("✅ 使用 Marker PDF 转换器进行精准 PDF 导入");
+                    Some(DocumentConverterEnum::MarkerPdf(crate::import::marker_pdf_converter::MarkerPdfConverter::new(config)))
+                } else {
+                    // Marker 工具不可用，使用原生 PDFium 转换器作为回退
+                    tracing::warn!("⚠️ Marker 工具不可用，回退到原生 PDFium 转换器（OCR 模式）");
+                    Some(DocumentConverterEnum::NativePdf(crate::import::pdf_converter_native::NativePdfConverter::new(config)))
+                }
             }
         }
     }
 
     fn get_all_converters(&self) -> Vec<DocumentConverterEnum> {
-        vec![
+        let mut converters = vec![
             DocumentConverterEnum::Word(crate::import::word_converter::WordConverter::new(ConversionConfig::default())),
-            DocumentConverterEnum::NativePdf(crate::import::pdf_converter_native::NativePdfConverter::new(ConversionConfig::default())),
-            // 保留其他转换器作为备用
-            DocumentConverterEnum::EnhancedPdf(crate::import::pdf_converter_v2::EnhancedPdfConverter::new(ConversionConfig::default())),
-            DocumentConverterEnum::Pdf(crate::import::pdf_converter::PdfConverter::new(ConversionConfig::default())),
-        ]
+        ];
+        
+        // 检查 Marker 工具是否可用，如果可用则添加 MarkerPdfConverter
+        let marker_manager = crate::import::marker_tool_manager::MarkerToolManager::new();
+        if marker_manager.is_available() {
+            converters.push(DocumentConverterEnum::MarkerPdf(
+                crate::import::marker_pdf_converter::MarkerPdfConverter::new(ConversionConfig::default())
+            ));
+        }
+        
+        // 始终添加 NativePdfConverter 作为回退选项
+        converters.push(DocumentConverterEnum::NativePdf(
+            crate::import::pdf_converter_native::NativePdfConverter::new(ConversionConfig::default())
+        ));
+        
+        converters
     }
 }

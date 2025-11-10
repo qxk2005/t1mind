@@ -1,4 +1,7 @@
+import 'package:appflowy_backend/dispatch/dispatch.dart';
 import 'package:appflowy_backend/log.dart';
+import 'package:appflowy_backend/protobuf/flowy-user/import_settings.pb.dart';
+import 'package:appflowy_backend/protobuf/flowy-user/protobuf.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/user_profile.pb.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
@@ -82,6 +85,9 @@ class ImportSettingsBloc extends Bloc<ImportSettingsEvent, ImportSettingsState> 
           },
           updateTempFileRetentionHours: (value) async {
             await _updateTempFileRetentionHours(emit, value);
+          },
+          checkImportTools: () async {
+            await _checkImportTools(emit);
           },
         );
       },
@@ -361,6 +367,31 @@ class ImportSettingsBloc extends Bloc<ImportSettingsEvent, ImportSettingsState> 
       Log.error('Failed to update temp file retention hours: $e');
     }
   }
+
+  /// 检查导入工具状态
+  Future<void> _checkImportTools(Emitter<ImportSettingsState> emit) async {
+    try {
+      emit(state.copyWith(isCheckingTools: true));
+      
+      final result = await UserEventCheckImportToolsStatus().send();
+      
+      result.fold(
+        (toolsStatus) {
+          emit(state.copyWith(
+            toolsStatus: toolsStatus,
+            isCheckingTools: false,
+          ));
+        },
+        (error) {
+          Log.error('Failed to check import tools: $error');
+          emit(state.copyWith(isCheckingTools: false));
+        },
+      );
+    } catch (e) {
+      Log.error('Failed to check import tools: $e');
+      emit(state.copyWith(isCheckingTools: false));
+    }
+  }
 }
 
 @freezed
@@ -386,16 +417,21 @@ class ImportSettingsEvent with _$ImportSettingsEvent {
   const factory ImportSettingsEvent.updateEnableDebugMode(bool value) = _UpdateEnableDebugMode;
   const factory ImportSettingsEvent.updateAutoCleanupTempFiles(bool value) = _UpdateAutoCleanupTempFiles;
   const factory ImportSettingsEvent.updateTempFileRetentionHours(int value) = _UpdateTempFileRetentionHours;
+  const factory ImportSettingsEvent.checkImportTools() = _CheckImportTools;
 }
 
 @freezed
 class ImportSettingsState with _$ImportSettingsState {
   const factory ImportSettingsState({
     required ImportSettingsPB settings,
+    ImportToolsStatusPB? toolsStatus,
+    @Default(false) bool isCheckingTools,
   }) = _ImportSettingsState;
 
   factory ImportSettingsState.initial() => ImportSettingsState(
         settings: ImportSettingsPB.defaultSettings(),
+        toolsStatus: null,
+        isCheckingTools: false,
       );
 }
 
@@ -452,7 +488,7 @@ class ImportSettingsPB {
         preserveFormatting: true,
         extractImages: true,
         extractTables: true,
-        logLevel: LogLevelPB.info,
+        logLevel: LogLevelPB.Info,
         autoCreateFolder: true,
         enableProgressNotifications: true,
         conversionTimeoutSeconds: 300,
@@ -516,12 +552,3 @@ class ImportSettingsPB {
   }
 }
 
-/// 日志级别枚举
-/// 临时的枚举，实际应该从 protobuf 生成
-enum LogLevelPB {
-  error,
-  warn,
-  info,
-  debug,
-  trace,
-}

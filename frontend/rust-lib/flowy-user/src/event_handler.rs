@@ -12,6 +12,7 @@ use flowy_user_pub::sql::UserWorkspaceChangeset;
 use lib_dispatch::prelude::*;
 use lib_infra::box_any::BoxAny;
 use serde_json::Value;
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::Weak;
 use std::{convert::TryInto, sync::Arc};
@@ -958,4 +959,925 @@ pub async fn update_import_settings(
   // Save updated settings
   store_preferences.set_object(IMPORT_SETTINGS_CACHE_KEY, &current_settings)?;
   Ok(())
+}
+
+/// 检查 PDF 导入工具状态
+#[tracing::instrument(level = "info", skip_all, err)]
+pub async fn check_import_tools_status() -> DataResult<crate::entities::ImportToolsStatusPB, FlowyError> {
+  use crate::entities::ImportToolsStatusPB;
+  use std::time::{SystemTime, UNIX_EPOCH};
+  
+  tracing::info!("[工具检查] ========== 开始检查导入工具 ==========");
+  
+  let mut tools = Vec::new();
+  
+  // 只检查 Marker 工具（精准 PDF 导入工具）
+  // 其他工具（poppler、tesseract、python、pdfminer 等）已不再需要
+  let marker_info = check_marker_tool();
+  tools.push(marker_info);
+  
+  let checked_at = SystemTime::now()
+    .duration_since(UNIX_EPOCH)
+    .unwrap()
+    .as_secs() as i64;
+  
+  tracing::info!("[工具检查] ========== 工具检查完成，共检查 {} 个工具 ==========", tools.len());
+  for tool in &tools {
+    tracing::info!(
+      "[工具检查] {} - 状态: {:?}, 版本: {:?}, 路径: {:?}",
+      tool.name,
+      tool.status,
+      tool.version,
+      tool.path
+    );
+  }
+  
+  let result = ImportToolsStatusPB {
+    tools,
+    checked_at,
+  };
+  
+  data_result_ok(result)
+}
+
+/// 检查单个工具
+fn check_tool(
+  command: &str,
+  display_name: &str,
+  description: &str,
+  install_instruction: &str,
+  version_cmd: Option<Vec<&str>>,
+) -> crate::entities::ImportToolInfoPB {
+  use std::process::Command;
+  
+  tracing::info!("[工具检查] 开始检查工具: {} ({})", display_name, command);
+  
+  // 记录当前环境变量
+  let current_path = std::env::var("PATH").unwrap_or_default();
+  tracing::info!("[工具检查] 当前 PATH: {}", current_path);
+  let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+  tracing::info!("[工具检查] 当前 SHELL: {}", shell);
+  
+  // 首先尝试使用 which/where 命令查找工具路径（跨平台）
+  let path_from_which = {
+    #[cfg(target_os = "windows")]
+    {
+      // Windows 平台使用 where 命令
+      let command_exe = if command.ends_with(".exe") {
+        command.to_string()
+      } else {
+        format!("{}.exe", command)
+      };
+      
+      // 尝试使用 where 命令
+      match Command::new("where").arg(&command_exe).output() {
+        Ok(output) => {
+          let stdout = String::from_utf8_lossy(&output.stdout);
+          let stderr = String::from_utf8_lossy(&output.stderr);
+          tracing::info!(
+            "[工具检查] where 命令执行完成 - 状态: {}, stdout: '{}', stderr: '{}'",
+            output.status,
+            stdout.trim(),
+            stderr.trim()
+          );
+          
+          if output.status.success() {
+            // where 命令可能返回多行，取第一行
+            let path_str = stdout.lines().next()
+              .map(|s| s.trim().to_string())
+              .filter(|s| !s.is_empty());
+            if let Some(path) = path_str {
+              tracing::info!("[工具检查] 通过 where 找到 {}: {}", command, path);
+              Some(path)
+            } else {
+              None
+            }
+          } else {
+            None
+          }
+        }
+        Err(e) => {
+          tracing::error!(
+            "[工具检查] where 执行出错 - 错误类型: {:?}, 错误信息: {}",
+            e.kind(),
+            e
+          );
+          None
+        }
+      }
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+      // Unix-like 平台使用 which 命令
+      // 尝试使用 shell 环境来执行 which，以确保能获取正确的 PATH
+      std::env::var("SHELL")
+        .ok()
+        .and_then(|shell| {
+          // 构建命令，确保加载 shell 配置文件以获取正确的 PATH
+          let which_cmd = if shell.contains("zsh") {
+            // 对于 zsh，加载 .zshrc 或 .zprofile，然后执行 which
+            format!("source ~/.zshrc 2>/dev/null || source ~/.zprofile 2>/dev/null || true; which {}", command)
+          } else if shell.contains("bash") {
+            // 对于 bash，加载 .bash_profile 或 .bashrc
+            format!("source ~/.bash_profile 2>/dev/null || source ~/.bashrc 2>/dev/null || true; which {}", command)
+          } else {
+            format!("which {}", command)
+          };
+          
+          tracing::info!("[工具检查] 尝试通过 shell 执行 which: {} -c \"{}\"", shell, which_cmd);
+          
+          // 使用 shell 来执行 which 命令，这样可以获取正确的 PATH
+          match Command::new(&shell)
+            .arg("-c")
+            .arg(&which_cmd)
+            .output()
+          {
+            Ok(output) => {
+              let stdout = String::from_utf8_lossy(&output.stdout);
+              let stderr = String::from_utf8_lossy(&output.stderr);
+              tracing::info!(
+                "[工具检查] Shell which 命令执行完成 - 状态: {}, stdout: '{}', stderr: '{}'",
+                output.status,
+                stdout.trim(),
+                stderr.trim()
+              );
+              
+              if output.status.success() {
+                let path_str = stdout.trim().to_string();
+                if !path_str.is_empty() {
+                  tracing::info!("[工具检查] 通过 shell which 找到 {}: {}", command, path_str);
+                  Some(path_str)
+                } else {
+                  tracing::warn!("[工具检查] Shell which 返回空结果");
+                  None
+                }
+              } else {
+                tracing::debug!("[工具检查] Shell which 命令失败: {}", stderr.trim());
+                None
+              }
+            }
+            Err(e) => {
+              // 记录权限或执行错误
+              tracing::error!(
+                "[工具检查] Shell which 执行出错 - 错误类型: {:?}, 错误信息: {}",
+                e.kind(),
+                e
+              );
+              if e.kind() == std::io::ErrorKind::PermissionDenied {
+                tracing::warn!("[工具检查] 权限被拒绝: {}", e);
+              }
+              None
+            }
+          }
+        })
+        .or_else(|| {
+          tracing::info!("[工具检查] Shell which 失败，回退到直接执行 which {}", command);
+          // 如果 shell 方式失败，回退到直接使用 which 命令
+          match Command::new("which")
+            .arg(command)
+            .output()
+          {
+            Ok(output) => {
+              let stdout = String::from_utf8_lossy(&output.stdout);
+              let stderr = String::from_utf8_lossy(&output.stderr);
+              tracing::info!(
+                "[工具检查] 直接 which 命令执行完成 - 状态: {}, stdout: '{}', stderr: '{}'",
+                output.status,
+                stdout.trim(),
+                stderr.trim()
+              );
+              
+              if output.status.success() {
+                let path_str = stdout.trim().to_string();
+                if !path_str.is_empty() {
+                  tracing::info!("[工具检查] 通过直接 which 找到 {}: {}", command, path_str);
+                  Some(path_str)
+                } else {
+                  None
+                }
+              } else {
+                None
+              }
+            }
+            Err(e) => {
+              tracing::error!(
+                "[工具检查] 直接 which 执行出错 - 错误类型: {:?}, 错误信息: {}",
+                e.kind(),
+                e
+              );
+              if e.kind() == std::io::ErrorKind::PermissionDenied {
+                tracing::warn!("[工具检查] 权限被拒绝: {}", e);
+              }
+              None
+            }
+          }
+        })
+    }
+  };
+  
+  // 在尝试执行版本命令之前，先检查常见路径中是否存在可执行文件
+  let path_from_common_dirs = {
+    #[cfg(target_os = "windows")]
+    {
+      // Windows 平台
+      let command_exe = if command.ends_with(".exe") {
+        command.to_string()
+      } else {
+        format!("{}.exe", command)
+      };
+      
+      let common_paths = vec![
+        r"C:\Program Files\poppler\bin",
+        r"C:\Program Files (x86)\poppler\bin",
+        r"C:\poppler\bin",
+        format!(r"{}\poppler\bin", std::env::var("USERPROFILE").unwrap_or_default()),
+        r"C:\Windows\System32",
+        r"C:\Windows",
+      ];
+      
+      let mut found_path = None;
+      for base_path in common_paths {
+        let test_path = std::path::Path::new(&base_path).join(&command_exe);
+        if test_path.exists() {
+          tracing::info!("[工具检查] 在常见路径中找到 {} 可执行文件: {}", command, test_path.display());
+          found_path = Some(test_path.to_string_lossy().to_string());
+          break;
+        }
+      }
+      found_path
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+      // Unix-like 平台（macOS, Linux）
+      let common_paths = vec![
+        "/opt/homebrew/bin",  // Apple Silicon Mac
+        "/usr/local/bin",      // Intel Mac / Linux
+        "/usr/bin",
+        "/bin",
+      ];
+      
+      let mut found_path = None;
+      for base_path in common_paths {
+        let test_path = format!("{}/{}", base_path, command);
+        if std::path::Path::new(&test_path).exists() {
+          tracing::info!("[工具检查] 在常见路径中找到 {} 可执行文件: {}", command, test_path);
+          found_path = Some(test_path);
+          break;
+        }
+      }
+      found_path
+    }
+  };
+  
+  // 如果 which 找不到，尝试直接执行命令来检查是否存在
+  // 这在 macOS 应用中特别重要，因为应用的 PATH 可能不包含 Homebrew 路径
+  let (status, version, path) = if let Some(cmd_parts) = version_cmd.as_ref() {
+    // 尝试执行版本命令来检查工具是否存在
+    // 优先使用 shell 环境执行，以确保能获取正确的 PATH
+    let version_output_result = std::env::var("SHELL")
+      .ok()
+      .and_then(|shell| {
+        // 构建命令字符串（参数通常比较简单，如 -v 或 --version）
+        let cmd_str = if cmd_parts.len() > 1 {
+          let args: Vec<String> = cmd_parts[1..].iter().map(|s| s.to_string()).collect();
+          format!("{} {}", cmd_parts[0], args.join(" "))
+        } else {
+          cmd_parts[0].to_string()
+        };
+        
+        // 使用 shell 执行命令，确保加载完整的 PATH 环境
+        // 对于 zsh，需要加载 .zshrc 或 .zprofile 来获取正确的 PATH
+        tracing::info!("[工具检查] 尝试通过 shell 执行版本命令: {} -c \"{}\"", shell, cmd_str);
+        
+        // 构建一个更完整的命令，确保加载环境变量
+        // 对于 macOS，Homebrew 路径通常在 ~/.zprofile 或 ~/.zshrc 中设置
+        let full_cmd = if shell.contains("zsh") {
+          // 对于 zsh，先 source .zprofile 或 .zshrc，然后执行命令
+          // .zprofile 在登录时加载，通常包含 Homebrew 的 PATH 设置
+          format!("source ~/.zprofile 2>/dev/null || source ~/.zshrc 2>/dev/null || true; {}", cmd_str)
+        } else if shell.contains("bash") {
+          // 对于 bash，先 source .bash_profile 或 .bashrc
+          format!("source ~/.bash_profile 2>/dev/null || source ~/.bashrc 2>/dev/null || true; {}", cmd_str)
+        } else {
+          cmd_str
+        };
+        
+        tracing::info!("[工具检查] 完整命令: {} -c \"{}\"", shell, full_cmd);
+        
+        match Command::new(&shell)
+          .arg("-c")
+          .arg(&full_cmd)
+          .output()
+        {
+          Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let status_code = output.status.code().unwrap_or(-1);
+            tracing::info!(
+              "[工具检查] Shell 版本命令执行完成 - 退出码: {}, 状态: {}, stdout: '{}', stderr: '{}'",
+              status_code,
+              output.status,
+              stdout.trim(),
+              stderr.trim()
+            );
+            
+            if output.status.success() {
+              tracing::info!("[工具检查] 通过 shell 成功执行 {} 版本命令", command);
+              Some(output)
+            } else {
+              tracing::warn!(
+                "[工具检查] Shell 版本命令执行失败 - 退出码: {}, stderr: '{}'",
+                status_code,
+                stderr.trim()
+              );
+              None
+            }
+          }
+          Err(e) => {
+            tracing::error!(
+              "[工具检查] Shell 版本命令执行出错 - 错误类型: {:?}, 错误信息: {}",
+              e.kind(),
+              e
+            );
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+              tracing::warn!("[工具检查] 权限被拒绝: {}", e);
+            }
+            None
+          }
+        }
+      })
+      .or_else(|| {
+        // 如果 shell 方式失败，尝试使用找到的路径来执行命令
+        if let Some(ref found_path) = path_from_common_dirs {
+          tracing::info!("[工具检查] 尝试使用找到的路径执行命令: {}", found_path);
+          match Command::new(found_path)
+            .args(&cmd_parts[1..])
+            .output()
+          {
+            Ok(output) => {
+              let stdout = String::from_utf8_lossy(&output.stdout);
+              let stderr = String::from_utf8_lossy(&output.stderr);
+              tracing::info!(
+                "[工具检查] 使用路径执行命令完成 - 状态: {}, stdout: '{}', stderr: '{}'",
+                output.status,
+                stdout.trim(),
+                stderr.trim()
+              );
+              
+              if output.status.success() {
+                tracing::info!("[工具检查] 使用路径执行 {} 命令成功", command);
+                return Some(output);
+              }
+            }
+            Err(e) => {
+              tracing::warn!("[工具检查] 使用路径执行命令失败: {}", e);
+            }
+          }
+        }
+        
+        // 回退到直接执行命令（依赖 PATH）
+        let cmd_args: Vec<String> = cmd_parts.iter().map(|s| s.to_string()).collect();
+        tracing::info!("[工具检查] Shell 方式失败，回退到直接执行命令: {:?}", cmd_args);
+        
+        match Command::new(cmd_parts[0])
+          .args(&cmd_parts[1..])
+          .output()
+        {
+          Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::info!(
+              "[工具检查] 直接执行命令完成 - 状态: {}, stdout: '{}', stderr: '{}'",
+              output.status,
+              stdout.trim(),
+              stderr.trim()
+            );
+            
+            if output.status.success() {
+              tracing::info!("[工具检查] 直接执行 {} 命令成功", command);
+              Some(output)
+            } else {
+              tracing::warn!("[工具检查] 直接执行 {} 命令失败", command);
+              None
+            }
+          }
+          Err(e) => {
+            tracing::error!(
+              "[工具检查] 直接执行命令出错 - 错误类型: {:?}, 错误信息: {}",
+              e.kind(),
+              e
+            );
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+              tracing::warn!("[工具检查] 权限被拒绝: {}", e);
+            } else if e.kind() == std::io::ErrorKind::NotFound {
+              tracing::warn!("[工具检查] 命令未找到: {}", cmd_parts[0]);
+            }
+            None
+          }
+        }
+      });
+    
+    match version_output_result {
+      Some(version_output) if version_output.status.success() => {
+        // 命令执行成功，说明工具存在
+        let version_text = String::from_utf8_lossy(&version_output.stdout);
+        // 提取版本号（简化处理）
+        let version_str = version_text
+          .lines()
+          .next()
+          .and_then(|line| {
+            // 尝试提取版本号
+            line.split_whitespace()
+              .find(|s| s.chars().any(|c| c.is_ascii_digit()))
+              .map(|s| s.to_string())
+          })
+          .or_else(|| {
+            let trimmed = version_text.trim().to_string();
+            if !trimmed.is_empty() {
+              Some(trimmed)
+            } else {
+              None
+            }
+          });
+        
+        // 如果没有从 which 获取到路径，使用之前找到的常见路径，或尝试查找
+        let final_path = path_from_which
+          .or(path_from_common_dirs.clone())
+          .or_else(|| {
+            tracing::info!("[工具检查] which 未找到路径，尝试在常见路径中查找 {}", command);
+            
+            // 检查常见的 Homebrew 路径（按优先级）
+            let common_paths = vec![
+              "/opt/homebrew/bin",  // Apple Silicon Mac 的 Homebrew 路径
+              "/usr/local/bin",      // Intel Mac 的 Homebrew 路径
+              "/usr/bin",
+              "/bin",
+            ];
+            
+            // 尝试在常见路径中查找
+            for base_path in common_paths {
+              let test_path = format!("{}/{}", base_path, command);
+              tracing::debug!("[工具检查] 检查路径: {}", test_path);
+              if std::path::Path::new(&test_path).exists() {
+                tracing::info!("[工具检查] 在常见路径中找到 {}: {}", command, test_path);
+                return Some(test_path);
+              }
+            }
+            
+            // 如果都找不到，但命令能执行，说明在 PATH 中，使用命令名作为路径
+            tracing::warn!("[工具检查] 在常见路径中未找到 {}，但命令能执行，可能在其他 PATH 中", command);
+            Some(command.to_string())
+          });
+        
+        tracing::info!(
+          "[工具检查] {} 检查成功 - 状态: 已安装, 版本: {:?}, 路径: {:?}",
+          display_name,
+          version_str,
+          final_path
+        );
+        (
+          ImportToolStatusPB::ToolAvailable,
+          version_str,
+          final_path,
+        )
+      }
+      Some(_) => {
+        // 命令执行失败，但可能是因为参数问题，尝试使用 which
+        if let Some(path_str) = path_from_which {
+          tracing::info!(
+            "[工具检查] {} 检查部分成功 - 状态: 已安装 (版本命令失败但找到路径), 路径: {}",
+            display_name,
+            path_str
+          );
+          (
+            ImportToolStatusPB::ToolAvailable,
+            None,
+            Some(path_str),
+          )
+        } else {
+          tracing::warn!(
+            "[工具检查] {} 检查失败 - 状态: 未安装 (版本命令失败且未找到路径)",
+            display_name
+          );
+          (
+            ImportToolStatusPB::ToolNotInstalled,
+            None,
+            None,
+          )
+        }
+      }
+      None => {
+        // 命令执行失败或出错，检查 which 的结果
+        if let Some(path_str) = path_from_which {
+          // 如果 which 能找到路径，即使版本命令失败，也认为工具存在
+          tracing::info!(
+            "[工具检查] {} 检查部分成功 - 状态: 已安装 (通过路径找到), 路径: {}",
+            display_name,
+            path_str
+          );
+          (
+            ImportToolStatusPB::ToolAvailable,
+            None,
+            Some(path_str),
+          )
+        } else {
+          tracing::warn!(
+            "[工具检查] {} 检查失败 - 状态: 未安装 (所有检查方法均失败)",
+            display_name
+          );
+          (
+            ImportToolStatusPB::ToolNotInstalled,
+            None,
+            None,
+          )
+        }
+      }
+    }
+  } else {
+    // 没有版本命令，仅依赖 which
+    if let Some(path_str) = path_from_which {
+      tracing::info!(
+        "[工具检查] {} 检查成功 - 状态: 已安装 (通过路径), 路径: {}",
+        display_name,
+        path_str
+      );
+      (
+        ImportToolStatusPB::ToolAvailable,
+        None,
+        Some(path_str),
+      )
+    } else {
+      tracing::warn!(
+        "[工具检查] {} 检查失败 - 状态: 未安装 (未找到路径)",
+        display_name
+      );
+      (
+        ImportToolStatusPB::ToolNotInstalled,
+        None,
+        None,
+      )
+    }
+  };
+  
+  let install_inst = if status == ImportToolStatusPB::ToolNotInstalled {
+    Some(install_instruction.to_string())
+  } else {
+    None
+  };
+  
+  ImportToolInfoPB {
+    name: display_name.to_string(),
+    status,
+    version,
+    path,
+    install_instruction: install_inst,
+    description: description.to_string(),
+  }
+}
+
+/// 检查 Python 模块（带回退机制，用于检查版本）
+fn check_python_module_with_fallback(
+  module_to_check: &str,
+  version_module: &str,
+  package_name: &str,
+  description: &str,
+  install_instruction: &str,
+) -> crate::entities::ImportToolInfoPB {
+  use std::process::Command;
+  
+  // Windows 使用 python，Unix-like 使用 python3
+  let python_cmd = if cfg!(target_os = "windows") {
+    "python"
+  } else {
+    "python3"
+  };
+  
+  // 首先检查模块是否可以导入
+  let check_import = Command::new(python_cmd)
+    .arg("-c")
+    .arg(&format!("import {}", module_to_check))
+    .output();
+  
+  let (status, version) = match check_import {
+    Ok(output) if output.status.success() => {
+      // 模块可以导入，尝试获取版本
+      let version_cmd = format!("import {}; print(getattr({}, '__version__', 'unknown'))", version_module, version_module);
+      let version_result = Command::new(python_cmd)
+        .arg("-c")
+        .arg(&version_cmd)
+        .output();
+      
+      let version_str = if let Ok(v_output) = version_result {
+        if v_output.status.success() {
+          let version_text = String::from_utf8_lossy(&v_output.stdout)
+            .trim()
+            .to_string();
+          if version_text != "unknown" && !version_text.is_empty() {
+            Some(version_text)
+          } else {
+            None
+          }
+        } else {
+          None
+        }
+      } else {
+        None
+      };
+      
+      (ImportToolStatusPB::ToolAvailable, version_str)
+    }
+    Ok(output) => {
+      // 检查错误信息
+      let error_msg = String::from_utf8_lossy(&output.stderr);
+      if error_msg.contains("ModuleNotFoundError") || error_msg.contains("No module named") {
+        (ImportToolStatusPB::ToolNotInstalled, None)
+      } else {
+        (ImportToolStatusPB::ToolUnavailable, None)
+      }
+    }
+    _ => (ImportToolStatusPB::ToolUnknown, None),
+  };
+  
+  let install_inst = if status == ImportToolStatusPB::ToolNotInstalled {
+    Some(install_instruction.to_string())
+  } else {
+    None
+  };
+  
+  ImportToolInfoPB {
+    name: format!("{} ({})", module_to_check, package_name),
+    status,
+    version,
+    path: None,
+    install_instruction: install_inst,
+    description: description.to_string(),
+  }
+}
+
+/// 检查 Marker 工具（精准 PDF 导入工具）
+/// 
+/// Marker 工具用于将 PDF 转换为 Markdown，提供比 OCR 更精准的文本提取。
+/// 工具应该位于应用包的 Resources/marker/ 目录中。
+fn check_marker_tool() -> crate::entities::ImportToolInfoPB {
+  use crate::entities::{ImportToolInfoPB, ImportToolStatusPB};
+  
+  tracing::info!("[工具检查] 开始检查 Marker 工具");
+  
+  // 获取当前可执行文件路径
+  let exe_path = match std::env::current_exe() {
+    Ok(path) => path,
+    Err(e) => {
+      tracing::warn!("[工具检查] 无法获取当前可执行文件路径: {}", e);
+      return ImportToolInfoPB {
+        name: "Marker (精准 PDF 导入)".to_string(),
+        status: ImportToolStatusPB::ToolUnknown,
+        version: None,
+        path: None,
+        install_instruction: Some("Marker 工具应随应用包一起提供，请重新安装应用。".to_string()),
+        description: "用于精准 PDF 导入的工具，将 PDF 转换为 Markdown 格式，保留格式和结构".to_string(),
+      };
+    }
+  };
+  
+  tracing::debug!("[工具检查] 当前可执行文件路径: {}", exe_path.display());
+  
+  // 根据平台确定 Marker 工具路径
+  let marker_path = resolve_marker_path(&exe_path);
+  
+  match marker_path {
+    Ok(path) => {
+      // 验证 Marker 工具是否存在且可执行
+      match verify_marker_path(&path) {
+        Ok(()) => {
+          tracing::info!("[工具检查] Marker 工具验证成功: {}", path.display());
+          
+          // 尝试获取版本信息（如果 marker 支持 --version 或 -v）
+          let version = get_marker_version(&path);
+          
+          ImportToolInfoPB {
+            name: "Marker (精准 PDF 导入)".to_string(),
+            status: ImportToolStatusPB::ToolAvailable,
+            version,
+            path: Some(path.display().to_string()),
+            install_instruction: None,
+            description: "用于精准 PDF 导入的工具，将 PDF 转换为 Markdown 格式，保留格式和结构".to_string(),
+          }
+        }
+        Err(e) => {
+          tracing::warn!("[工具检查] Marker 工具验证失败: {}", e);
+          ImportToolInfoPB {
+            name: "Marker (精准 PDF 导入)".to_string(),
+            status: ImportToolStatusPB::ToolUnavailable,
+            version: None,
+            path: Some(path.display().to_string()),
+            install_instruction: Some(format!("Marker 工具存在但无法使用: {}\n请检查文件权限或重新安装应用。", e)),
+            description: "用于精准 PDF 导入的工具，将 PDF 转换为 Markdown 格式，保留格式和结构".to_string(),
+          }
+        }
+      }
+    }
+    Err(e) => {
+      tracing::warn!("[工具检查] Marker 工具未找到: {}", e);
+      ImportToolInfoPB {
+        name: "Marker (精准 PDF 导入)".to_string(),
+        status: ImportToolStatusPB::ToolNotInstalled,
+        version: None,
+        path: None,
+        install_instruction: Some(format!(
+          "Marker 工具未找到: {}\n\
+          Marker 工具应随应用包一起提供。\n\
+          macOS 期望路径: AppFlowy.app/Contents/Resources/marker/marker\n\
+          Windows 期望路径: AppFlowy/Resources/marker/marker.exe\n\
+          请重新安装应用或检查应用包完整性。",
+          e
+        )),
+        description: "用于精准 PDF 导入的工具，将 PDF 转换为 Markdown 格式，保留格式和结构".to_string(),
+      }
+    }
+  }
+}
+
+/// 解析 Marker 工具路径
+fn resolve_marker_path(exe_path: &Path) -> Result<std::path::PathBuf, String> {
+  #[cfg(target_os = "macos")]
+  {
+    // macOS 应用包结构：
+    // AppFlowy.app/
+    // └── Contents/
+    //     ├── MacOS/AppFlowy (可执行文件)
+    //     └── Resources/
+    //         └── marker/
+    //             └── marker (Marker 工具)
+    
+    let mut current = exe_path.to_path_buf();
+    
+    // 向上查找 .app 包
+    while let Some(parent) = current.parent() {
+      // 检查是否是 Contents 目录
+      if parent.file_name().and_then(|n| n.to_str()) == Some("Contents") {
+        // 检查父目录是否是 .app 包
+        if let Some(grandparent) = parent.parent() {
+          if grandparent.file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.ends_with(".app"))
+            .unwrap_or(false)
+          {
+            // 构建 Resources/marker/marker 路径
+            let marker_path = parent.join("Resources").join("marker").join("marker");
+            tracing::debug!("[工具检查] 构建的 macOS Marker 路径: {}", marker_path.display());
+            return Ok(marker_path);
+          }
+        }
+      }
+      
+      // 检查当前路径是否是 .app 包
+      if current.file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.ends_with(".app"))
+        .unwrap_or(false)
+      {
+        // 构建 Contents/Resources/marker/marker 路径
+        let marker_path = current.join("Contents").join("Resources").join("marker").join("marker");
+        tracing::debug!("[工具检查] 构建的 macOS Marker 路径: {}", marker_path.display());
+        return Ok(marker_path);
+      }
+      
+      current = parent.to_path_buf();
+      
+      // 防止无限循环
+      if current == std::path::PathBuf::from("/") {
+        break;
+      }
+    }
+    
+    // 如果无法从 .app 包结构推断，尝试从可执行文件路径直接构建
+    if let Some(parent) = exe_path.parent() {
+      if parent.file_name().and_then(|n| n.to_str()) == Some("MacOS") {
+        if let Some(contents_dir) = parent.parent() {
+          let marker_path = contents_dir.join("Resources").join("marker").join("marker");
+          tracing::debug!("[工具检查] 从 MacOS 目录推断的 Marker 路径: {}", marker_path.display());
+          return Ok(marker_path);
+        }
+      }
+    }
+    
+    Err(format!(
+      "无法从可执行文件路径推断 macOS 应用包路径: {}\n\
+      期望的应用包结构: AppFlowy.app/Contents/Resources/marker/marker",
+      exe_path.display()
+    ))
+  }
+  
+  #[cfg(target_os = "windows")]
+  {
+    // Windows 应用目录结构：
+    // AppFlowy/
+    // ├── AppFlowy.exe (可执行文件)
+    // └── Resources/
+    //     └── marker/
+    //         └── marker.exe (Marker 工具)
+    
+    let app_dir = exe_path.parent().ok_or_else(|| {
+      format!("无法获取可执行文件的父目录: {}", exe_path.display())
+    })?;
+    
+    // 构建 Resources/marker/marker.exe 路径
+    let marker_path = app_dir.join("Resources").join("marker").join("marker.exe");
+    tracing::debug!("[工具检查] 构建的 Windows Marker 路径: {}", marker_path.display());
+    Ok(marker_path)
+  }
+  
+  #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+  {
+    Err(format!("当前平台 {} 不支持 Marker 工具查找", std::env::consts::OS))
+  }
+}
+
+/// 验证 Marker 工具路径
+fn verify_marker_path(path: &Path) -> Result<(), String> {
+  // 检查文件是否存在
+  if !path.exists() {
+    return Err(format!(
+      "Marker 工具未找到: {}\n\
+      请确保 Marker 工具已正确打包到应用包中。",
+      path.display()
+    ));
+  }
+  
+  // 检查是否是文件（而不是目录）
+  if !path.is_file() {
+    return Err(format!(
+      "Marker 工具路径指向的不是文件: {}\n\
+      请检查应用包中的 Marker 工具是否正确安装。",
+      path.display()
+    ));
+  }
+  
+  // 在 Unix 系统上检查执行权限
+  #[cfg(unix)]
+  {
+    use std::fs::Permissions;
+    use std::os::unix::fs::PermissionsExt;
+    
+    let metadata = path.metadata().map_err(|e| {
+      format!("无法获取文件元数据 {}: {}", path.display(), e)
+    })?;
+    
+    let permissions = metadata.permissions();
+    let mode = permissions.mode();
+    
+    // 检查是否有执行权限（用户、组或其他）
+    if mode & 0o111 == 0 {
+      tracing::warn!(
+        "[工具检查] Marker 工具可能没有执行权限: {} (权限: {:o})",
+        path.display(),
+        mode
+      );
+      // 尝试添加执行权限
+      if let Err(e) = std::fs::set_permissions(path, Permissions::from_mode(mode | 0o111)) {
+        return Err(format!(
+          "Marker 工具没有执行权限，且无法添加执行权限: {}: {}",
+          path.display(),
+          e
+        ));
+      }
+      tracing::info!("[工具检查] 已为 Marker 工具添加执行权限: {}", path.display());
+    }
+  }
+  
+  tracing::debug!("[工具检查] Marker 工具验证成功: {}", path.display());
+  Ok(())
+}
+
+/// 获取 Marker 工具版本信息
+fn get_marker_version(marker_path: &Path) -> Option<String> {
+  use std::process::Command;
+  
+  // 尝试使用 --version 参数
+  if let Ok(output) = Command::new(marker_path).arg("--version").output() {
+    if output.status.success() {
+      let version = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .to_string();
+      if !version.is_empty() {
+        return Some(version);
+      }
+    }
+  }
+  
+  // 尝试使用 -v 参数
+  if let Ok(output) = Command::new(marker_path).arg("-v").output() {
+    if output.status.success() {
+      let version = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .to_string();
+      if !version.is_empty() {
+        return Some(version);
+      }
+    }
+  }
+  
+  None
 }

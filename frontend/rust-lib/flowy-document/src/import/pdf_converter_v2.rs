@@ -388,7 +388,7 @@ impl EnhancedPdfConverter {
     }
 
     /// 提取PDF文档元数据
-    async fn extract_document_metadata(&self, pdf_data: &[u8], file_path: &str) -> FlowyResult<DocumentMetadata> {
+    async fn extract_document_metadata(&self, pdf_data: &[u8], _file_path: &str) -> FlowyResult<DocumentMetadata> {
         let mut metadata = DocumentMetadata {
             author: None,
             created_at: None,

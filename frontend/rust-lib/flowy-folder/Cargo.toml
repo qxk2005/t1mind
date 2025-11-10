@@ -25,7 +25,7 @@ flowy-error = { path = "../flowy-error", features = [
 ] }
 lib-dispatch = { workspace = true }
 bytes.workspace = true
-lib-infra = { workspace = true }
+lib-infra = { workspace = true, features = ["isolate_flutter"] }
 tokio = { workspace = true, features = ["sync"] }
 strum_macros = "0.21"
 protobuf.workspace = true
@@ -40,6 +40,8 @@ regex = "1.9.5"
 futures = "0.3.31"
 dashmap.workspace = true
 num_enum.workspace = true
+allo-isolate = { version = "^0.1", features = ["catch-unwind"] }
+chrono = { workspace = true, default-features = false, features = ["clock"] }
 
 
 [build-dependencies]

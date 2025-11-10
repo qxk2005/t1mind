@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/pdf-marker-integration/requirements.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-11-06T02:50:31.038Z",
+      "trigger": "initial",
+      "approvalId": "approval_1762397430980_71xlpf5vk",
+      "approvalTitle": "PDF Marker 集成需求规范审核"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2025-11-06T03:17:08.560Z",
+      "trigger": "revision_requested",
+      "approvalId": "approval_1762397430980_71xlpf5vk",
+      "approvalTitle": "PDF Marker 集成需求规范审核"
+    }
+  ]
+}

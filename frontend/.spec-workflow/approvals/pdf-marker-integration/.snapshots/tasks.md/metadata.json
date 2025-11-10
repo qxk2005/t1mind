@@ -1,0 +1,14 @@
+{
+  "filePath": ".spec-workflow/specs/pdf-marker-integration/tasks.md",
+  "currentVersion": 1,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2025-11-06T03:28:27.586Z",
+      "trigger": "initial",
+      "approvalId": "approval_1762399707584_pembxs3yh",
+      "approvalTitle": "PDF Marker 集成任务清单审核"
+    }
+  ]
+}

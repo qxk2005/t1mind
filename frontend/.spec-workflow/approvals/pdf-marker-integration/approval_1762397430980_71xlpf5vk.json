@@ -1,0 +1,27 @@
+{
+  "id": "approval_1762397430980_71xlpf5vk",
+  "title": "PDF Marker 集成需求规范审核",
+  "filePath": ".spec-workflow/specs/pdf-marker-integration/requirements.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2025-11-06T02:50:30.980Z",
+  "category": "spec",
+  "categoryName": "pdf-marker-integration",
+  "response": "Feedback Summary (1 comments):\n\nSpecific Text Comments:\n1. \"arker 是一个开源工具，能够快速、准确地将 PDF 转换为 Markdown。它支持多种文档类型...\": 我希望将 marker 集成到 macos 和 windows 应用中独立分发，而不用用户自行安装\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"selection\",\n      \"comment\": \"我希望将 marker 集成到 macos 和 windows 应用中独立分发，而不用用户自行安装\",\n      \"timestamp\": \"2025-11-06T03:17:05.702Z\",\n      \"selectedText\": \"arker 是一个开源工具，能够快速、准确地将 PDF 转换为 Markdown。它支持多种文档类型（包括书籍和科学论文），支持多语言，并能移除页眉、页脚等非内容元素，格式化表格和代码块，提取并保存图像，以及将大多数方程式转换为 LaTeX 格式。\",\n      \"highlightColor\": {\n        \"bg\": \"rgba(255, 235, 59, 0.3)\",\n        \"border\": \"#FFEB3B\",\n        \"name\": \"#ffeb3b\"\n      },\n      \"id\": \"comment_1762399025702_fljzn5vkf\"\n    }\n  ],\n  \"summary\": \"Feedback Summary (1 comments):\\n\\nSpecific Text Comments:\\n1. \\\"arker 是一个开源工具，能够快速、准确地将 PDF 转换为 Markdown。它支持多种文档类型...\\\": 我希望将 marker 集成到 macos 和 windows 应用中独立分发，而不用用户自行安装\\n\",\n  \"timestamp\": \"2025-11-06T03:17:08.553Z\"\n}",
+  "respondedAt": "2025-11-06T03:17:08.562Z",
+  "comments": [
+    {
+      "type": "selection",
+      "comment": "我希望将 marker 集成到 macos 和 windows 应用中独立分发，而不用用户自行安装",
+      "timestamp": "2025-11-06T03:17:05.702Z",
+      "selectedText": "arker 是一个开源工具，能够快速、准确地将 PDF 转换为 Markdown。它支持多种文档类型（包括书籍和科学论文），支持多语言，并能移除页眉、页脚等非内容元素，格式化表格和代码块，提取并保存图像，以及将大多数方程式转换为 LaTeX 格式。",
+      "highlightColor": {
+        "bg": "rgba(255, 235, 59, 0.3)",
+        "border": "#FFEB3B",
+        "name": "#ffeb3b"
+      },
+      "id": "comment_1762399025702_fljzn5vkf"
+    }
+  ]
+}

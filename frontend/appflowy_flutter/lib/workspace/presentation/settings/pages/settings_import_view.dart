@@ -4,6 +4,8 @@ import 'package:appflowy/workspace/presentation/settings/shared/settings_categor
 import 'package:appflowy/workspace/presentation/settings/shared/settings_dropdown.dart';
 import 'package:appflowy/workspace/presentation/settings/widgets/settings_switch.dart';
 import 'package:appflowy/workspace/presentation/settings/widgets/settings_text_field.dart';
+import 'package:appflowy_backend/protobuf/flowy-user/import_settings.pb.dart';
+import 'package:appflowy_backend/protobuf/flowy-user/protobuf.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/user_profile.pb.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flowy_infra_ui/style_widget/text.dart';
@@ -309,6 +311,22 @@ class _SettingsImportViewState extends State<SettingsImportView> {
                   ),
                 ],
               ),
+              
+              // 导入工具检查
+              SettingsCategory(
+                title: "导入工具检查",
+                children: [
+                  _ImportToolsStatusWidget(
+                    toolsStatus: state.toolsStatus,
+                    isChecking: state.isCheckingTools,
+                    onCheck: () {
+                      context.read<ImportSettingsBloc>().add(
+                        const ImportSettingsEvent.checkImportTools(),
+                      );
+                    },
+                  ),
+                ],
+              ),
             ],
           );
         },
@@ -318,16 +336,212 @@ class _SettingsImportViewState extends State<SettingsImportView> {
 
   String _getLogLevelLabel(LogLevelPB level) {
     switch (level) {
-      case LogLevelPB.error:
+      case LogLevelPB.Error:
         return "错误";
-      case LogLevelPB.warn:
+      case LogLevelPB.Warn:
         return "警告";
-      case LogLevelPB.info:
+      case LogLevelPB.Info:
         return "信息";
-      case LogLevelPB.debug:
+      case LogLevelPB.Debug:
         return "调试";
-      case LogLevelPB.trace:
+      case LogLevelPB.Trace:
         return "跟踪";
+      default:
+        return "未知";
+    }
+  }
+}
+
+/// 导入工具状态显示组件
+class _ImportToolsStatusWidget extends StatelessWidget {
+  const _ImportToolsStatusWidget({
+    required this.toolsStatus,
+    required this.isChecking,
+    required this.onCheck,
+  });
+
+  final ImportToolsStatusPB? toolsStatus;
+  final bool isChecking;
+  final VoidCallback onCheck;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: FlowyText.regular(
+                "检查系统工具状态",
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(width: 16),
+            ElevatedButton(
+              onPressed: isChecking ? null : onCheck,
+              child: isChecking
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text("检查"),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (toolsStatus != null) ...[
+          ...toolsStatus!.tools.map((tool) => _ToolStatusItem(tool: tool)),
+          if (toolsStatus!.checkedAt > 0) ...[
+            const SizedBox(height: 8),
+            FlowyText.regular(
+              "检查时间: ${DateTime.fromMillisecondsSinceEpoch(toolsStatus!.checkedAt.toInt() * 1000).toString().substring(0, 19)}",
+              fontSize: 12,
+              color: Colors.grey,
+            ),
+          ],
+        ] else ...[
+          FlowyText.regular(
+            "点击\"检查\"按钮检查系统工具状态",
+            fontSize: 14,
+            color: Colors.grey,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// 单个工具状态显示项
+class _ToolStatusItem extends StatelessWidget {
+  const _ToolStatusItem({required this.tool});
+
+  final ImportToolInfoPB tool;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusColor = _getStatusColor(tool.status);
+    final statusText = _getStatusText(tool.status);
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: statusColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FlowyText.semibold(
+                  tool.name,
+                  fontSize: 15,
+                ),
+              ),
+              FlowyText.regular(
+                statusText,
+                fontSize: 13,
+                color: statusColor,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (tool.description.isNotEmpty) ...[
+            FlowyText.regular(
+              tool.description,
+              fontSize: 13,
+              color: Colors.grey.shade700,
+            ),
+            const SizedBox(height: 4),
+          ],
+          if (tool.hasVersion() && tool.version.isNotEmpty) ...[
+            FlowyText.regular(
+              "版本: ${tool.version}",
+              fontSize: 12,
+              color: Colors.grey.shade600,
+            ),
+            const SizedBox(height: 4),
+          ],
+          if (tool.hasPath() && tool.path.isNotEmpty) ...[
+            FlowyText.regular(
+              "路径: ${tool.path}",
+              fontSize: 12,
+              color: Colors.grey.shade600,
+            ),
+            const SizedBox(height: 4),
+          ],
+          if (tool.hasInstallInstruction() && tool.installInstruction.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: Colors.orange.shade700,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FlowyText.regular(
+                      "安装: ${tool.installInstruction}",
+                      fontSize: 12,
+                      color: Colors.orange.shade900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Color _getStatusColor(ImportToolStatusPB status) {
+    switch (status) {
+      case ImportToolStatusPB.ToolAvailable:
+        return Colors.green;
+      case ImportToolStatusPB.ToolNotInstalled:
+        return Colors.red;
+      case ImportToolStatusPB.ToolUnavailable:
+        return Colors.orange;
+      case ImportToolStatusPB.ToolUnknown:
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _getStatusText(ImportToolStatusPB status) {
+    switch (status) {
+      case ImportToolStatusPB.ToolAvailable:
+        return "已安装";
+      case ImportToolStatusPB.ToolNotInstalled:
+        return "未安装";
+      case ImportToolStatusPB.ToolUnavailable:
+        return "不可用";
+      case ImportToolStatusPB.ToolUnknown:
+      default:
+        return "未知";
     }
   }
 }

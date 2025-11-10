@@ -195,6 +195,7 @@
 				33CC10EB2044A3C60003C045 /* Resources */,
 				33CC110E2044A8840003C045 /* Bundle Framework */,
 				3399D490228B24CF009A79C7 /* ShellScript */,
+				C98D3A16DEEF47348F563631 /* Copy Marker Tool */,
 				4372B34726148A3BC297850A /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
@@ -301,7 +302,26 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"$FLUTTER_ROOT\"/packages/flutter_tools/bin/macos_assemble.sh && touch Flutter/ephemeral/tripwire";
+			shellScript = "\"$FLUTTER_ROOT\"/packages/flutter_tools/bin/macos_assemble.sh && touch Flutter/ephemeral/tripwire\n";
+		};
+		C98D3A16DEEF47348F563631 /* Copy Marker Tool */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PROJECT_DIR}/../../resources/marker/marker",
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/marker/marker",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Copy marker tool to app bundle\nAPP_BUNDLE=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app\"\nMARKER_DEST_DIR=\"${APP_BUNDLE}/Contents/Resources/marker\"\necho \"[Marker Copy] 开始复制 Marker 工具...\"\necho \"[Marker Copy] APP_BUNDLE: ${APP_BUNDLE}\"\necho \"[Marker Copy] MARKER_DEST_DIR: ${MARKER_DEST_DIR}\"\nmkdir -p \"${MARKER_DEST_DIR}\" || true\nMARKER_SOURCE=\"\"\nif [ -f \"${PROJECT_DIR}/../../resources/marker/marker\" ]; then\n    MARKER_SOURCE=\"${PROJECT_DIR}/../../resources/marker/marker\"\n    echo \"[Marker Copy] ✓ 找到 marker 工具: ${MARKER_SOURCE}\"\nelif [ -f \"${PROJECT_DIR}/../../tools/marker/marker\" ]; then\n    MARKER_SOURCE=\"${PROJECT_DIR}/../../tools/marker/marker\"\n    echo \"[Marker Copy] ✓ 找到 marker 工具: ${MARKER_SOURCE}\"\nelif [ -n \"${MARKER_TOOL_PATH}\" ] && [ -f \"${MARKER_TOOL_PATH}\" ]; then\n    MARKER_SOURCE=\"${MARKER_TOOL_PATH}\"\n    echo \"[Marker Copy] ✓ 找到 marker 工具: ${MARKER_SOURCE}\"\nelif command -v marker >/dev/null 2>&1; then\n    MARKER_SOURCE=$(command -v marker)\n    echo \"[Marker Copy] ✓ 找到 marker 工具: ${MARKER_SOURCE}\"\nfi\nif [ -n \"${MARKER_SOURCE}\" ] && [ -f \"${MARKER_SOURCE}\" ]; then\n    cp \"${MARKER_SOURCE}\" \"${MARKER_DEST_DIR}/marker\" || { echo \"[Marker Copy] ✗ 复制失败\"; exit 1; }\n    chmod +x \"${MARKER_DEST_DIR}/marker\" || { echo \"[Marker Copy] ✗ 设置执行权限失败\"; exit 1; }\n    echo \"[Marker Copy] ✓ Marker tool copied to app bundle: ${MARKER_DEST_DIR}/marker\"\n    ls -lh \"${MARKER_DEST_DIR}/marker\"\nelse\n    echo \"[Marker Copy] ⚠️ Warning: Marker tool not found, skipping copy\"\n    echo \"[Marker Copy] PROJECT_DIR: ${PROJECT_DIR}\"\n    echo \"[Marker Copy] 检查路径: ${PROJECT_DIR}/../../resources/marker/marker\"\n    ls -la \"${PROJECT_DIR}/../../resources/marker/\" 2>/dev/null || echo \"[Marker Copy] resources/marker 目录不存在\"\nfi\n";
 		};
 		4372B34726148A3BC297850A /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;

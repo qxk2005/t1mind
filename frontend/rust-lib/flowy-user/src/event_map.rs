@@ -84,6 +84,7 @@ pub fn init(user_manager: Weak<UserManager>) -> AFPlugin {
     .event(UserEvent::SetImportSettings, set_import_settings)
     .event(UserEvent::GetImportSettings, get_import_settings)
     .event(UserEvent::UpdateImportSettings, update_import_settings)
+    .event(UserEvent::CheckImportToolsStatus, check_import_tools_status)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Display, Hash, ProtoBuf_Enum, Flowy_Event)]
@@ -289,6 +290,10 @@ pub enum UserEvent {
   /// Update import settings
   #[event(input = "UpdateImportSettingsPB")]
   UpdateImportSettings = 68,
+
+  /// Check import tools status
+  #[event(output = "ImportToolsStatusPB")]
+  CheckImportToolsStatus = 69,
 }
 
 #[async_trait]

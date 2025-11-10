@@ -61,7 +61,12 @@ pub fn register_handlers(
   database_manager: Weak<DatabaseManager>,
   chat_manager: Weak<AIManager>,
 ) {
-  let document_folder_operation = Arc::new(DocumentFolderOperation(document_manager));
+  let document_folder_operation = Arc::new(
+    DocumentFolderOperation::with_folder_manager(
+      document_manager,
+      Arc::downgrade(folder_manager),
+    )
+  );
   folder_manager.register_operation_handler(ViewLayout::Document, document_folder_operation);
 
   let database_folder_operation = Arc::new(DatabaseFolderOperation(database_manager));

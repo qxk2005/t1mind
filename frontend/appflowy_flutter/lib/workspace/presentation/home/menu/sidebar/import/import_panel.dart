@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,7 +8,9 @@ import 'package:appflowy/plugins/document/presentation/editor_plugins/migration/
 import 'package:appflowy/shared/markdown_to_document.dart';
 import 'package:appflowy/startup/startup.dart';
 import 'package:appflowy/workspace/application/settings/share/import_service.dart';
+import 'package:appflowy/workspace/application/view/view_service.dart';
 import 'package:appflowy/workspace/presentation/home/menu/sidebar/import/import_type.dart';
+import 'package:appflowy/workspace/presentation/home/menu/sidebar/import/pdf_import_progress_dialog.dart';
 import 'package:appflowy_backend/protobuf/flowy-folder/protobuf.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flowy_infra/file_picker/file_picker_service.dart';
@@ -229,28 +232,150 @@ class _ImportPanelState extends State<ImportPanel> {
     }
 
     if (importValues.isNotEmpty) {
-      final result = await ImportBackendService.importPages(
-        parentViewId,
-        importValues,
-      );
-      
-      result.fold(
-        (views) {
-          if (views.items.isNotEmpty) {
-            // 导入成功，不调用 callback 创建新视图
-            // 因为后端已经创建了视图，我们只需要通知导入完成
-            final importedView = views.items.first;
-            Log.info('Import successful, view created: ${importedView.id}');
-            // 调用 callback 但不传递参数，这样不会创建新视图，但会关闭导入界面
-            widget.importCallback(importType, '', null);
+      // 对于 PDF 和 Word 文档，显示进度对话框
+      if (importType == ImportType.pdf || importType == ImportType.word) {
+        // 获取文件大小用于进度估算
+        int totalFileSize = 0;
+        for (final file in result.files) {
+          if (file.path != null) {
+            try {
+              final fileSize = await File(file.path!).length();
+              totalFileSize += fileSize;
+            } catch (e) {
+              Log.warn('Failed to get file size: $e');
+            }
           }
-        },
-        (error) {
-          // 导入失败，显示错误信息
-          Log.error('Import failed: $error');
-          widget.importCallback(importType, '', null);
-        },
-      );
+        }
+        
+        // 在导入前创建视图，获取 view_id 作为 import_id
+        // 这样前端和后端可以使用相同的 import_id 来跟踪进度
+        String? importId;
+        final fileName = result.files.isNotEmpty 
+            ? p.basenameWithoutExtension(result.files.first.path ?? '')
+            : 'Untitled';
+        
+        try {
+          // 创建视图以获取 view_id
+          final createViewResult = await ViewBackendService.createView(
+            layoutType: ViewLayoutPB.Document,
+            parentViewId: parentViewId,
+            name: fileName,
+            openAfterCreate: false,
+          );
+          
+          createViewResult.fold(
+            (view) {
+              importId = view.id;
+              Log.info('Created view for import, view_id: $importId');
+            },
+            (error) {
+              Log.error('Failed to create view for import: $error');
+              // 如果创建视图失败，使用备用方案（文件名+时间戳）
+              importId = '${result.files.first.path ?? ''}_${DateTime.now().millisecondsSinceEpoch}';
+            },
+          );
+        } catch (e) {
+          Log.error('Exception while creating view for import: $e');
+          // 如果创建视图失败，使用备用方案
+          importId = result.files.isNotEmpty 
+              ? '${result.files.first.path ?? ''}_${DateTime.now().millisecondsSinceEpoch}'
+              : 'import_${DateTime.now().millisecondsSinceEpoch}';
+        }
+        
+        // 如果成功获取了 view_id，将其设置到 importValues 中
+        if (importId != null && importId!.isNotEmpty && importValues.isNotEmpty) {
+          importValues.first.viewId = importId!;
+        }
+        
+        // 显示进度对话框并等待一小段时间，确保进度流已注册
+        final progressDialogCompleter = Completer<void>();
+        bool isDetailDialogOpen = false; // 跟踪详细进度对话框是否打开
+        if (importId != null) {
+          showPdfImportProgressDialog(
+            context,
+            importId: importId,
+            fileName: result.files.isNotEmpty ? result.files.first.path ?? '' : '',
+            fileSize: totalFileSize,
+            onCancel: () {
+              // TODO: 实现取消导入的逻辑
+              Log.info('Import cancelled by user');
+              progressDialogCompleter.complete();
+            },
+            onDetailDialogOpened: (opened) {
+              // 跟踪详细进度对话框的打开状态
+              isDetailDialogOpen = opened;
+              Log.debug('Detail dialog ${opened ? "opened" : "closed"}');
+            },
+          ).then((_) {
+            progressDialogCompleter.complete();
+          });
+          
+          // 等待一小段时间，确保进度对话框已初始化并注册了进度流
+          // 这样可以避免导入开始时进度流还未注册导致的 channel closed 错误
+          await Future.delayed(const Duration(milliseconds: 200));
+        }
+        
+        // 执行导入
+        final importResult = await ImportBackendService.importPages(
+          parentViewId,
+          importValues,
+        );
+        
+        // 关闭进度对话框（如果用户没有打开详细进度对话框）
+        try {
+          if (!progressDialogCompleter.isCompleted && mounted && !isDetailDialogOpen) {
+            FlowyOverlay.pop(context);
+          } else if (isDetailDialogOpen) {
+            // 如果用户打开了详细进度对话框，不自动关闭，让用户自己关闭
+            Log.debug('Detail dialog is open, keeping progress dialog open for user to close manually');
+          }
+        } catch (e) {
+          // 对话框可能已经关闭
+          Log.debug('Progress dialog already closed: $e');
+        }
+        
+        importResult.fold(
+          (views) {
+            if (views.items.isNotEmpty) {
+              // 导入成功，不调用 callback 创建新视图
+              // 因为后端已经创建了视图，我们只需要通知导入完成
+              final importedView = views.items.first;
+              Log.info('Import successful, view created: ${importedView.id}');
+              // 调用 callback 但不传递参数，这样不会创建新视图，但会关闭导入界面
+              widget.importCallback(importType, '', null);
+            }
+          },
+          (error) {
+            // 导入失败，显示错误信息
+            Log.error('Import failed: $error');
+            widget.importCallback(importType, '', null);
+          },
+        );
+      } else {
+        // 对于其他类型，保持原有行为（显示简单的 loading）
+        final importResult = await ImportBackendService.importPages(
+          parentViewId,
+          importValues,
+        );
+        
+        importResult.fold(
+          (views) {
+            if (views.items.isNotEmpty) {
+              // 导入成功，不调用 callback 创建新视图
+              // 因为后端已经创建了视图，我们只需要通知导入完成
+              final importedView = views.items.first;
+              Log.info('Import successful, view created: ${importedView.id}');
+              // 调用 callback 但不传递参数，这样不会创建新视图，但会关闭导入界面
+              widget.importCallback(importType, '', null);
+            }
+          },
+          (error) {
+            // 导入失败，显示错误信息
+            Log.error('Import failed: $error');
+            widget.importCallback(importType, '', null);
+          },
+        );
+      }
     }
 
     showLoading.value = false;
