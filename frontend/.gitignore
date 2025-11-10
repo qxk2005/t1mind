@@ -1,0 +1,159 @@
+# Rust 构建输出
+target-flowy-folder/
+target/
+
+# Flutter/Dart 相关
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+.generated/
+*.g.dart
+*.freezed.dart
+
+# IDE 相关
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# 环境变量文件
+.env
+.env.*
+!.env.example
+
+# 日志文件
+*.log
+*.log.*
+
+# 临时文件
+*.tmp
+*.temp
+*.bak
+*.backup
+*.backup-*
+*.orig
+
+# 测试和覆盖率
+coverage/
+*.lcov
+.test_coverage/
+
+# 打包和分发
+dist/
+*.dmg
+*.deb
+*.rpm
+*.zip
+*.tar.gz
+*.app
+
+# Xcode 相关
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcworkspace/contents.xcworkspacedata
+!*.xcworkspace/xcshareddata/
+*.xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+DerivedData/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+
+# macOS 特定
+*.app/Contents/MacOS/
+*.app/Contents/Frameworks/
+*.app/Contents/Resources/flutter_assets/
+*.app/Contents/Resources/App.framework/
+*.app/Contents/Resources/Flutter.framework/
+
+# Android 特定
+*.apk
+*.ap_
+*.aab
+local.properties
+.gradle/
+captures/
+.externalNativeBuild/
+.cxx/
+*.keystore
+!debug.keystore
+
+# iOS 特定
+**/ios/Flutter/.last_build_id
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/ephemeral
+**/ios/Flutter/app.flx
+**/ios/Flutter/app.zip
+**/ios/Flutter/flutter_assets/
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.*
+Pods/
+Podfile.lock
+
+# Linux 特定
+*.so
+*.o
+*.a
+
+# Windows 特定
+*.dll
+*.lib
+*.exe
+*.pdb
+
+# Rust 特定
+**/*.rs.bk
+Cargo.lock
+!rust-lib/Cargo.lock
+
+# 产品构建
+product/
+
+# 文档生成
+doc/
+docs/api/
+
+# 其他
+*.symbols
+*.map.json
+.cache/
+.temp/
+temp/
+
