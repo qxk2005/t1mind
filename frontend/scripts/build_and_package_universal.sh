@@ -90,6 +90,40 @@ echo -e "${BLUE}准备 DMG 内容...${NC}"
 echo -e "${BLUE}复制应用文件...${NC}"
 cp -R "${SOURCE_APP}" "${TEMP_DIR}/"
 
+# 复制 marker 工具
+MARKER_SOURCE="${PROJECT_ROOT}/resources/marker/marker"
+MARKER_ADDED=false
+if [ -f "${MARKER_SOURCE}" ]; then
+    echo -e "${BLUE}复制 marker 工具...${NC}"
+    
+    # 1. 复制到应用包的 Resources/marker/ 目录（应用运行时使用）
+    APP_MARKER_DIR="${TEMP_DIR}/${APP_NAME}.app/Contents/Resources/marker"
+    mkdir -p "${APP_MARKER_DIR}"
+    cp "${MARKER_SOURCE}" "${APP_MARKER_DIR}/marker"
+    chmod +x "${APP_MARKER_DIR}/marker"
+    echo -e "${GREEN}✓ marker 工具已添加到应用包: ${APP_MARKER_DIR}/marker${NC}"
+    
+    # 2. 复制到 DMG 的 Tools 目录（用户直接使用）
+    mkdir -p "${TEMP_DIR}/Tools"
+    cp "${MARKER_SOURCE}" "${TEMP_DIR}/Tools/marker"
+    chmod +x "${TEMP_DIR}/Tools/marker"
+    echo -e "${GREEN}✓ marker 工具已添加到 DMG Tools 目录${NC}"
+    
+    MARKER_ADDED=true
+else
+    echo -e "${YELLOW}警告: 未找到 marker 工具: ${MARKER_SOURCE}${NC}"
+    # 检查应用包中是否已有 marker 工具
+    APP_MARKER_PATH="${TEMP_DIR}/${APP_NAME}.app/Contents/Resources/marker/marker"
+    if [ -f "${APP_MARKER_PATH}" ]; then
+        echo -e "${GREEN}✓ 应用包中已包含 marker 工具${NC}"
+        MARKER_ADDED=true
+        # 也复制一份到 Tools 目录
+        mkdir -p "${TEMP_DIR}/Tools"
+        cp "${APP_MARKER_PATH}" "${TEMP_DIR}/Tools/marker"
+        chmod +x "${TEMP_DIR}/Tools/marker"
+    fi
+fi
+
 # 创建 Applications 快捷方式
 ln -sf /Applications "${TEMP_DIR}/Applications"
 
@@ -126,7 +160,34 @@ MOUNT_DIR=$(hdiutil attach -readwrite -noverify -noautoopen "${TEMP_DMG}" | egre
 sleep 2
 
 # 设置窗口布局
-echo '
+# 如果存在 Tools 目录，则包含 marker 工具的位置设置
+if [ "$MARKER_ADDED" = true ]; then
+    echo '
+   tell application "Finder"
+     tell disk "'${APP_NAME}'"
+           open
+           set current view of container window to icon view
+           set toolbar visible of container window to false
+           set statusbar visible of container window to false
+           set the bounds of container window to {400, 100, 920, 500}
+           set viewOptions to the icon view options of container window
+           set arrangement of viewOptions to not arranged
+           set icon size of viewOptions to 72
+           set position of item "'${APP_NAME}'.app" of container window to {130, 180}
+           set position of item "Applications" of container window to {390, 180}
+           set position of item "Tools" of container window to {260, 300}
+           if exists file ".background:AppFlowyInstallerBackground.jpg" then
+               set background picture of viewOptions to file ".background:AppFlowyInstallerBackground.jpg"
+           end if
+           close
+           open
+           update without registering applications
+           delay 2
+     end tell
+   end tell
+' | osascript 2>/dev/null || echo -e "${YELLOW}警告: 无法设置 DMG 外观${NC}"
+else
+    echo '
    tell application "Finder"
      tell disk "'${APP_NAME}'"
            open
@@ -149,6 +210,7 @@ echo '
      end tell
    end tell
 ' | osascript 2>/dev/null || echo -e "${YELLOW}警告: 无法设置 DMG 外观${NC}"
+fi
 
 sync
 
@@ -205,6 +267,14 @@ echo -e "${CYAN}安装说明:${NC}"
 echo -e "1. 双击 ${DMG_NAME}.dmg 打开"
 echo -e "2. 将 ${APP_NAME}.app 拖到 Applications 文件夹"
 echo -e "3. 应用可在 Intel 和 Apple Silicon Mac 上运行"
+if [ "$MARKER_ADDED" = true ]; then
+    echo -e ""
+    echo -e "${CYAN}Marker 工具说明:${NC}"
+    echo -e "  • marker 工具已包含在应用包中（应用会自动使用）"
+    echo -e "  • marker 工具也位于 DMG 的 Tools 目录中，可直接使用"
+    echo -e "  • 注意: marker 工具需要系统已安装 marker-pdf"
+    echo -e "    安装方法: pipx install marker-pdf"
+fi
 echo ""
 
 # 验证命令
