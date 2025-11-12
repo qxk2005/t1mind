@@ -19,4 +19,4 @@ PRODUCT_COPYRIGHT = Copyright © 2025 AppFlowy.IO. All rights reserved.
 
 // Architectures 打包通用版本
 ARCHS = "$(ARCHS_STANDARD)";
-Include raw contentEXCLUDED_ARCHS[sdk=macosx*] = "";
+EXCLUDED_ARCHS[sdk=macosx*] = "";
