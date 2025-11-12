@@ -392,6 +392,108 @@ class _ImportToolsStatusWidget extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         if (toolsStatus != null) ...[
+          // 检查是否有缺失的工具
+          BlocBuilder<ImportSettingsBloc, ImportSettingsState>(
+            builder: (context, blocState) {
+              final missingTools = toolsStatus!.tools
+                  .where((tool) => tool.status == ImportToolStatusPB.ToolNotInstalled)
+                  .map((tool) => tool.name)
+                  .toList();
+              
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (missingTools.isNotEmpty && !blocState.isInstallingTools) ...[
+                    const SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        context.read<ImportSettingsBloc>().add(
+                          ImportSettingsEvent.installMissingTools(missingTools),
+                        );
+                      },
+                      icon: const Icon(Icons.download, size: 16),
+                      label: const Text("安装缺失组件"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  
+                  // 显示安装进度
+                  if (blocState.isInstallingTools && blocState.installProgress != null) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blue.shade200),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: FlowyText.semibold(
+                                  "正在安装: ${blocState.installProgress!.toolName}",
+                                  fontSize: 14,
+                                  color: Colors.blue.shade900,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          LinearProgressIndicator(
+                            value: blocState.installProgress!.progress,
+                            backgroundColor: Colors.blue.shade100,
+                            minHeight: 6,
+                          ),
+                          const SizedBox(height: 8),
+                          FlowyText.regular(
+                            blocState.installProgress!.message,
+                            fontSize: 12,
+                            color: Colors.blue.shade800,
+                          ),
+                          if (blocState.installProgress!.logs.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Container(
+                              constraints: const BoxConstraints(maxHeight: 200),
+                              child: SingleChildScrollView(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: blocState.installProgress!.logs.map((log) {
+                                    return Padding(
+                                      padding: const EdgeInsets.only(bottom: 4),
+                                      child: FlowyText.regular(
+                                        log,
+                                        fontSize: 11,
+                                        color: Colors.blue.shade700,
+                                        fontFamily: 'monospace',
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ],
+              );
+            },
+          ),
           ...toolsStatus!.tools.map((tool) => _ToolStatusItem(tool: tool)),
           if (toolsStatus!.checkedAt > 0) ...[
             const SizedBox(height: 8),
@@ -483,6 +585,180 @@ class _ToolStatusItem extends StatelessWidget {
             ),
             const SizedBox(height: 4),
           ],
+          if (tool.hasModelStatus() && tool.modelStatus.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _getModelStatusColor(tool.modelStatus).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: _getModelStatusColor(tool.modelStatus).withOpacity(0.3),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        _getModelStatusIcon(tool.modelStatus),
+                        size: 16,
+                        color: _getModelStatusColor(tool.modelStatus),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: FlowyText.semibold(
+                          "模型状态",
+                          fontSize: 13,
+                          color: _getModelStatusColor(tool.modelStatus),
+                        ),
+                      ),
+                      // 如果模型未就绪或部分就绪，显示下载按钮
+                      if (tool.modelStatus.contains('⚠️') || 
+                          tool.modelStatus.contains('部分就绪') || 
+                          tool.modelStatus.contains('未下载') ||
+                          (!tool.modelStatus.contains('✅') && !tool.modelStatus.contains('已就绪')))
+                        Builder(
+                          builder: (context) {
+                            final bloc = context.read<ImportSettingsBloc>();
+                            final isDownloading = bloc.state.isDownloadingModels;
+                            return ElevatedButton.icon(
+                              onPressed: isDownloading
+                                  ? null
+                                  : () {
+                                      bloc.add(const ImportSettingsEvent.downloadMarkerModels(false));
+                                    },
+                              icon: isDownloading
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.download, size: 16),
+                              label: Text(isDownloading ? "下载中..." : "下载模型"),
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                textStyle: const TextStyle(fontSize: 12),
+                              ),
+                            );
+                          },
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  FlowyText.regular(
+                    tool.modelStatus,
+                    fontSize: 12,
+                    color: Colors.grey.shade700,
+                  ),
+                  // 显示下载进度和日志
+                  if (tool.name.contains('marker-pdf'))
+                    Builder(
+                      builder: (context) {
+                        final bloc = context.read<ImportSettingsBloc>();
+                        final progress = bloc.state.modelDownloadProgress;
+                        final isDownloading = bloc.state.isDownloadingModels;
+                        
+                        if (progress != null || isDownloading) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 8),
+                              // 进度条
+                              if (progress != null && progress.progress > 0)
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    LinearProgressIndicator(
+                                      value: progress.progress,
+                                      backgroundColor: Colors.grey.shade200,
+                                      minHeight: 6,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        FlowyText.regular(
+                                          "进度: ${(progress.progress * 100).toStringAsFixed(0)}%",
+                                          fontSize: 11,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                        if (progress.downloadedBytes > 0)
+                                          FlowyText.regular(
+                                            "已下载: ${(progress.downloadedBytes.toInt() / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB",
+                                            fontSize: 11,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                  ],
+                                ),
+                              // 状态消息和日志
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: _getDownloadStatusColor(progress?.status).withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(
+                                    color: _getDownloadStatusColor(progress?.status).withOpacity(0.3),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          _getDownloadStatusIcon(progress?.status, isDownloading),
+                                          size: 14,
+                                          color: _getDownloadStatusColor(progress?.status),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: FlowyText.semibold(
+                                            _getDownloadStatusText(progress?.status, isDownloading),
+                                            fontSize: 12,
+                                            color: _getDownloadStatusColor(progress?.status),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (progress != null && progress.message.isNotEmpty) ...[
+                                      const SizedBox(height: 6),
+                                      Container(
+                                        constraints: const BoxConstraints(maxHeight: 200),
+                                        child: SingleChildScrollView(
+                                          child: FlowyText.regular(
+                                            progress.message,
+                                            fontSize: 10,
+                                            color: Colors.grey.shade700,
+                                            fontFamily: 'monospace',
+                                          ),
+                                        ),
+                                      ),
+                                    ] else if (isDownloading) ...[
+                                      const SizedBox(height: 6),
+                                      FlowyText.regular(
+                                        "正在执行 marker 命令，触发模型下载...\n这可能需要 10-30 分钟，请耐心等待。",
+                                        fontSize: 11,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ],
+                          );
+                        }
+                        return const SizedBox.shrink();
+                      },
+                    ),
+                ],
+              ),
+            ),
+          ],
           if (tool.hasInstallInstruction() && tool.installInstruction.isNotEmpty) ...[
             const SizedBox(height: 4),
             Container(
@@ -512,9 +788,99 @@ class _ToolStatusItem extends StatelessWidget {
               ),
             ),
           ],
+          if (tool.checkLogs.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.description_outlined,
+                        size: 16,
+                        color: Colors.grey.shade700,
+                      ),
+                      const SizedBox(width: 8),
+                      FlowyText.semibold(
+                        "检查日志",
+                        fontSize: 13,
+                        color: Colors.grey.shade800,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 300),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: tool.checkLogs.map((log) {
+                          final isSuccess = log.contains('✓');
+                          final isError = log.contains('✗') || log.contains('✗');
+                          final isWarning = log.contains('⚠');
+                          final isIndented = log.startsWith('  ');
+                          
+                          Color textColor = Colors.grey.shade700;
+                          if (isSuccess) {
+                            textColor = Colors.green.shade700;
+                          } else if (isError) {
+                            textColor = Colors.red.shade700;
+                          } else if (isWarning) {
+                            textColor = Colors.orange.shade700;
+                          }
+                          
+                          return Padding(
+                            padding: EdgeInsets.only(
+                              bottom: 4,
+                              left: isIndented ? 16.0 : 0.0,
+                            ),
+                            child: FlowyText.regular(
+                              log,
+                              fontSize: 11,
+                              color: textColor,
+                              fontFamily: 'monospace',
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
+  }
+
+  Color _getModelStatusColor(String modelStatus) {
+    if (modelStatus.contains('✅') || modelStatus.contains('已就绪')) {
+      return Colors.green;
+    } else if (modelStatus.contains('⚠️') || modelStatus.contains('部分就绪')) {
+      return Colors.orange;
+    } else if (modelStatus.contains('未下载')) {
+      return Colors.red;
+    }
+    return Colors.grey;
+  }
+
+  IconData _getModelStatusIcon(String modelStatus) {
+    if (modelStatus.contains('✅') || modelStatus.contains('已就绪')) {
+      return Icons.check_circle_outline;
+    } else if (modelStatus.contains('⚠️') || modelStatus.contains('部分就绪')) {
+      return Icons.warning_amber_rounded;
+    } else if (modelStatus.contains('未下载')) {
+      return Icons.error_outline;
+    }
+    return Icons.info_outline;
   }
 
   Color _getStatusColor(ImportToolStatusPB status) {
@@ -542,6 +908,65 @@ class _ToolStatusItem extends StatelessWidget {
       case ImportToolStatusPB.ToolUnknown:
       default:
         return "未知";
+    }
+  }
+
+  Color _getDownloadStatusColor(ModelDownloadStatusPB? status) {
+    if (status == null) {
+      return Colors.blue;
+    }
+    switch (status) {
+      case ModelDownloadStatusPB.ModelDownloadDownloading:
+        return Colors.blue;
+      case ModelDownloadStatusPB.ModelDownloadCompleted:
+        return Colors.green;
+      case ModelDownloadStatusPB.ModelDownloadFailed:
+        return Colors.red;
+      case ModelDownloadStatusPB.ModelDownloadCancelled:
+        return Colors.orange;
+      case ModelDownloadStatusPB.ModelDownloadIdle:
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getDownloadStatusIcon(ModelDownloadStatusPB? status, bool isDownloading) {
+    if (isDownloading || status == ModelDownloadStatusPB.ModelDownloadDownloading) {
+      return Icons.download;
+    }
+    if (status == null) {
+      return Icons.info_outline;
+    }
+    switch (status) {
+      case ModelDownloadStatusPB.ModelDownloadCompleted:
+        return Icons.check_circle;
+      case ModelDownloadStatusPB.ModelDownloadFailed:
+        return Icons.error;
+      case ModelDownloadStatusPB.ModelDownloadCancelled:
+        return Icons.cancel;
+      case ModelDownloadStatusPB.ModelDownloadIdle:
+      default:
+        return Icons.info_outline;
+    }
+  }
+
+  String _getDownloadStatusText(ModelDownloadStatusPB? status, bool isDownloading) {
+    if (isDownloading || status == ModelDownloadStatusPB.ModelDownloadDownloading) {
+      return "正在下载模型...";
+    }
+    if (status == null) {
+      return "准备下载";
+    }
+    switch (status) {
+      case ModelDownloadStatusPB.ModelDownloadCompleted:
+        return "下载完成";
+      case ModelDownloadStatusPB.ModelDownloadFailed:
+        return "下载失败";
+      case ModelDownloadStatusPB.ModelDownloadCancelled:
+        return "下载已取消";
+      case ModelDownloadStatusPB.ModelDownloadIdle:
+      default:
+        return "等待下载";
     }
   }
 }

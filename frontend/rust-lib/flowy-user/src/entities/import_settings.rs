@@ -581,6 +581,14 @@ pub struct ImportToolInfoPB {
   /// 工具描述
   #[pb(index = 6)]
   pub description: String,
+
+  /// 模型状态信息（如果适用，如 marker-pdf）
+  #[pb(index = 7, one_of)]
+  pub model_status: Option<String>,
+
+  /// 检查日志（详细的检查步骤和结果）
+  #[pb(index = 8)]
+  pub check_logs: Vec<String>,
 }
 
 /// PDF 导入工具检查结果
@@ -604,6 +612,8 @@ impl std::default::Default for ImportToolInfoPB {
       path: None,
       install_instruction: None,
       description: String::new(),
+      model_status: None,
+      check_logs: Vec::new(),
     }
   }
 }
@@ -613,6 +623,145 @@ impl std::default::Default for ImportToolsStatusPB {
     ImportToolsStatusPB {
       tools: Vec::new(),
       checked_at: 0,
+    }
+  }
+}
+
+/// 下载模型请求
+#[derive(ProtoBuf, Serialize, Deserialize, Debug, Clone)]
+pub struct DownloadMarkerModelsPB {
+  /// 是否强制重新下载（即使模型已存在）
+  #[pb(index = 1)]
+  pub force: bool,
+}
+
+/// 模型下载进度信息
+#[derive(ProtoBuf, Serialize, Deserialize, Debug, Clone)]
+pub struct ModelDownloadProgressPB {
+  /// 下载状态
+  #[pb(index = 1)]
+  pub status: ModelDownloadStatusPB,
+  
+  /// 进度百分比 (0.0 到 1.0)
+  #[pb(index = 2)]
+  pub progress: f64,
+  
+  /// 当前下载的模型名称
+  #[pb(index = 3, one_of)]
+  pub current_model: Option<String>,
+  
+  /// 状态消息
+  #[pb(index = 4)]
+  pub message: String,
+  
+  /// 已下载的字节数
+  #[pb(index = 5)]
+  pub downloaded_bytes: u64,
+  
+  /// 总字节数（如果已知）
+  #[pb(index = 6, one_of)]
+  pub total_bytes: Option<u64>,
+}
+
+/// 模型下载状态
+#[derive(ProtoBuf_Enum, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub enum ModelDownloadStatusPB {
+  #[default]
+  ModelDownloadIdle = 0,
+  /// 正在下载
+  ModelDownloadDownloading = 1,
+  /// 下载完成
+  ModelDownloadCompleted = 2,
+  /// 下载失败
+  ModelDownloadFailed = 3,
+  /// 已取消
+  ModelDownloadCancelled = 4,
+}
+
+impl std::default::Default for DownloadMarkerModelsPB {
+  fn default() -> Self {
+    DownloadMarkerModelsPB {
+      force: false,
+    }
+  }
+}
+
+impl std::default::Default for ModelDownloadProgressPB {
+  fn default() -> Self {
+    ModelDownloadProgressPB {
+      status: ModelDownloadStatusPB::ModelDownloadIdle,
+      progress: 0.0,
+      current_model: None,
+      message: String::new(),
+      downloaded_bytes: 0,
+      total_bytes: None,
+    }
+  }
+}
+
+/// 安装缺失工具的请求
+#[derive(ProtoBuf, Serialize, Deserialize, Debug, Clone)]
+pub struct InstallMissingToolsPB {
+  /// 要安装的工具名称列表
+  #[pb(index = 1)]
+  pub tool_names: Vec<String>,
+}
+
+/// 工具安装进度信息
+#[derive(ProtoBuf, Serialize, Deserialize, Debug, Clone)]
+pub struct InstallToolProgressPB {
+  /// 当前正在安装的工具名称
+  #[pb(index = 1)]
+  pub tool_name: String,
+  
+  /// 安装状态
+  #[pb(index = 2)]
+  pub status: InstallToolStatusPB,
+  
+  /// 安装进度 (0.0 到 1.0)
+  #[pb(index = 3)]
+  pub progress: f64,
+  
+  /// 状态消息
+  #[pb(index = 4)]
+  pub message: String,
+  
+  /// 安装日志
+  #[pb(index = 5)]
+  pub logs: Vec<String>,
+}
+
+/// 工具安装状态枚举
+#[derive(ProtoBuf_Enum, Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub enum InstallToolStatusPB {
+  #[default]
+  InstallToolIdle = 0,
+  /// 正在安装
+  InstallToolInstalling = 1,
+  /// 安装完成
+  InstallToolCompleted = 2,
+  /// 安装失败
+  InstallToolFailed = 3,
+  /// 已取消
+  InstallToolCancelled = 4,
+}
+
+impl std::default::Default for InstallMissingToolsPB {
+  fn default() -> Self {
+    InstallMissingToolsPB {
+      tool_names: Vec::new(),
+    }
+  }
+}
+
+impl std::default::Default for InstallToolProgressPB {
+  fn default() -> Self {
+    InstallToolProgressPB {
+      tool_name: String::new(),
+      status: InstallToolStatusPB::InstallToolIdle,
+      progress: 0.0,
+      message: String::new(),
+      logs: Vec::new(),
     }
   }
 }

@@ -187,7 +187,7 @@ if [ "$MARKER_ADDED" = true ]; then
    end tell
 ' | osascript 2>/dev/null || echo -e "${YELLOW}警告: 无法设置 DMG 外观${NC}"
 else
-    echo '
+echo '
    tell application "Finder"
      tell disk "'${APP_NAME}'"
            open
@@ -273,7 +273,10 @@ if [ "$MARKER_ADDED" = true ]; then
     echo -e "  • marker 工具已包含在应用包中（应用会自动使用）"
     echo -e "  • marker 工具也位于 DMG 的 Tools 目录中，可直接使用"
     echo -e "  • 注意: marker 工具需要系统已安装 marker-pdf"
-    echo -e "    安装方法: pipx install marker-pdf"
+    echo -e "    安装方法（macOS）："
+    echo -e "      1. brew install jpeg libpng freetype openjpeg libtiff webp"
+    echo -e "      2. brew install pipx"
+    echo -e "      3. pipx install marker-pdf"
 fi
 echo ""
 

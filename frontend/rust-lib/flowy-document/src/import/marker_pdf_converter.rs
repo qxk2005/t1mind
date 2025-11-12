@@ -6,7 +6,7 @@ use crate::import::marker_tool_manager::MarkerToolManager;
 use flowy_error::{FlowyError, FlowyResult};
 use std::path::Path;
 use std::fs::File;
-use std::io::{Read, Write, Cursor};
+use std::io::{Read, Cursor};
 use tempfile::TempDir;
 use tracing::{debug, error, info, warn};
 use tokio::process::Command;
@@ -14,7 +14,6 @@ use tokio::time::Duration;
 use uuid::Uuid;
 use image::ImageOutputFormat;
 use chrono::Utc;
-use std::sync::Arc;
 
 /// Marker PDF 转换器
 /// 
@@ -369,13 +368,156 @@ impl MarkerPdfConverter {
             cmd.stderr(std::process::Stdio::piped());
             
             // 设置环境变量以强制使用 CPU，避免 Metal shader 错误导致的崩溃
+            // 这些设置确保在不同 macOS 机器上行为一致
             cmd.env("PYTORCH_ENABLE_MPS_FALLBACK", "1");
             cmd.env("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.0");
             cmd.env("PYTORCH_MPS_FORCE_CPU", "1");
             cmd.env("CUDA_VISIBLE_DEVICES", "");
             cmd.env("TORCH_DEVICE", "cpu");
+            // 禁用 MPS（Metal Performance Shaders），强制使用 CPU
+            // 这可以避免在不同 macOS 硬件上因 GPU 支持差异导致的问题
+            cmd.env("PYTORCH_MPS_DISABLE", "1");
             // 设置 Python 无缓冲模式，确保实时输出
             cmd.env("PYTHONUNBUFFERED", "1");
+            // 禁用 Python 字节码缓存，避免版本差异问题
+            cmd.env("PYTHONDONTWRITEBYTECODE", "1");
+            
+            // 设置模型缓存目录，避免每次运行都重新下载模型
+            // marker-pdf 使用 Hugging Face 和 Surya OCR 模型
+            // 设置 Hugging Face 缓存目录（使用绝对路径）
+            let hf_cache_dir = if cfg!(target_os = "macos") {
+                // macOS: ~/Library/Caches/huggingface
+                std::env::var("HOME")
+                    .map(|home| {
+                        let path = std::path::PathBuf::from(&home)
+                            .join("Library")
+                            .join("Caches")
+                            .join("huggingface");
+                        // 转换为绝对路径字符串
+                        path.to_string_lossy().to_string()
+                    })
+                    .unwrap_or_else(|_| {
+                        // 如果无法获取 HOME，使用当前用户目录
+                        let home = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
+                        format!("{}/Library/Caches/huggingface", home)
+                    })
+            } else if cfg!(target_os = "windows") {
+                // Windows: %USERPROFILE%\.cache\huggingface
+                std::env::var("USERPROFILE")
+                    .map(|home| {
+                        let path = std::path::PathBuf::from(&home)
+                            .join(".cache")
+                            .join("huggingface");
+                        // 转换为绝对路径字符串
+                        path.to_string_lossy().to_string()
+                    })
+                    .unwrap_or_else(|_| "%USERPROFILE%\\.cache\\huggingface".to_string())
+            } else {
+                // Linux: ~/.cache/huggingface
+                std::env::var("HOME")
+                    .map(|home| {
+                        let path = std::path::PathBuf::from(&home)
+                            .join(".cache")
+                            .join("huggingface");
+                        // 转换为绝对路径字符串
+                        path.to_string_lossy().to_string()
+                    })
+                    .unwrap_or_else(|_| "~/.cache/huggingface".to_string())
+            };
+            
+            // 确保 Hugging Face 缓存目录存在（使用绝对路径）
+            let hf_path = std::path::PathBuf::from(&hf_cache_dir);
+            if let Err(e) = std::fs::create_dir_all(&hf_path) {
+                warn!("无法创建 Hugging Face 缓存目录 {}: {}", hf_cache_dir, e);
+            } else {
+                debug!("Hugging Face 缓存目录已准备: {}", hf_path.display());
+            }
+            
+            // 确保 hub 目录存在（Hugging Face 模型的主要存储位置）
+            let hub_path = hf_path.join("hub");
+            if let Err(e) = std::fs::create_dir_all(&hub_path) {
+                warn!("无法创建 hub 目录 {}: {}", hub_path.display(), e);
+            } else {
+                debug!("hub 目录已准备: {}", hub_path.display());
+            }
+            
+            // 设置所有 Hugging Face 相关的环境变量
+            // 这些变量确保模型缓存路径一致，避免重复下载
+            // 使用绝对路径字符串，确保 marker-pdf 能够正确识别
+            let hf_cache_dir_abs = hf_path.to_string_lossy().to_string();
+            cmd.env("HF_HOME", &hf_cache_dir_abs);
+            cmd.env("HF_HUB_CACHE", &hf_cache_dir_abs);
+            cmd.env("HUGGINGFACE_HUB_CACHE", &hf_cache_dir_abs);
+            cmd.env("TRANSFORMERS_CACHE", &hf_cache_dir_abs);
+            cmd.env("HF_DATASETS_CACHE", &hf_cache_dir_abs);
+            // 确保使用统一的缓存路径，避免因 Python 版本不同导致路径识别差异
+            cmd.env("HF_DATASETS_STORAGE_PATH", &hf_cache_dir_abs);
+            // 添加额外的环境变量，确保 marker-pdf 能够正确识别缓存目录
+            cmd.env("HF_CACHE_DIR", &hf_cache_dir_abs);
+            // 设置 hub 目录的绝对路径
+            let hub_path_abs = hub_path.to_string_lossy().to_string();
+            cmd.env("HF_HUB_CACHE_DIR", &hub_path_abs);
+            
+            // 设置 Surya OCR 模型缓存目录（marker-pdf 使用的 OCR 库）
+            let surya_cache_dir = if cfg!(target_os = "macos") {
+                // macOS: ~/Library/Caches/datalab/models
+                std::env::var("HOME")
+                    .map(|home| {
+                        let path = std::path::PathBuf::from(&home)
+                            .join("Library")
+                            .join("Caches")
+                            .join("datalab")
+                            .join("models");
+                        // 转换为绝对路径字符串
+                        path.to_string_lossy().to_string()
+                    })
+                    .unwrap_or_else(|_| {
+                        let home = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
+                        format!("{}/Library/Caches/datalab/models", home)
+                    })
+            } else if cfg!(target_os = "windows") {
+                // Windows: %LOCALAPPDATA%\datalab\models
+                std::env::var("LOCALAPPDATA")
+                    .map(|local| {
+                        let path = std::path::PathBuf::from(&local)
+                            .join("datalab")
+                            .join("models");
+                        // 转换为绝对路径字符串
+                        path.to_string_lossy().to_string()
+                    })
+                    .unwrap_or_else(|_| {
+                        std::env::var("USERPROFILE")
+                            .map(|home| format!("{}\\AppData\\Local\\datalab\\models", home))
+                            .unwrap_or_else(|_| "%LOCALAPPDATA%\\datalab\\models".to_string())
+                    })
+            } else {
+                // Linux: ~/.cache/datalab/models
+                std::env::var("HOME")
+                    .map(|home| {
+                        let path = std::path::PathBuf::from(&home)
+                            .join(".cache")
+                            .join("datalab")
+                            .join("models");
+                        // 转换为绝对路径字符串
+                        path.to_string_lossy().to_string()
+                    })
+                    .unwrap_or_else(|_| "~/.cache/datalab/models".to_string())
+            };
+            
+            // 确保 Surya 模型缓存目录存在（使用绝对路径）
+            let surya_path = std::path::PathBuf::from(&surya_cache_dir);
+            if let Err(e) = std::fs::create_dir_all(&surya_path) {
+                warn!("无法创建 Surya 模型缓存目录 {}: {}", surya_cache_dir, e);
+            } else {
+                debug!("Surya 模型缓存目录已准备: {}", surya_path.display());
+            }
+            
+            // 使用绝对路径字符串设置环境变量
+            let surya_cache_dir_abs = surya_path.to_string_lossy().to_string();
+            cmd.env("SURYA_MODEL_CACHE_DIR", &surya_cache_dir_abs);
+            
+            debug!("设置 Hugging Face 缓存目录: {} (绝对路径: {})", hf_cache_dir, hf_cache_dir_abs);
+            debug!("设置 Surya 模型缓存目录: {} (绝对路径: {})", surya_cache_dir, surya_cache_dir_abs);
             
             // 启动进程
             let mut child = cmd.spawn().map_err(|e| {
@@ -419,7 +561,7 @@ impl MarkerPdfConverter {
             // 如果有 import_id，将 stdout/stderr 发送到日志收集器
             // 同时捕获 BrokenPipe 错误，避免 SIGPIPE 信号导致崩溃
             let import_id_clone = import_id.map(|s| s.to_string());
-            let stdout_handle: Option<tokio::task::JoinHandle<()>> = if let Some(mut stdout) = child.stdout.take() {
+            let stdout_handle: Option<tokio::task::JoinHandle<()>> = if let Some(stdout) = child.stdout.take() {
                 Some(tokio::spawn(async move {
                     use tokio::io::AsyncBufReadExt;
                     use tokio::io::BufReader;
@@ -442,7 +584,7 @@ impl MarkerPdfConverter {
             };
             
             let import_id_clone2 = import_id.map(|s| s.to_string());
-            let stderr_handle: Option<tokio::task::JoinHandle<()>> = if let Some(mut stderr) = child.stderr.take() {
+            let stderr_handle: Option<tokio::task::JoinHandle<()>> = if let Some(stderr) = child.stderr.take() {
                 Some(tokio::spawn(async move {
                     use tokio::io::AsyncBufReadExt;
                     use tokio::io::BufReader;
@@ -623,22 +765,38 @@ impl MarkerPdfConverter {
                     format!("Marker 工具执行失败: {}", e),
                 ))
             }
-            Err(_) => {
-                // 超时
-                warn!("Marker 工具执行超时（{} 秒）", timeout_duration.as_secs());
+            Err(e) => {
+                // 检查是否是 marker-pdf 未安装的错误
+                let error_msg = format!("{}", e);
+                if error_msg.contains("marker-pdf is not installed") 
+                    || error_msg.contains("marker_single not found")
+                    || error_msg.contains("marker-pdf 未安装") {
+                    // 根据平台生成安装指引
+                    let install_instructions = get_platform_marker_pdf_install_instructions();
+                    
+                    return Err(FlowyError::new(
+                        flowy_error::ErrorCode::Internal,
+                        format!(
+                            "Marker 工具需要 marker-pdf 才能运行，但系统中未安装 marker-pdf。\n\n\
+                            安装方法：\n\
+                            {}\n\n\
+                            验证安装：\n\
+                            安装完成后，运行以下命令验证：\n\
+                            pipx list  # 应该看到 marker-pdf\n\n\
+                            详细说明：\n\
+                            marker-pdf 是一个 Python 工具，用于将 PDF 转换为 Markdown。\n\
+                            它需要 Python 3.8+ 和 pipx 来安装和管理。\n\n\
+                            安装完成后，请重新尝试 PDF 导入。",
+                            install_instructions
+                        ),
+                    ));
+                }
                 
-                // 注意：超时后进程可能仍在运行
-                // 如果需要，可以通过进程名称来查找并 kill
-                
+                // 其他错误
+                error!("Marker 工具执行出错: {}", e);
                 Err(FlowyError::new(
-                    flowy_error::ErrorCode::RequestTimeout,
-                    format!(
-                        "PDF 转换超时，超过 {} 秒。\n\
-                         首次运行 Marker 工具需要下载模型文件（约 2-3GB），可能需要 15-30 分钟。\n\
-                         如果这是首次运行，请等待模型下载完成。\n\
-                         如果模型已下载但仍超时，文件可能过大或过于复杂，请尝试较小的文件。",
-                        timeout_duration.as_secs()
-                    ),
+                    flowy_error::ErrorCode::Internal,
+                    format!("Marker 工具执行失败: {}", e),
                 ))
             }
         }
@@ -681,13 +839,46 @@ impl MarkerPdfConverter {
         
         // 检查退出状态
         if !output.status.success() {
+            // 检查是否是 marker-pdf 未安装的错误
+            let stderr_str = stderr.to_string();
+            let stdout_str = stdout.to_string();
+            
+            if stderr_str.contains("marker-pdf is not installed")
+                || stderr_str.contains("marker_single not found")
+                || stderr_str.contains("marker-pdf 未安装")
+                || stderr_str.contains("Please install marker-pdf")
+                || stderr_str.contains("安装 marker-pdf") {
+                // 根据平台生成安装指引
+                let install_instructions = get_platform_marker_pdf_install_instructions();
+                
+                return Err(FlowyError::new(
+                    flowy_error::ErrorCode::Internal,
+                    format!(
+                        "Marker 工具需要 marker-pdf 才能运行，但系统中未安装 marker-pdf。\n\n\
+                        安装方法：\n\
+                        {}\n\n\
+                        验证安装：\n\
+                        安装完成后，运行以下命令验证：\n\
+                        pipx list  # 应该看到 marker-pdf\n\n\
+                        详细说明：\n\
+                        marker-pdf 是一个 Python 工具，用于将 PDF 转换为 Markdown。\n\
+                        它需要 Python 3.8+ 和 pipx 来安装和管理。\n\n\
+                        安装完成后，请重新尝试 PDF 导入。\n\n\
+                        Marker 工具错误详情：\n\
+                        stderr: {}",
+                        install_instructions,
+                        stderr_str.trim()
+                    ),
+                ));
+            }
+            
             warn!(
                 "Marker 工具执行失败 (退出码: {:?})\n\
                  stdout: {}\n\
                  stderr: {}",
                 output.status.code(),
-                stdout,
-                stderr
+                stdout_str,
+                stderr_str
             );
             
             // 如果输出文件存在，尝试读取它（即使进程崩溃，可能已经生成了部分输出）
@@ -949,9 +1140,9 @@ impl MarkerPdfConverter {
             
             // 在后台线程中处理文件元数据，避免阻塞和栈溢出
             // 注意：这里需要捕获可能的错误，因为目录可能在处理过程中被删除
-            let output_dir_clone = output_dir.to_path_buf();
+            let _output_dir_clone = output_dir.to_path_buf();
             let entry_paths_clone = entry_paths.clone();
-            let (mut files, mut dirs) = tokio::task::spawn_blocking(move || {
+            let (files, dirs) = tokio::task::spawn_blocking(move || {
                 let mut files = Vec::new();
                 let mut dirs = Vec::new();
                 for path in entry_paths_clone {
@@ -1750,7 +1941,7 @@ impl MarkerPdfConverter {
         // 创建基本元数据
         // 注意：Marker 工具不提供详细的 PDF 元数据提取功能
         // 我们只能提供基本的文件信息
-        let mut metadata = DocumentMetadata {
+        let metadata = DocumentMetadata {
             author: None,
             created_at: modified_at.or_else(|| Some(Utc::now())),
             modified_at: modified_at.or_else(|| Some(Utc::now())),
@@ -1763,6 +1954,105 @@ impl MarkerPdfConverter {
         // 实际标题会在转换后从内容中提取
 
         Ok(metadata)
+    }
+}
+
+/// 根据平台获取 marker-pdf 安装指引
+fn get_platform_marker_pdf_install_instructions() -> String {
+    use std::process::Command;
+    
+    #[cfg(target_os = "macos")]
+    {
+        // 检测是否安装了 Homebrew
+        let brew_available = Command::new("which")
+            .arg("brew")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+        
+        if !brew_available {
+            return format!(
+                "Homebrew 未安装。\n\n\
+                Marker 工具需要使用 Homebrew 来安装 marker-pdf。\n\n\
+                请先安装 Homebrew：\n\
+                1. 打开终端，运行：\n\
+                   /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"\n\n\
+                2. 或者访问 https://brew.sh 查看安装说明\n\n\
+                3. 安装 Homebrew 后，运行：\n\
+                   brew install jpeg libpng freetype openjpeg libtiff webp\n\
+                   brew install pipx\n\
+                   pipx install marker-pdf"
+            );
+        }
+        
+        format!(
+            "使用 Homebrew 安装 marker-pdf：\n\
+             1. 首先安装 Pillow 编译所需的依赖库：\n\
+                brew install jpeg libpng freetype openjpeg libtiff webp\n\
+             2. 安装 pipx：\n\
+                brew install pipx\n\
+             3. 安装 marker-pdf：\n\
+                pipx install marker-pdf"
+        )
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        // Windows 下检查 pipx 是否可用
+        let pipx_available = Command::new("where")
+            .arg("pipx")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+        
+        // 检查 Python 是否可用
+        let python_available = Command::new("where")
+            .arg("python")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+        
+        if !python_available {
+            return format!(
+                "Python 未安装。\n\n\
+                首先需要安装 Python 3.8+：\n\n\
+                方法 1：使用 WinGet 安装（推荐，Windows 10/11 自带）\n\
+                  winget install Python.Python.3.12\n\n\
+                方法 2：手动安装\n\
+                1. 访问 https://www.python.org/downloads/ 下载并安装 Python\n\
+                2. 安装时勾选 \"Add Python to PATH\"\n\n\
+                安装 Python 后，再安装 marker-pdf：\n\
+                1. 打开命令提示符或 PowerShell\n\
+                2. 运行: pip install --user pipx\n\
+                3. 运行: pipx install marker-pdf"
+            );
+        }
+        
+        if !pipx_available {
+            return format!(
+                "pipx 未安装。请先安装 pipx：\n\n\
+                方法 1：使用 WinGet 安装（推荐，Windows 10/11 自带）\n\
+                注意：WinGet 会自动安装 Python 作为 pipx 的依赖\n\
+                  winget install pipx\n\n\
+                方法 2：使用 pip 安装（需要先安装 Python）\n\
+                1. 打开命令提示符或 PowerShell\n\
+                2. 运行: pip install --user pipx\n\
+                3. 将 pipx 添加到 PATH（如果尚未添加）\n\n\
+                安装 pipx 后，运行: pipx install marker-pdf"
+            );
+        }
+        
+        format!(
+            "安装方法：\n\
+             1. 打开命令提示符或 PowerShell（以管理员身份运行）\n\
+             2. 运行: pipx install marker-pdf\n\n\
+             注意：Windows 下 Pillow 使用预编译包，通常不需要手动安装依赖库。"
+        )
+    }
+    
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        format!("当前平台 {} 不支持 marker-pdf 安装", std::env::consts::OS)
     }
 }
 

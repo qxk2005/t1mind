@@ -303,7 +303,7 @@ impl MarkdownToAppFlowyConverter {
                     }
                 }
                 // 图片
-                Event::Start(Tag::Image(_, url, title)) => {
+                Event::Start(Tag::Image(_, url, _title)) => {
                     // 图片开始，我们会在 End 事件中处理
                     // 清空当前段落文本，避免图片后的空段落被创建
                     current_paragraph_text.clear();

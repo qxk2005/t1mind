@@ -162,7 +162,7 @@ impl MarkerToolManager {
     /// ├── AppFlowy.exe (可执行文件)
     /// └── Resources/
     ///     └── marker/
-    ///         └── marker.exe (Marker 工具)
+    ///         └── marker.exe 或 marker.bat (Marker 工具)
     fn resolve_windows_bundle_path(&self, exe_path: &Path) -> FlowyResult<PathBuf> {
         // 获取可执行文件所在目录
         let app_dir = exe_path.parent().ok_or_else(|| {
@@ -172,11 +172,23 @@ impl MarkerToolManager {
             )
         })?;
 
-        // 构建 Resources/marker/marker.exe 路径
-        let marker_path = app_dir.join("Resources").join("marker").join("marker.exe");
-        debug!("构建的 Windows Marker 路径: {}", marker_path.display());
+        // 首先尝试 marker.exe
+        let marker_exe_path = app_dir.join("Resources").join("marker").join("marker.exe");
+        if marker_exe_path.exists() {
+            debug!("构建的 Windows Marker 路径: {}", marker_exe_path.display());
+            return Ok(marker_exe_path);
+        }
         
-        Ok(marker_path)
+        // 如果 marker.exe 不存在，尝试 marker.bat
+        let marker_bat_path = app_dir.join("Resources").join("marker").join("marker.bat");
+        if marker_bat_path.exists() {
+            debug!("构建的 Windows Marker 路径: {}", marker_bat_path.display());
+            return Ok(marker_bat_path);
+        }
+        
+        // 如果都不存在，返回 marker.exe 路径（用于错误提示）
+        debug!("构建的 Windows Marker 路径: {}", marker_exe_path.display());
+        Ok(marker_exe_path)
     }
 
     /// 验证 Marker 工具是否可用
@@ -252,6 +264,200 @@ impl MarkerToolManager {
         }
 
         debug!("Marker 工具验证成功: {}", path.display());
+        
+        // 可选：检查 marker-pdf 依赖是否可用（仅警告，不阻止使用）
+        // 这可以帮助提前发现问题，但不会阻止工具的使用
+        // 因为 marker 脚本本身会在运行时检查依赖
+        #[cfg(unix)]
+        {
+            if let Err(e) = self.check_marker_pdf_dependency() {
+                warn!(
+                    "Marker 工具依赖检查失败: {}\n\
+                    这不会阻止 Marker 工具的使用，但如果 marker-pdf 未安装，\n\
+                    在使用时会失败并显示安装说明。",
+                    e
+                );
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// 检查 marker-pdf 依赖是否可用
+    /// 
+    /// 这是一个可选的检查，用于提前发现问题。
+    /// 如果检查失败，只记录警告，不会阻止工具的使用。
+    fn check_marker_pdf_dependency(&self) -> Result<(), String> {
+        use std::process::Command;
+        
+        // 根据平台检查 marker-pdf 是否安装
+        #[cfg(target_os = "macos")]
+        {
+            // 检测是否安装了 Homebrew
+            let brew_available = Command::new("which")
+                .arg("brew")
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false);
+            
+            if !brew_available {
+                return Err(format!(
+                    "Homebrew 未安装。\n\n\
+                    Marker 工具需要使用 Homebrew 来安装 marker-pdf。\n\n\
+                    请先安装 Homebrew：\n\
+                    1. 打开终端，运行：\n\
+                       /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"\n\n\
+                    2. 或者访问 https://brew.sh 查看安装说明\n\n\
+                    3. 安装 Homebrew 后，运行：\n\
+                       brew install jpeg libpng freetype openjpeg libtiff webp\n\
+                       brew install pipx\n\
+                       pipx install marker-pdf"
+                ));
+            }
+            
+            // 检查 pipx 是否可用
+            let pipx_check = Command::new("which")
+                .arg("pipx")
+                .output();
+            
+            let pipx_available = match pipx_check {
+                Ok(output) => output.status.success(),
+                Err(_) => false,
+            };
+            
+            // 检查 marker-pdf 是否已安装
+            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
+            let marker_pdf_path = std::path::Path::new(&home_dir)
+                .join(".local")
+                .join("pipx")
+                .join("venvs")
+                .join("marker-pdf")
+                .join("bin")
+                .join("marker_single");
+            
+            if !marker_pdf_path.exists() {
+                return Err(format!(
+                    "marker-pdf 未安装。\n\n\
+                    安装方法（使用 Homebrew）：\n\
+                    1. 首先安装 Pillow 编译所需的依赖库：\n\
+                       brew install jpeg libpng freetype openjpeg libtiff webp\n\
+                    2. 安装 pipx：\n\
+                       brew install pipx\n\
+                    3. 安装 marker-pdf：\n\
+                       pipx install marker-pdf\n\n\
+                    期望位置: {}",
+                    marker_pdf_path.display()
+                ));
+            }
+            
+            if !pipx_available {
+                return Err(format!(
+                    "pipx 未安装。\n\n\
+                    安装方法（使用 Homebrew）：\n\
+                    1. 首先安装 Pillow 编译所需的依赖库：\n\
+                       brew install jpeg libpng freetype openjpeg libtiff webp\n\
+                    2. 安装 pipx：\n\
+                       brew install pipx\n\
+                    3. 安装 marker-pdf：\n\
+                       pipx install marker-pdf"
+                ));
+            }
+        }
+        
+        #[cfg(target_os = "windows")]
+        {
+            // Windows 下检查 pipx 是否可用
+            let pipx_available = Command::new("where")
+                .arg("pipx")
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false);
+            
+            // 检查 Python 是否可用
+            let python_available = Command::new("where")
+                .arg("python")
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false);
+            
+            if !python_available {
+                return Err(format!(
+                    "Python 未安装。\n\n\
+                    首先需要安装 Python 3.8+：\n\n\
+                    方法 1：使用 WinGet 安装（推荐，Windows 10/11 自带）\n\
+                      winget install Python.Python.3.12\n\n\
+                    方法 2：手动安装\n\
+                    1. 访问 https://www.python.org/downloads/ 下载并安装 Python\n\
+                    2. 安装时勾选 \"Add Python to PATH\"\n\n\
+                    安装 Python 后，再安装 marker-pdf：\n\
+                    1. 打开命令提示符或 PowerShell\n\
+                    2. 运行: pip install --user pipx\n\
+                    3. 运行: pipx install marker-pdf"
+                ));
+            }
+            
+            // 检查 marker-pdf 是否已安装
+            let localappdata = std::env::var("LOCALAPPDATA")
+                .or_else(|_| std::env::var("USERPROFILE").map(|p| format!("{}\\AppData\\Local", p)))
+                .unwrap_or_else(|_| "%LOCALAPPDATA%".to_string());
+            
+            let marker_pdf_path1 = std::path::Path::new(&localappdata)
+                .join("pipx")
+                .join("venvs")
+                .join("marker-pdf")
+                .join("Scripts")
+                .join("marker_single.exe");
+            
+            let marker_pdf_path2 = if let Ok(userprofile) = std::env::var("USERPROFILE") {
+                Some(std::path::Path::new(&userprofile)
+                    .join(".local")
+                    .join("pipx")
+                    .join("venvs")
+                    .join("marker-pdf")
+                    .join("Scripts")
+                    .join("marker_single.exe"))
+            } else {
+                None
+            };
+            
+            let marker_pdf_exists = marker_pdf_path1.exists() 
+                || marker_pdf_path2.as_ref().map(|p| p.exists()).unwrap_or(false);
+            
+            if !marker_pdf_exists {
+                if !pipx_available {
+                    return Err(format!(
+                        "marker-pdf 未安装。\n\n\
+                        pipx 未安装。请先安装 pipx：\n\n\
+                        方法 1：使用 WinGet 安装（推荐，Windows 10/11 自带）\n\
+                        注意：WinGet 会自动安装 Python 作为 pipx 的依赖\n\
+                          winget install pipx\n\n\
+                        方法 2：使用 pip 安装（需要先安装 Python）\n\
+                        1. 打开命令提示符或 PowerShell\n\
+                        2. 运行: pip install --user pipx\n\
+                        3. 将 pipx 添加到 PATH（如果尚未添加）\n\n\
+                        安装 pipx 后，运行: pipx install marker-pdf"
+                    ));
+                }
+                
+                return Err(format!(
+                    "marker-pdf 未安装。\n\n\
+                    安装方法：\n\
+                    1. 打开命令提示符或 PowerShell（以管理员身份运行）\n\
+                    2. 运行: pipx install marker-pdf\n\n\
+                    注意：Windows 下 Pillow 使用预编译包，通常不需要手动安装依赖库。\n\n\
+                    期望位置: {} 或 {}",
+                    marker_pdf_path1.display(),
+                    marker_pdf_path2.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "%USERPROFILE%\\.local\\pipx\\venvs\\marker-pdf\\Scripts\\marker_single.exe".to_string())
+                ));
+            }
+        }
+        
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            return Err(format!("当前平台 {} 不支持 marker-pdf 检查", std::env::consts::OS));
+        }
+        
+        debug!("Marker-pdf 依赖检查通过");
         Ok(())
     }
 

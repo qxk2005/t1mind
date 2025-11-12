@@ -22,7 +22,8 @@ struct TavilySearchRequest {
     search_depth: String,
     include_answer: bool,
     include_images: bool,
-    include_raw_content: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    include_raw_content: Option<String>, // 可以是 "markdown" 或其他字符串值
     max_results: i32,
     include_domains: Vec<String>,
     exclude_domains: Vec<String>,
@@ -35,6 +36,8 @@ struct TavilySearchResult {
     title: String,
     url: String,
     content: String,
+    #[serde(rename = "raw_content")]
+    raw_content: Option<String>, // 当 include_raw_content="markdown" 时，包含原始 Markdown 内容
     score: f64,
     published_date: Option<String>,
 }
@@ -114,10 +117,14 @@ impl TavilySearchProvider {
         // 构建 Tavily API 请求
         let tavily_request = TavilySearchRequest {
             query: request.query.clone(),
-            search_depth: "basic".to_string(),
+            search_depth: "advanced".to_string(), // 使用高级搜索深度以获得更全面的结果
             include_answer: true,
             include_images: false,
-            include_raw_content: false,
+            include_raw_content: if request.include_content {
+                Some("markdown".to_string()) // 当需要包含内容时，设置为 "markdown"
+            } else {
+                None // 不包含原始内容时，跳过该字段
+            },
             max_results: request.max_results.max(1).min(20), // Tavily 限制最多 20 个结果
             include_domains: Vec::new(),
             exclude_domains: Vec::new(),
@@ -139,11 +146,23 @@ impl TavilySearchProvider {
 
         // 转换搜索结果
         for tavily_result in results {
+            // 优先使用 raw_content（如果存在），否则使用 content
+            // raw_content 是当 include_raw_content="markdown" 时返回的完整 Markdown 内容
+            let content_for_ai = tavily_result.raw_content
+                .as_ref()
+                .map(|raw| raw.clone())
+                .unwrap_or_else(|| tavily_result.content.clone());
+            
             let mut result = WebSearchResultPB::new(
                 tavily_result.title,
                 tavily_result.url.clone(),
-                tavily_result.content,
+                tavily_result.content.clone(), // snippet 使用简短的 content
             );
+            
+            // 将完整内容（raw_content 或 content）设置到 content 字段，供 AI 模型使用
+            if !content_for_ai.is_empty() {
+                result.content = Some(content_for_ai);
+            }
             
             result.relevance_score = tavily_result.score;
             result.domain = self.extract_domain(&tavily_result.url);
@@ -298,10 +317,10 @@ impl TavilySearchProvider {
         // 使用一个简单的搜索请求来验证 API 密钥
         let test_request = TavilySearchRequest {
             query: "test".to_string(),
-            search_depth: "basic".to_string(),
+            search_depth: "advanced".to_string(),
             include_answer: false,
             include_images: false,
-            include_raw_content: false,
+            include_raw_content: None, // 测试时不需要原始内容
             max_results: 1,
             include_domains: Vec::new(),
             exclude_domains: Vec::new(),
@@ -325,10 +344,10 @@ impl TavilySearchProvider {
         // 使用一个简单的搜索请求来测试连接，增加超时时间
         let test_request = TavilySearchRequest {
             query: "test".to_string(),
-            search_depth: "basic".to_string(),
+            search_depth: "advanced".to_string(),
             include_answer: false,
             include_images: false,
-            include_raw_content: false,
+            include_raw_content: None, // 测试时不需要原始内容
             max_results: 1,
             include_domains: Vec::new(),
             exclude_domains: Vec::new(),
@@ -624,10 +643,10 @@ mod tests {
     async fn test_tavily_search_request_serialization() {
         let request = TavilySearchRequest {
             query: "test query".to_string(),
-            search_depth: "basic".to_string(),
+            search_depth: "advanced".to_string(),
             include_answer: true,
             include_images: false,
-            include_raw_content: false,
+            include_raw_content: None, // 测试序列化时不需要原始内容
             max_results: 5,
             include_domains: vec!["example.com".to_string()],
             exclude_domains: vec!["spam.com".to_string()],
@@ -636,7 +655,7 @@ mod tests {
 
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("test query"));
-        assert!(json.contains("basic"));
+        assert!(json.contains("advanced"));
         assert!(json.contains("include_answer"));
     }
 

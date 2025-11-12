@@ -298,6 +298,14 @@ script = [
   end
 
   if is_empty ${marker_source}
+    resources_marker_bat= set ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/resources/marker/marker.bat
+    if is_path_exists ${resources_marker_bat}
+      marker_source= set ${resources_marker_bat}
+      echo Using marker tool from resources/marker/marker.bat
+    end
+  end
+
+  if is_empty ${marker_source}
     # Try to find marker.exe in system PATH
     marker_path_output= exec where marker.exe
     marker_path_stdout= set ${marker_path_output.stdout}
@@ -313,9 +321,13 @@ script = [
 
   if not is_empty ${marker_source}
     if is_path_exists ${marker_source}
-      # Copy marker tool
-      cp ${marker_source} ${marker_resources_dir}/marker.exe
-      echo Marker tool copied: ${marker_resources_dir}/marker.exe
+      # Copy marker tool (preserve extension: .exe or .bat)
+      marker_ext= get_file_extension ${marker_source}
+      if is_empty ${marker_ext}
+        marker_ext= set .exe
+      end
+      cp ${marker_source} ${marker_resources_dir}/marker${marker_ext}
+      echo Marker tool copied: ${marker_resources_dir}/marker${marker_ext}
       
       # Copy marker tool dependencies if they exist (e.g., Python environment)
       marker_source_dir= dirname ${marker_source}
@@ -465,6 +477,14 @@ script = [
   end
 
   if is_empty ${marker_source}
+    resources_marker_bat= set ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/resources/marker/marker.bat
+    if is_path_exists ${resources_marker_bat}
+      marker_source= set ${resources_marker_bat}
+      echo Using marker tool from resources/marker/marker.bat
+    end
+  end
+
+  if is_empty ${marker_source}
     # Try to find marker.exe in system PATH
     marker_path_output= exec where marker.exe
     marker_path_stdout= set ${marker_path_output.stdout}
@@ -480,9 +500,13 @@ script = [
 
   if not is_empty ${marker_source}
     if is_path_exists ${marker_source}
-      # Copy marker tool
-      cp ${marker_source} ${marker_resources_dir}/marker.exe
-      echo Marker tool copied to build output: ${marker_resources_dir}/marker.exe
+      # Copy marker tool (preserve extension: .exe or .bat)
+      marker_ext= get_file_extension ${marker_source}
+      if is_empty ${marker_ext}
+        marker_ext= set .exe
+      end
+      cp ${marker_source} ${marker_resources_dir}/marker${marker_ext}
+      echo Marker tool copied to build output: ${marker_resources_dir}/marker${marker_ext}
       
       # Copy marker tool dependencies if they exist (e.g., Python environment)
       marker_source_dir= dirname ${marker_source}

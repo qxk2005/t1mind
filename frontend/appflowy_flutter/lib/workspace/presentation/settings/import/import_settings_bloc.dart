@@ -89,6 +89,12 @@ class ImportSettingsBloc extends Bloc<ImportSettingsEvent, ImportSettingsState> 
           checkImportTools: () async {
             await _checkImportTools(emit);
           },
+          downloadMarkerModels: (force) async {
+            await _downloadMarkerModels(emit, force);
+          },
+          installMissingTools: (toolNames) async {
+            await _installMissingTools(emit, toolNames);
+          },
         );
       },
     );
@@ -392,6 +398,103 @@ class ImportSettingsBloc extends Bloc<ImportSettingsEvent, ImportSettingsState> 
       emit(state.copyWith(isCheckingTools: false));
     }
   }
+
+  /// 下载 Marker 模型
+  Future<void> _downloadMarkerModels(
+    Emitter<ImportSettingsState> emit,
+    bool force,
+  ) async {
+    try {
+      emit(state.copyWith(isDownloadingModels: true, modelDownloadProgress: null));
+      
+      final request = DownloadMarkerModelsPB()..force = force;
+      final result = await UserEventDownloadMarkerModels(request).send();
+      
+      await result.fold(
+        (progress) async {
+          // 先更新进度状态
+          if (!emit.isDone) {
+            emit(state.copyWith(
+              modelDownloadProgress: progress,
+              isDownloadingModels: progress.status != ModelDownloadStatusPB.ModelDownloadCompleted &&
+                                   progress.status != ModelDownloadStatusPB.ModelDownloadFailed &&
+                                   progress.status != ModelDownloadStatusPB.ModelDownloadCancelled,
+            ));
+          }
+          
+          // 如果下载完成或失败，重新检查工具状态
+          if (progress.status == ModelDownloadStatusPB.ModelDownloadCompleted ||
+              progress.status == ModelDownloadStatusPB.ModelDownloadFailed) {
+            // 检查 emit 是否仍然有效，避免在事件处理器完成后调用
+            if (!emit.isDone) {
+              await _checkImportTools(emit);
+            }
+          }
+        },
+        (error) async {
+          Log.error('Failed to download marker models: $error');
+          if (!emit.isDone) {
+            emit(state.copyWith(
+              isDownloadingModels: false,
+              modelDownloadProgress: ModelDownloadProgressPB()
+                ..status = ModelDownloadStatusPB.ModelDownloadFailed
+                ..message = '下载失败: ${error.msg}',
+            ));
+          }
+        },
+      );
+    } catch (e) {
+      Log.error('Failed to download marker models: $e');
+      emit(state.copyWith(isDownloadingModels: false));
+    }
+  }
+
+  /// 安装缺失的工具
+  Future<void> _installMissingTools(
+    Emitter<ImportSettingsState> emit,
+    List<String> toolNames,
+  ) async {
+    try {
+      emit(state.copyWith(isInstallingTools: true, installProgress: null));
+      
+      final request = InstallMissingToolsPB()..toolNames.addAll(toolNames);
+      final result = await UserEventInstallMissingTools(request).send();
+      
+      result.fold(
+        (progress) {
+          if (!emit.isDone) {
+            emit(state.copyWith(
+              installProgress: progress,
+              isInstallingTools: progress.status != InstallToolStatusPB.InstallToolCompleted &&
+                                 progress.status != InstallToolStatusPB.InstallToolFailed,
+            ));
+          }
+          
+          // 如果安装完成或失败，重新检查工具状态
+          if (progress.status == InstallToolStatusPB.InstallToolCompleted ||
+              progress.status == InstallToolStatusPB.InstallToolFailed) {
+            if (!emit.isDone) {
+              _checkImportTools(emit);
+            }
+          }
+        },
+        (error) {
+          Log.error('Failed to install missing tools: $error');
+          if (!emit.isDone) {
+            emit(state.copyWith(
+              isInstallingTools: false,
+              installProgress: InstallToolProgressPB()
+                ..status = InstallToolStatusPB.InstallToolFailed
+                ..message = '安装失败: ${error.msg}',
+            ));
+          }
+        },
+      );
+    } catch (e) {
+      Log.error('Failed to install missing tools: $e');
+      emit(state.copyWith(isInstallingTools: false));
+    }
+  }
 }
 
 @freezed
@@ -418,6 +521,8 @@ class ImportSettingsEvent with _$ImportSettingsEvent {
   const factory ImportSettingsEvent.updateAutoCleanupTempFiles(bool value) = _UpdateAutoCleanupTempFiles;
   const factory ImportSettingsEvent.updateTempFileRetentionHours(int value) = _UpdateTempFileRetentionHours;
   const factory ImportSettingsEvent.checkImportTools() = _CheckImportTools;
+  const factory ImportSettingsEvent.downloadMarkerModels(bool force) = _DownloadMarkerModels;
+  const factory ImportSettingsEvent.installMissingTools(List<String> toolNames) = _InstallMissingTools;
 }
 
 @freezed
@@ -426,12 +531,20 @@ class ImportSettingsState with _$ImportSettingsState {
     required ImportSettingsPB settings,
     ImportToolsStatusPB? toolsStatus,
     @Default(false) bool isCheckingTools,
+    @Default(false) bool isDownloadingModels,
+    ModelDownloadProgressPB? modelDownloadProgress,
+    @Default(false) bool isInstallingTools,
+    InstallToolProgressPB? installProgress,
   }) = _ImportSettingsState;
 
   factory ImportSettingsState.initial() => ImportSettingsState(
         settings: ImportSettingsPB.defaultSettings(),
         toolsStatus: null,
         isCheckingTools: false,
+        isDownloadingModels: false,
+        modelDownloadProgress: null,
+        isInstallingTools: false,
+        installProgress: null,
       );
 }
 

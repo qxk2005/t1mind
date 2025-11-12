@@ -85,6 +85,8 @@ pub fn init(user_manager: Weak<UserManager>) -> AFPlugin {
     .event(UserEvent::GetImportSettings, get_import_settings)
     .event(UserEvent::UpdateImportSettings, update_import_settings)
     .event(UserEvent::CheckImportToolsStatus, check_import_tools_status)
+    .event(UserEvent::DownloadMarkerModels, download_marker_models)
+    .event(UserEvent::InstallMissingTools, install_missing_tools)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Display, Hash, ProtoBuf_Enum, Flowy_Event)]
@@ -294,6 +296,12 @@ pub enum UserEvent {
   /// Check import tools status
   #[event(output = "ImportToolsStatusPB")]
   CheckImportToolsStatus = 69,
+
+  /// Download marker models
+  #[event(input = "DownloadMarkerModelsPB", output = "ModelDownloadProgressPB")]
+  DownloadMarkerModels = 70,
+  #[event(input = "InstallMissingToolsPB", output = "InstallToolProgressPB")]
+  InstallMissingTools = 71,
 }
 
 #[async_trait]

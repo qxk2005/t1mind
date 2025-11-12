@@ -463,3 +463,4 @@ pub struct MarkdownConversionResult {
 - 保持 `ConversionTask` 和 `ConversionResult` 结构不变
 - 确保转换队列和进度报告机制兼容
 
+

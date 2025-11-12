@@ -971,10 +971,14 @@ pub async fn check_import_tools_status() -> DataResult<crate::entities::ImportTo
   
   let mut tools = Vec::new();
   
-  // 只检查 Marker 工具（精准 PDF 导入工具）
+  // 检查 Marker 工具（精准 PDF 导入工具）
   // 其他工具（poppler、tesseract、python、pdfminer 等）已不再需要
   let marker_info = check_marker_tool();
   tools.push(marker_info);
+  
+  // 检查 marker-pdf（实际执行转换的 Python 工具）
+  let marker_pdf_info = check_marker_pdf_tool();
+  tools.push(marker_pdf_info);
   
   let checked_at = SystemTime::now()
     .duration_since(UNIX_EPOCH)
@@ -1534,6 +1538,8 @@ fn check_tool(
     path,
     install_instruction: install_inst,
     description: description.to_string(),
+    model_status: None,
+    check_logs: Vec::new(),
   }
 }
 
@@ -1613,6 +1619,8 @@ fn check_python_module_with_fallback(
     path: None,
     install_instruction: install_inst,
     description: description.to_string(),
+    model_status: None,
+    check_logs: Vec::new(),
   }
 }
 
@@ -1637,6 +1645,8 @@ fn check_marker_tool() -> crate::entities::ImportToolInfoPB {
         path: None,
         install_instruction: Some("Marker 工具应随应用包一起提供，请重新安装应用。".to_string()),
         description: "用于精准 PDF 导入的工具，将 PDF 转换为 Markdown 格式，保留格式和结构".to_string(),
+        model_status: None,
+        check_logs: vec!["无法获取当前可执行文件路径".to_string()],
       };
     }
   };
@@ -1651,22 +1661,72 @@ fn check_marker_tool() -> crate::entities::ImportToolInfoPB {
       // 验证 Marker 工具是否存在且可执行
       match verify_marker_path(&path) {
         Ok(()) => {
-          tracing::info!("[工具检查] Marker 工具验证成功: {}", path.display());
+          tracing::info!("[工具检查] Marker 脚本验证成功: {}", path.display());
           
-          // 尝试获取版本信息（如果 marker 支持 --version 或 -v）
-          let version = get_marker_version(&path);
-          
-          ImportToolInfoPB {
-            name: "Marker (精准 PDF 导入)".to_string(),
-            status: ImportToolStatusPB::ToolAvailable,
-            version,
-            path: Some(path.display().to_string()),
-            install_instruction: None,
-            description: "用于精准 PDF 导入的工具，将 PDF 转换为 Markdown 格式，保留格式和结构".to_string(),
+          // 检查 marker-pdf 是否真正安装（这是实际执行转换的工具）
+          match check_marker_pdf_installed() {
+            Ok(()) => {
+              tracing::info!("[工具检查] marker-pdf 已安装，工具可用");
+              
+              // 尝试获取版本信息（如果 marker 支持 --version 或 -v）
+              let mut marker_logs = Vec::new();
+              marker_logs.push("开始检查 Marker 工具...".to_string());
+              marker_logs.push(format!("✓ Marker 脚本验证成功: {}", path.display()));
+              marker_logs.push("检查 marker-pdf 是否已安装...".to_string());
+              marker_logs.push("✓ marker-pdf 已安装，工具可用".to_string());
+              
+              let version = get_marker_version(&path);
+              if let Some(ref v) = version {
+                marker_logs.push(format!("✓ 获取版本信息: {}", v));
+              } else {
+                marker_logs.push("⚠ 无法获取版本信息".to_string());
+              }
+              
+              // 检查模型就绪度
+              let (model_status, model_logs) = check_marker_models_ready_with_logs();
+              marker_logs.extend(model_logs);
+              
+              let description = "用于精准 PDF 导入的工具，将 PDF 转换为 Markdown 格式，保留格式和结构".to_string();
+              
+              ImportToolInfoPB {
+                name: "Marker (精准 PDF 导入)".to_string(),
+                status: ImportToolStatusPB::ToolAvailable,
+                version,
+                path: Some(path.display().to_string()),
+                install_instruction: None,
+                description,
+                model_status: Some(model_status),
+                check_logs: marker_logs,
+              }
+            }
+            Err(install_instruction) => {
+              tracing::warn!("[工具检查] marker-pdf 未安装: {}", install_instruction);
+              
+              let mut marker_logs = Vec::new();
+              marker_logs.push("开始检查 Marker 工具...".to_string());
+              marker_logs.push(format!("✓ Marker 脚本验证成功: {}", path.display()));
+              marker_logs.push("检查 marker-pdf 是否已安装...".to_string());
+              marker_logs.push(format!("✗ marker-pdf 未安装: {}", install_instruction));
+              
+              ImportToolInfoPB {
+                name: "Marker (精准 PDF 导入)".to_string(),
+                status: ImportToolStatusPB::ToolNotInstalled,
+                version: None,
+                path: Some(path.display().to_string()),
+                install_instruction: Some(install_instruction),
+                description: "用于精准 PDF 导入的工具，将 PDF 转换为 Markdown 格式，保留格式和结构".to_string(),
+                model_status: None,
+                check_logs: marker_logs,
+              }
+            }
           }
         }
         Err(e) => {
           tracing::warn!("[工具检查] Marker 工具验证失败: {}", e);
+          let mut marker_logs = Vec::new();
+          marker_logs.push("开始检查 Marker 工具...".to_string());
+          marker_logs.push(format!("✗ Marker 工具验证失败: {}", e));
+          
           ImportToolInfoPB {
             name: "Marker (精准 PDF 导入)".to_string(),
             status: ImportToolStatusPB::ToolUnavailable,
@@ -1674,12 +1734,18 @@ fn check_marker_tool() -> crate::entities::ImportToolInfoPB {
             path: Some(path.display().to_string()),
             install_instruction: Some(format!("Marker 工具存在但无法使用: {}\n请检查文件权限或重新安装应用。", e)),
             description: "用于精准 PDF 导入的工具，将 PDF 转换为 Markdown 格式，保留格式和结构".to_string(),
+            model_status: None,
+            check_logs: marker_logs,
           }
         }
       }
     }
     Err(e) => {
       tracing::warn!("[工具检查] Marker 工具未找到: {}", e);
+      let mut marker_logs = Vec::new();
+      marker_logs.push("开始检查 Marker 工具...".to_string());
+      marker_logs.push(format!("✗ Marker 工具未找到: {}", e));
+      
       ImportToolInfoPB {
         name: "Marker (精准 PDF 导入)".to_string(),
         status: ImportToolStatusPB::ToolNotInstalled,
@@ -1694,6 +1760,8 @@ fn check_marker_tool() -> crate::entities::ImportToolInfoPB {
           e
         )),
         description: "用于精准 PDF 导入的工具，将 PDF 转换为 Markdown 格式，保留格式和结构".to_string(),
+        model_status: None,
+        check_logs: marker_logs,
       }
     }
   }
@@ -1777,16 +1845,29 @@ fn resolve_marker_path(exe_path: &Path) -> Result<std::path::PathBuf, String> {
     // ├── AppFlowy.exe (可执行文件)
     // └── Resources/
     //     └── marker/
-    //         └── marker.exe (Marker 工具)
+    //         └── marker.exe 或 marker.bat (Marker 工具)
     
     let app_dir = exe_path.parent().ok_or_else(|| {
       format!("无法获取可执行文件的父目录: {}", exe_path.display())
     })?;
     
-    // 构建 Resources/marker/marker.exe 路径
-    let marker_path = app_dir.join("Resources").join("marker").join("marker.exe");
-    tracing::debug!("[工具检查] 构建的 Windows Marker 路径: {}", marker_path.display());
-    Ok(marker_path)
+    // 首先尝试 marker.exe
+    let marker_exe_path = app_dir.join("Resources").join("marker").join("marker.exe");
+    if marker_exe_path.exists() {
+      tracing::debug!("[工具检查] 构建的 Windows Marker 路径: {}", marker_exe_path.display());
+      return Ok(marker_exe_path);
+    }
+    
+    // 如果 marker.exe 不存在，尝试 marker.bat
+    let marker_bat_path = app_dir.join("Resources").join("marker").join("marker.bat");
+    if marker_bat_path.exists() {
+      tracing::debug!("[工具检查] 构建的 Windows Marker 路径: {}", marker_bat_path.display());
+      return Ok(marker_bat_path);
+    }
+    
+    // 如果都不存在，返回 marker.exe 路径（用于错误提示）
+    tracing::debug!("[工具检查] 构建的 Windows Marker 路径: {}", marker_exe_path.display());
+    Ok(marker_exe_path)
   }
   
   #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -1851,6 +1932,1239 @@ fn verify_marker_path(path: &Path) -> Result<(), String> {
   Ok(())
 }
 
+/// 检查 marker-pdf 是否真正安装
+/// 
+/// marker 脚本只是一个包装器，实际执行转换需要 marker-pdf（通过 pipx 安装）。
+/// 此函数检查 marker-pdf 是否已安装，支持 macOS 和 Windows 平台。
+fn check_marker_pdf_installed() -> Result<(), String> {
+  // 根据平台确定 marker-pdf 的安装路径
+  let marker_pdf_path = get_marker_pdf_path()?;
+  
+  tracing::debug!("[工具检查] 检查 marker-pdf 路径: {}", marker_pdf_path.display());
+  
+  // 检查 marker-pdf 是否存在
+  if marker_pdf_path.exists() && marker_pdf_path.is_file() {
+    tracing::info!("[工具检查] marker-pdf 已安装: {}", marker_pdf_path.display());
+    return Ok(());
+  }
+  
+  // marker-pdf 未安装，生成安装指引
+  let install_instruction = get_marker_pdf_install_instruction()?;
+  Err(install_instruction)
+}
+
+/// 获取 marker-pdf 的安装路径（根据平台）
+fn get_marker_pdf_path() -> Result<std::path::PathBuf, String> {
+  #[cfg(target_os = "macos")]
+  {
+    // macOS: ~/.local/pipx/venvs/marker-pdf/bin/marker_single
+    let home_dir = std::env::var("HOME").map_err(|_| "无法获取 HOME 目录".to_string())?;
+    Ok(std::path::Path::new(&home_dir)
+      .join(".local")
+      .join("pipx")
+      .join("venvs")
+      .join("marker-pdf")
+      .join("bin")
+      .join("marker_single"))
+  }
+  
+  #[cfg(target_os = "windows")]
+  {
+    // Windows: %LOCALAPPDATA%\pipx\venvs\marker-pdf\Scripts\marker_single.exe
+    // 或者: %USERPROFILE%\.local\pipx\venvs\marker-pdf\Scripts\marker_single.exe
+    let localappdata = std::env::var("LOCALAPPDATA")
+      .or_else(|_| std::env::var("USERPROFILE").map(|p| format!("{}\\AppData\\Local", p)))
+      .map_err(|_| "无法获取 LOCALAPPDATA 或 USERPROFILE 目录".to_string())?;
+    
+    // 首先尝试 LOCALAPPDATA
+    let path1 = std::path::Path::new(&localappdata)
+      .join("pipx")
+      .join("venvs")
+      .join("marker-pdf")
+      .join("Scripts")
+      .join("marker_single.exe");
+    
+    if path1.exists() {
+      return Ok(path1);
+    }
+    
+    // 尝试 USERPROFILE\.local\pipx
+    if let Ok(userprofile) = std::env::var("USERPROFILE") {
+      let path2 = std::path::Path::new(&userprofile)
+        .join(".local")
+        .join("pipx")
+        .join("venvs")
+        .join("marker-pdf")
+        .join("Scripts")
+        .join("marker_single.exe");
+      
+      if path2.exists() {
+        return Ok(path2);
+      }
+    }
+    
+    // 返回默认路径（用于检查）
+    Ok(path1)
+  }
+  
+  #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+  {
+    Err(format!("当前平台 {} 不支持 marker-pdf 检查", std::env::consts::OS))
+  }
+}
+
+/// 获取 marker-pdf 的安装指引（根据平台）
+fn get_marker_pdf_install_instruction() -> Result<String, String> {
+  use std::process::Command;
+  
+  #[cfg(target_os = "macos")]
+  {
+    // 检测是否安装了 Homebrew
+    let brew_available = Command::new("which")
+      .arg("brew")
+      .output()
+      .map(|output| output.status.success())
+      .unwrap_or(false);
+    
+    if !brew_available {
+      return Ok(format!(
+        "marker-pdf 未安装。\n\n\
+        Marker 工具需要使用 Homebrew 来安装 marker-pdf。\n\n\
+        请先安装 Homebrew：\n\
+        1. 打开终端，运行：\n\
+           /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"\n\n\
+        2. 或者访问 https://brew.sh 查看安装说明\n\n\
+        3. 安装 Homebrew 后，运行：\n\
+           brew install jpeg libpng freetype openjpeg libtiff webp\n\
+           brew install pipx\n\
+           pipx install marker-pdf"
+      ));
+    }
+    
+    Ok(format!(
+      "marker-pdf 未安装。\n\n\
+      安装方法（使用 Homebrew）：\n\
+      1. 首先安装 Pillow 编译所需的依赖库：\n\
+         brew install jpeg libpng freetype openjpeg libtiff webp\n\
+      2. 安装 pipx：\n\
+         brew install pipx\n\
+      3. 安装 marker-pdf：\n\
+         pipx install marker-pdf\n\n\
+      验证安装：\n\
+      安装完成后，运行以下命令验证：\n\
+      pipx list  # 应该看到 marker-pdf"
+    ))
+  }
+  
+  #[cfg(target_os = "windows")]
+  {
+    // Windows 下检查 pipx 是否可用
+    let pipx_available = Command::new("where")
+      .arg("pipx")
+      .output()
+      .map(|output| output.status.success())
+      .unwrap_or(false);
+    
+    // 检查 Python 是否可用
+    let python_available = Command::new("where")
+      .arg("python")
+      .output()
+      .map(|output| output.status.success())
+      .unwrap_or(false);
+    
+    if !python_available {
+      return Ok(format!(
+        "marker-pdf 未安装。\n\n\
+        首先需要安装 Python 3.8+：\n\n\
+        方法 1：使用 WinGet 安装（推荐，Windows 10/11 自带）\n\
+          winget install Python.Python.3.12\n\n\
+        方法 2：手动安装\n\
+        1. 访问 https://www.python.org/downloads/ 下载并安装 Python\n\
+        2. 安装时勾选 \"Add Python to PATH\"\n\n\
+        安装 Python 后，再安装 marker-pdf：\n\
+        1. 打开命令提示符或 PowerShell\n\
+        2. 运行: pip install --user pipx\n\
+        3. 运行: pipx install marker-pdf"
+      ));
+    }
+    
+    if !pipx_available {
+      return Ok(format!(
+        "marker-pdf 未安装。\n\n\
+        pipx 未安装。请先安装 pipx：\n\n\
+        方法 1：使用 WinGet 安装（推荐，Windows 10/11 自带）\n\
+        注意：WinGet 会自动安装 Python 作为 pipx 的依赖\n\
+          winget install pipx\n\n\
+        方法 2：使用 pip 安装（需要先安装 Python）\n\
+        1. 打开命令提示符或 PowerShell\n\
+        2. 运行: pip install --user pipx\n\
+        3. 将 pipx 添加到 PATH（如果尚未添加）：\n\
+           - 添加到用户 PATH: %USERPROFILE%\\AppData\\Roaming\\Python\\Python3X\\Scripts\n\
+           - 或添加到用户 PATH: %USERPROFILE%\\.local\\bin\n\n\
+        安装 pipx 后，运行: pipx install marker-pdf\n\n\
+        验证安装：\n\
+        安装完成后，运行: pipx list  # 应该看到 marker-pdf"
+      ));
+    }
+    
+    Ok(format!(
+      "marker-pdf 未安装。\n\n\
+      安装方法：\n\
+      1. 打开命令提示符或 PowerShell（以管理员身份运行）\n\
+      2. 运行: pipx install marker-pdf\n\n\
+      注意：Windows 下 Pillow 使用预编译包，通常不需要手动安装依赖库。\n\n\
+      验证安装：\n\
+      安装完成后，运行以下命令验证：\n\
+      pipx list  # 应该看到 marker-pdf"
+    ))
+  }
+  
+  #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+  {
+    Err(format!("当前平台 {} 不支持 marker-pdf 安装指引", std::env::consts::OS))
+  }
+}
+
+/// 检查 marker-pdf 模型就绪度（带日志）
+/// 
+/// 检查 PDF 识别所需的所有模型是否已下载并可用。
+/// 返回模型就绪度状态描述和检查日志。
+fn check_marker_models_ready_with_logs() -> (String, Vec<String>) {
+  let mut logs = Vec::new();
+  logs.push("开始检查模型就绪度...".to_string());
+  tracing::info!("[工具检查] 开始检查 marker-pdf 模型就绪度");
+  
+  // 获取缓存目录路径
+  let (hf_cache_dir, surya_cache_dir) = get_model_cache_dirs();
+  logs.push(format!("Hugging Face 缓存目录: {}", hf_cache_dir));
+  logs.push(format!("Surya OCR 缓存目录: {}", surya_cache_dir));
+  
+  let mut hf_models_found = 0;
+  let mut surya_models_found = 0;
+  let mut hf_size = 0u64;
+  let mut surya_size = 0u64;
+  
+  // 递归检查目录中的模型文件
+  fn count_model_files(dir: &std::path::Path, count: &mut u32, size: &mut u64, max_depth: u32) {
+    use std::fs;
+    
+    if max_depth == 0 {
+      return;
+    }
+    
+    if let Ok(entries) = fs::read_dir(dir) {
+      for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() {
+          if let Some(ext) = path.extension() {
+            let ext_str = ext.to_string_lossy().to_lowercase();
+            // 检查是否是模型文件
+            if ext_str == "safetensors" || ext_str == "bin" || ext_str == "pt" || ext_str == "pth" || ext_str == "onnx" {
+              *count += 1;
+              if let Ok(metadata) = fs::metadata(&path) {
+                *size += metadata.len();
+              }
+            }
+          }
+        } else if path.is_dir() {
+          // 递归检查子目录（限制深度避免过深）
+          count_model_files(&path, count, size, max_depth - 1);
+        }
+      }
+    }
+  }
+  
+  // 检查 Hugging Face 模型
+  logs.push("检查 Hugging Face 模型...".to_string());
+  let hf_path = std::path::PathBuf::from(&hf_cache_dir);
+  if hf_path.exists() {
+    logs.push(format!("✓ Hugging Face 缓存目录存在: {}", hf_path.display()));
+    
+    // 首先检查 hub 目录（Hugging Face 模型的主要存储位置）
+    let hub_path = hf_path.join("hub");
+    if hub_path.exists() {
+      logs.push(format!("✓ hub 目录存在: {}", hub_path.display()));
+      count_model_files(&hub_path, &mut hf_models_found, &mut hf_size, 5);
+      logs.push(format!("  在 hub 目录中找到 {} 个模型文件，总大小: {:.2} GB", hf_models_found, hf_size as f64 / (1024.0 * 1024.0 * 1024.0)));
+    } else {
+      logs.push(format!("⚠ hub 目录不存在: {} (这是正常的，首次使用时会自动创建)", hub_path.display()));
+    }
+    
+    // 也检查 transformers 目录（Transformers 库的缓存）
+    let transformers_path = hf_path.join("transformers");
+    if transformers_path.exists() {
+      logs.push(format!("✓ transformers 目录存在: {}", transformers_path.display()));
+      let mut tf_models = 0u32;
+      let mut tf_size = 0u64;
+      count_model_files(&transformers_path, &mut tf_models, &mut tf_size, 5);
+      if tf_models > 0 {
+        hf_models_found += tf_models;
+        hf_size += tf_size;
+        logs.push(format!("  在 transformers 目录中找到 {} 个模型文件，总大小: {:.2} GB", tf_models, tf_size as f64 / (1024.0 * 1024.0 * 1024.0)));
+      }
+    }
+    
+    // 如果 hub 和 transformers 目录都不存在或没有找到模型，检查整个缓存目录
+    // （某些情况下模型可能存储在其他位置）
+    if hf_models_found == 0 {
+      logs.push("  在 hub 和 transformers 目录中未找到模型，检查整个缓存目录...".to_string());
+      let mut all_models = 0u32;
+      let mut all_size = 0u64;
+      count_model_files(&hf_path, &mut all_models, &mut all_size, 3);
+      if all_models > 0 {
+        hf_models_found = all_models;
+        hf_size = all_size;
+        logs.push(format!("  在整个缓存目录中找到 {} 个模型文件，总大小: {:.2} GB", hf_models_found, hf_size as f64 / (1024.0 * 1024.0 * 1024.0)));
+      } else {
+        logs.push("  在整个缓存目录中未找到模型文件".to_string());
+        logs.push("  说明: 首次运行 PDF 转换时会自动下载模型到 hub 目录".to_string());
+      }
+    }
+    
+    if hf_models_found > 0 {
+      logs.push(format!("✓ Hugging Face 模型总计: {} 个文件 ({:.2} GB)", hf_models_found, hf_size as f64 / (1024.0 * 1024.0 * 1024.0)));
+    }
+  } else {
+    logs.push(format!("✗ Hugging Face 缓存目录不存在: {}", hf_path.display()));
+    logs.push("  说明: 首次运行 PDF 转换时会自动创建此目录并下载模型".to_string());
+  }
+  
+  // 检查 Surya OCR 模型
+  // 基于本机检查结果，定义必需的 marker 模型文件列表
+  // 这些是 marker-pdf 正常工作所需的核心模型
+  struct RequiredModel {
+    path: &'static str,
+    min_size_bytes: u64,  // 最小文件大小（允许一定误差）
+    description: &'static str,
+  }
+  
+  let required_models: Vec<RequiredModel> = vec![
+    RequiredModel {
+      path: "layout/2025_09_23/model.safetensors",
+      min_size_bytes: 1_400_000_000,  // 约 1.3GB，允许误差
+      description: "布局识别模型",
+    },
+    RequiredModel {
+      path: "text_recognition/2025_09_23/model.safetensors",
+      min_size_bytes: 1_400_000_000,  // 约 1.3GB，允许误差
+      description: "文本识别模型",
+    },
+    RequiredModel {
+      path: "ocr_error_detection/2025_02_18/model.safetensors",
+      min_size_bytes: 250_000_000,  // 约 258MB，允许误差
+      description: "OCR 错误检测模型",
+    },
+    RequiredModel {
+      path: "table_recognition/2025_02_18/model.safetensors",
+      min_size_bytes: 200_000_000,  // 约 201MB，允许误差
+      description: "表格识别模型",
+    },
+    RequiredModel {
+      path: "text_detection/2025_05_07/model.safetensors",
+      min_size_bytes: 70_000_000,  // 约 73MB，允许误差
+      description: "文本检测模型",
+    },
+  ];
+  
+  logs.push("检查 Surya OCR 模型...".to_string());
+  let surya_path = std::path::PathBuf::from(&surya_cache_dir);
+  
+  // 先初始化变量，用于在判断模型是否就绪时使用
+  let mut found_required_models_count = 0u32;
+  
+  if surya_path.exists() {
+    logs.push(format!("✓ Surya OCR 缓存目录存在: {}", surya_path.display()));
+    
+    // 检查必需的模型文件
+    let mut missing_models = Vec::new();
+    let mut found_model_details = Vec::new();
+    
+    for model in &required_models {
+      let model_path = surya_path.join(model.path);
+      if model_path.exists() {
+        if let Ok(metadata) = std::fs::metadata(&model_path) {
+          let file_size = metadata.len();
+          if file_size >= model.min_size_bytes {
+            found_required_models_count += 1;
+            found_model_details.push(format!(
+              "  ✓ {}: {:.2} GB ({})",
+              model.description,
+              file_size as f64 / (1024.0 * 1024.0 * 1024.0),
+              model.path
+            ));
+            surya_models_found += 1;
+            surya_size += file_size;
+          } else {
+            missing_models.push(format!(
+              "  ✗ {}: 文件存在但大小不足 ({} < {} 字节)",
+              model.description,
+              file_size,
+              model.min_size_bytes
+            ));
+          }
+        } else {
+          missing_models.push(format!("  ✗ {}: 无法读取文件元数据 ({})", model.description, model.path));
+        }
+      } else {
+        missing_models.push(format!("  ✗ {}: 文件不存在 ({})", model.description, model.path));
+      }
+    }
+    
+    // 也统计所有模型文件（包括非必需的）
+    let mut all_models_count = 0u32;
+    let mut all_models_size = 0u64;
+    count_model_files(&surya_path, &mut all_models_count, &mut all_models_size, 5);
+    
+    logs.push(format!("必需模型检查: {}/{} 个模型已就绪", found_required_models_count, required_models.len()));
+    for detail in &found_model_details {
+      logs.push(detail.clone());
+    }
+    if !missing_models.is_empty() {
+      logs.push("缺失的模型:".to_string());
+      for missing in &missing_models {
+        logs.push(missing.clone());
+      }
+    }
+    logs.push(format!("总计: {} 个模型文件，总大小: {:.2} GB", all_models_count, all_models_size as f64 / (1024.0 * 1024.0 * 1024.0)));
+  } else {
+    logs.push(format!("✗ Surya OCR 缓存目录不存在: {}", surya_path.display()));
+  }
+  
+  let total_models = hf_models_found + surya_models_found;
+  let total_size = hf_size + surya_size;
+  let size_gb = total_size as f64 / (1024.0 * 1024.0 * 1024.0);
+  let hf_size_gb = hf_size as f64 / (1024.0 * 1024.0 * 1024.0);
+  let surya_size_gb = surya_size as f64 / (1024.0 * 1024.0 * 1024.0);
+  
+  logs.push(format!("总计: {} 个模型文件，总大小: {:.2} GB", total_models, size_gb));
+  
+  tracing::info!(
+    "[工具检查] 模型检查完成 - Hugging Face: {} 个 ({:.2} GB), Surya OCR: {} 个 ({:.2} GB), 总大小: {:.2} GB",
+    hf_models_found,
+    hf_size_gb,
+    surya_models_found,
+    surya_size_gb,
+    size_gb
+  );
+  
+  // 生成状态描述
+  // 判断模型是否完整：基于必需的 Surya OCR 模型文件检查
+  let is_hf_ready = hf_models_found > 0 && hf_size_gb > 0.1; // Hugging Face 模型至少 100MB
+  
+  // 检查必需的 Surya OCR 模型（5个核心模型）
+  let required_surya_models = required_models.len();
+  let is_surya_ready = found_required_models_count >= required_surya_models as u32 && surya_size_gb >= 2.5; // 至少 2.5GB（5个模型的总大小约 3.2GB）
+  
+  // 判断模型是否完整：
+  // 1. 如果所有必需的 Surya OCR 模型都存在，认为已就绪
+  // 2. 如果模型总大小 >= 3.0 GB，也认为已就绪（允许版本差异）
+  // 3. 否则需要检查具体文件
+  let is_fully_ready = if found_required_models_count >= required_surya_models as u32 && surya_size_gb >= 2.5 {
+    // 所有必需的 Surya OCR 模型都已就绪
+    true
+  } else if size_gb >= 3.0 {
+    // 模型总大小足够（约 3.2GB），认为已就绪（允许版本差异或额外模型）
+    true
+  } else {
+    // 模型不完整，需要检查具体文件
+    is_hf_ready && is_surya_ready && total_models >= 3 && size_gb >= 1.0
+  };
+  
+  let status_msg = if total_models == 0 {
+    format!(
+      "模型状态: ⚠️ 未下载\n\
+      - Hugging Face 模型: 未找到\n\
+      - Surya OCR 模型: 未找到\n\
+      - 缓存目录: {}\n\
+      - 首次运行 PDF 转换时会自动下载模型（约 2-3GB，需要 10-30 分钟）",
+      hf_cache_dir
+    )
+  } else if !is_fully_ready {
+    // 模型不完整：缺少 Hugging Face 或 Surya OCR 模型，或数量/大小不足
+    let hf_status = if is_hf_ready {
+      format!("{} 个文件 ({:.2} GB)", hf_models_found, hf_size_gb)
+    } else {
+      "未找到".to_string()
+    };
+    let surya_status = if is_surya_ready {
+      format!("{} 个文件 ({:.2} GB)", surya_models_found, surya_size_gb)
+    } else {
+      "未找到".to_string()
+    };
+    
+    format!(
+      "模型状态: ⚠️ 部分就绪\n\
+      - Hugging Face 模型: {}\n\
+      - Surya OCR 模型: {}\n\
+      - 总大小: {:.2} GB\n\
+      - 缓存目录: {}\n\
+      - 模型不完整，首次运行 PDF 转换时可能需要下载更多模型",
+      hf_status,
+      surya_status,
+      size_gb,
+      hf_cache_dir
+    )
+  } else {
+    format!(
+      "模型状态: ✅ 已就绪\n\
+      - Hugging Face 模型: {} 个文件 ({:.2} GB)\n\
+      - Surya OCR 模型: {} 个文件 ({:.2} GB)\n\
+      - 总大小: {:.2} GB\n\
+      - 缓存目录: {}\n\
+      - 所有必需的模型已下载，PDF 转换可直接使用",
+      hf_models_found,
+      hf_size_gb,
+      surya_models_found,
+      surya_size_gb,
+      size_gb,
+      hf_cache_dir
+    )
+  };
+  
+  (status_msg, logs)
+}
+
+/// 检查 marker-pdf 模型就绪度
+/// 
+/// 检查 PDF 识别所需的所有模型是否已下载并可用。
+/// 返回模型就绪度状态描述。
+fn check_marker_models_ready() -> String {
+  let (status, _) = check_marker_models_ready_with_logs();
+  status
+}
+
+/// 下载 Marker 模型
+/// 
+/// 通过执行 marker 命令处理一个测试 PDF 来触发模型下载。
+/// 这是最可靠的方法，因为 marker-pdf 会在首次运行时自动下载所需的模型。
+#[tracing::instrument(level = "info", skip_all, err)]
+pub async fn download_marker_models(
+  data: AFPluginData<DownloadMarkerModelsPB>,
+) -> DataResult<ModelDownloadProgressPB, FlowyError> {
+  use crate::entities::{ModelDownloadProgressPB, ModelDownloadStatusPB};
+  use std::io::Write;
+  use std::path::Path;
+  use tempfile::{NamedTempFile, tempdir};
+  use tokio::time::Duration;
+  
+  let request = data.into_inner();
+  tracing::info!("[模型下载] 开始下载 Marker 模型，force: {}", request.force);
+  
+  // 检查 marker 工具是否可用
+  let exe_path = match std::env::current_exe() {
+    Ok(path) => path,
+    Err(e) => {
+      tracing::error!("[模型下载] 无法获取当前可执行文件路径: {}", e);
+      return data_result_ok(ModelDownloadProgressPB {
+        status: ModelDownloadStatusPB::ModelDownloadFailed,
+        progress: 0.0,
+        current_model: None,
+        message: format!("无法获取当前可执行文件路径: {}", e),
+        downloaded_bytes: 0,
+        total_bytes: None,
+      });
+    }
+  };
+  
+  let marker_path = match resolve_marker_path(&exe_path) {
+    Ok(path) => path,
+    Err(e) => {
+      tracing::error!("[模型下载] Marker 工具不可用: {}", e);
+      return data_result_ok(ModelDownloadProgressPB {
+        status: ModelDownloadStatusPB::ModelDownloadFailed,
+        progress: 0.0,
+        current_model: None,
+        message: format!("Marker 工具不可用: {}", e),
+        downloaded_bytes: 0,
+        total_bytes: None,
+      });
+    }
+  };
+  
+  tracing::info!("[模型下载] Marker 工具路径: {}", marker_path.display());
+  
+  // 检查模型是否已存在（如果不强制下载）
+  if !request.force {
+    let (status_msg, _) = check_marker_models_ready_with_logs();
+    if status_msg.contains("✅ 已就绪") {
+      tracing::info!("[模型下载] 模型已存在，跳过下载");
+      return data_result_ok(ModelDownloadProgressPB {
+        status: ModelDownloadStatusPB::ModelDownloadCompleted,
+        progress: 1.0,
+        current_model: None,
+        message: "模型已存在，无需下载".to_string(),
+        downloaded_bytes: 0,
+        total_bytes: None,
+      });
+    }
+  }
+  
+  // 创建一个最小的测试 PDF 文件
+  // PDF 文件头：%PDF-1.4\n
+  // 这是一个最小的有效 PDF 文件
+  let test_pdf_content = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>\nendobj\n4 0 obj\n<< /Length 44 >>\nstream\nBT\n/F1 12 Tf\n100 700 Td\n(Test) Tj\nET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000206 00000 n \ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n300\n%%EOF";
+  
+  // 创建临时 PDF 文件
+  // 重要：必须保持 temp_pdf_file 的生命周期，直到命令执行完成
+  // 否则临时文件会被自动删除，导致 marker 工具无法找到文件
+  let temp_pdf_file = match NamedTempFile::new() {
+    Ok(mut file) => {
+      if let Err(e) = file.write_all(test_pdf_content) {
+        tracing::error!("[模型下载] 无法写入测试 PDF: {}", e);
+        return data_result_ok(ModelDownloadProgressPB {
+          status: ModelDownloadStatusPB::ModelDownloadFailed,
+          progress: 0.0,
+          current_model: None,
+          message: format!("无法创建测试 PDF: {}", e),
+          downloaded_bytes: 0,
+          total_bytes: None,
+        });
+      }
+      if let Err(e) = file.flush() {
+        tracing::error!("[模型下载] 无法刷新测试 PDF: {}", e);
+        return data_result_ok(ModelDownloadProgressPB {
+          status: ModelDownloadStatusPB::ModelDownloadFailed,
+          progress: 0.0,
+          current_model: None,
+          message: format!("无法刷新测试 PDF: {}", e),
+          downloaded_bytes: 0,
+          total_bytes: None,
+        });
+      }
+      // 获取文件路径，但保持文件句柄的生命周期
+      tracing::info!("[模型下载] 创建测试 PDF: {}", file.path().display());
+      file
+    },
+    Err(e) => {
+      tracing::error!("[模型下载] 无法创建临时文件: {}", e);
+      return data_result_ok(ModelDownloadProgressPB {
+        status: ModelDownloadStatusPB::ModelDownloadFailed,
+        progress: 0.0,
+        current_model: None,
+        message: format!("无法创建临时文件: {}", e),
+        downloaded_bytes: 0,
+        total_bytes: None,
+      });
+    }
+  };
+  
+  // 获取文件路径（文件会在 temp_pdf_file 被 drop 时删除）
+  let temp_pdf = temp_pdf_file.path().to_path_buf();
+  tracing::info!("[模型下载] 测试 PDF 路径: {}", temp_pdf.display());
+  
+  // 创建临时输出目录
+  // 重要：必须保持 temp_output_dir 的生命周期，直到命令执行完成
+  let temp_output_dir = match tempdir() {
+    Ok(dir) => {
+      let path = dir.path().to_path_buf();
+      tracing::info!("[模型下载] 创建临时输出目录: {}", path.display());
+      (path, dir)
+    },
+    Err(e) => {
+      tracing::error!("[模型下载] 无法创建临时输出目录: {}", e);
+      return data_result_ok(ModelDownloadProgressPB {
+        status: ModelDownloadStatusPB::ModelDownloadFailed,
+        progress: 0.0,
+        current_model: None,
+        message: format!("无法创建临时输出目录: {}", e),
+        downloaded_bytes: 0,
+        total_bytes: None,
+      });
+    }
+  };
+  let temp_output = temp_output_dir.0;
+  
+  // 设置环境变量（确保模型下载到正确的目录）
+  let (hf_cache_dir, surya_cache_dir) = get_model_cache_dirs();
+  
+  // 记录初始模型文件大小（用于估算进度）
+  let initial_hf_size = get_dir_size(&hf_cache_dir);
+  let initial_surya_size = get_dir_size(&surya_cache_dir);
+  
+  // 执行 marker 命令来触发模型下载
+  // 使用 tokio::process::Command 以便异步执行
+  let mut cmd = tokio::process::Command::new(&marker_path);
+  cmd.arg(&temp_pdf);
+  cmd.arg("--output_dir");
+  cmd.arg(&temp_output);
+  cmd.arg("--output_format");
+  cmd.arg("markdown");
+  
+  // 设置环境变量
+  cmd.env("HF_HOME", &hf_cache_dir);
+  cmd.env("HF_HUB_CACHE", &hf_cache_dir);
+  cmd.env("HUGGINGFACE_HUB_CACHE", &hf_cache_dir);
+  cmd.env("TRANSFORMERS_CACHE", &hf_cache_dir);
+  cmd.env("SURYA_MODEL_CACHE_DIR", &surya_cache_dir);
+  cmd.env("PYTORCH_ENABLE_MPS_FALLBACK", "1");
+  cmd.env("PYTORCH_MPS_FORCE_CPU", "1");
+  cmd.env("PYTORCH_MPS_DISABLE", "1");
+  cmd.env("TORCH_DEVICE", "cpu");
+  
+  tracing::info!("[模型下载] 开始执行 marker 命令触发模型下载...");
+  tracing::info!("[模型下载] Marker 工具路径: {}", marker_path.display());
+  tracing::info!("[模型下载] 测试 PDF 路径: {}", temp_pdf.display());
+  tracing::info!("[模型下载] 输出目录: {}", temp_output.display());
+  tracing::info!("[模型下载] Hugging Face 缓存目录: {}", hf_cache_dir);
+  tracing::info!("[模型下载] Surya OCR 缓存目录: {}", surya_cache_dir);
+  tracing::info!("[模型下载] 初始模型大小 - HF: {} 字节, Surya: {} 字节", initial_hf_size, initial_surya_size);
+  
+  // 记录完整的命令（用于调试）
+  tracing::debug!(
+    "[模型下载] 执行命令: {} {} --output_dir {} --output_format markdown",
+    marker_path.display(),
+    temp_pdf.display(),
+    temp_output.display()
+  );
+  
+  // 立即返回初始进度信息（让用户知道下载已开始）
+  // 注意：由于这是单次 API 调用，我们无法实时推送更新
+  // 但可以在消息中包含详细的执行信息
+  
+  // 执行命令（设置较长的超时时间，因为首次下载模型可能需要 10-30 分钟）
+  let timeout_duration = Duration::from_secs(1800); // 30 分钟
+  let start_time = std::time::Instant::now();
+  
+  // 构建初始消息
+  let initial_message = format!(
+    "开始下载模型...\n\n执行信息:\n- Marker 工具路径: {}\n- Hugging Face 缓存: {}\n- Surya OCR 缓存: {}\n- 初始大小: HF={:.2} GB, Surya={:.2} GB\n\n正在执行 marker 命令，这可能需要 10-30 分钟...",
+    marker_path.display(),
+    hf_cache_dir,
+    surya_cache_dir,
+    initial_hf_size as f64 / (1024.0 * 1024.0 * 1024.0),
+    initial_surya_size as f64 / (1024.0 * 1024.0 * 1024.0)
+  );
+  
+  // 使用 spawn 以便能够流式读取输出
+  cmd.stdout(std::process::Stdio::piped());
+  cmd.stderr(std::process::Stdio::piped());
+  
+  let mut child = match cmd.spawn() {
+    Ok(child) => child,
+    Err(e) => {
+      tracing::error!("[模型下载] 无法启动 marker 命令: {}", e);
+      return data_result_ok(ModelDownloadProgressPB {
+        status: ModelDownloadStatusPB::ModelDownloadFailed,
+        progress: 0.0,
+        current_model: None,
+        message: format!("无法启动 marker 命令: {}", e),
+        downloaded_bytes: 0,
+        total_bytes: None,
+      });
+    }
+  };
+  
+  // 获取 stdout 和 stderr
+  let stdout = match child.stdout.take() {
+    Some(stdout) => stdout,
+    None => {
+      tracing::error!("[模型下载] 无法获取 marker 命令的 stdout");
+      return data_result_ok(ModelDownloadProgressPB {
+        status: ModelDownloadStatusPB::ModelDownloadFailed,
+        progress: 0.0,
+        current_model: None,
+        message: "无法获取 marker 命令的 stdout".to_string(),
+        downloaded_bytes: 0,
+        total_bytes: None,
+      });
+    }
+  };
+  let stderr = match child.stderr.take() {
+    Some(stderr) => stderr,
+    None => {
+      tracing::error!("[模型下载] 无法获取 marker 命令的 stderr");
+      return data_result_ok(ModelDownloadProgressPB {
+        status: ModelDownloadStatusPB::ModelDownloadFailed,
+        progress: 0.0,
+        current_model: None,
+        message: "无法获取 marker 命令的 stderr".to_string(),
+        downloaded_bytes: 0,
+        total_bytes: None,
+      });
+    }
+  };
+  
+  // 收集输出日志
+  let logs_arc = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+  let logs_clone_stdout = logs_arc.clone();
+  let logs_clone_stderr = logs_arc.clone();
+  
+  // 在后台任务中读取 stdout
+  let stdout_handle = tokio::spawn(async move {
+    use tokio::io::AsyncBufReadExt;
+    use tokio::io::BufReader;
+    let mut reader = BufReader::new(stdout);
+    let mut line = String::new();
+    while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+      let trimmed = line.trim();
+      if !trimmed.is_empty() {
+        tracing::debug!("[模型下载 stdout] {}", trimmed);
+        if let Ok(mut logs) = logs_clone_stdout.lock() {
+          logs.push(format!("[Marker] {}", trimmed));
+        }
+      }
+      line.clear();
+    }
+  });
+  
+  // 在后台任务中读取 stderr（通常包含错误和进度信息）
+  let stderr_handle = tokio::spawn(async move {
+    use tokio::io::AsyncBufReadExt;
+    use tokio::io::BufReader;
+    let mut reader = BufReader::new(stderr);
+    let mut line = String::new();
+    while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
+      let trimmed = line.trim();
+      if !trimmed.is_empty() {
+        // stderr 通常包含错误信息，使用 error 级别记录
+        tracing::error!("[模型下载 stderr] {}", trimmed);
+        if let Ok(mut logs) = logs_clone_stderr.lock() {
+          logs.push(format!("[Marker Error] {}", trimmed));
+        }
+      }
+      line.clear();
+    }
+  });
+  
+  // 等待命令完成
+  let wait_result = tokio::time::timeout(timeout_duration, child.wait()).await;
+  
+  // 等待输出读取完成
+  let _ = tokio::join!(stdout_handle, stderr_handle);
+  
+  // 获取收集的日志
+  let output_logs: Vec<String> = if let Ok(logs) = logs_arc.lock() {
+    logs.clone()
+  } else {
+    Vec::new()
+  };
+  
+  match wait_result {
+    Ok(Ok(status)) => {
+      let elapsed = start_time.elapsed();
+      tracing::info!("[模型下载] marker 命令执行完成，耗时: {:?}", elapsed);
+      
+      // 检查模型文件大小变化
+      let mut current_hf_size = get_dir_size(&hf_cache_dir);
+      let mut current_surya_size = get_dir_size(&surya_cache_dir);
+      let mut downloaded_hf = current_hf_size.saturating_sub(initial_hf_size);
+      let mut downloaded_surya = current_surya_size.saturating_sub(initial_surya_size);
+      let mut total_downloaded = downloaded_hf + downloaded_surya;
+      
+      if status.success() {
+        // marker 命令执行成功，但模型可能还在下载中
+        // 等待一小段时间，让模型下载完成（如果还在进行中）
+        if total_downloaded == 0 && initial_hf_size == 0 {
+          // 如果初始时没有模型，且下载后仍然没有新文件，等待一下再检查
+          tracing::info!("[模型下载] 检测到可能正在下载模型，等待 3 秒后重新检查...");
+          tokio::time::sleep(Duration::from_secs(3)).await;
+          
+          // 重新检查模型文件大小
+          current_hf_size = get_dir_size(&hf_cache_dir);
+          current_surya_size = get_dir_size(&surya_cache_dir);
+          downloaded_hf = current_hf_size.saturating_sub(initial_hf_size);
+          downloaded_surya = current_surya_size.saturating_sub(initial_surya_size);
+          total_downloaded = downloaded_hf + downloaded_surya;
+          
+          if total_downloaded > 0 {
+            tracing::info!("[模型下载] 检测到新的模型文件下载: {} 字节", total_downloaded);
+          }
+        }
+        
+        // 检查模型是否已下载
+        let (status_msg, logs) = check_marker_models_ready_with_logs();
+        let models_ready = status_msg.contains("✅ 已就绪");
+        
+        // 获取当前模型总大小（用于更准确的进度计算）
+        let current_hf_size = get_dir_size(&hf_cache_dir);
+        let current_surya_size = get_dir_size(&surya_cache_dir);
+        let current_total_size = current_hf_size + current_surya_size;
+        
+        // 计算进度：基于模型文件大小变化和模型就绪状态
+        let progress = if models_ready {
+          1.0
+        } else if total_downloaded > 0 {
+          // 如果有下载，但未完全就绪，根据下载量估算进度
+          // 假设完整模型需要约 2-3 GB，根据已下载量估算
+          let estimated_total = 2_500_000_000u64; // 2.5 GB
+          let calculated_progress = total_downloaded as f64 / estimated_total as f64;
+          // 如果下载量超过预期，进度可以超过 1.0，但未完全就绪时限制为 0.99
+          calculated_progress.min(0.99)
+        } else {
+          // 如果没有检测到下载，但命令执行成功，可能是模型已存在
+          // 基于当前模型总大小计算进度
+          let estimated_total = 2_500_000_000u64; // 2.5 GB
+          if current_total_size > 0 {
+            // 基于实际模型大小计算进度
+            let calculated_progress = current_total_size as f64 / estimated_total as f64;
+            // 如果模型大小超过预期，进度可以超过 1.0，但未完全就绪时限制为 0.99
+            let size_based_progress = calculated_progress.min(0.99);
+            // 如果模型大小 >= 1.0 GB，认为至少完成了 80%
+            // 如果模型大小 >= 0.5 GB，认为至少完成了 60%
+            // 否则基于大小比例计算
+            if current_total_size >= 1_000_000_000 {
+              size_based_progress.max(0.8)
+            } else if current_total_size >= 500_000_000 {
+              size_based_progress.max(0.6)
+            } else {
+              size_based_progress.max(0.3)
+            }
+          } else {
+            // 没有模型文件，可能下载失败或模型已存在但检查逻辑有问题
+            // 但命令执行成功，说明工具可用，可能是模型在其他位置或已存在
+            0.5
+          }
+        };
+        
+        // 构建详细的消息
+        // 显示当前模型总大小（如果本次没有下载，显示已存在的模型大小）
+        let display_size = if total_downloaded > 0 {
+          total_downloaded
+        } else {
+          current_total_size
+        };
+        let mut message = format!(
+          "模型下载完成（耗时: {:.1} 秒）\n当前模型大小: {:.2} GB\n进度: {:.0}%\n\n执行日志:\n",
+          elapsed.as_secs_f64(),
+          display_size as f64 / (1024.0 * 1024.0 * 1024.0),
+          progress * 100.0
+        );
+        
+        // 添加最近的日志（最多 20 行）
+        let recent_logs: Vec<String> = output_logs.iter().rev().take(20).rev().cloned().collect();
+        if !recent_logs.is_empty() {
+          message.push_str(&recent_logs.join("\n"));
+        } else {
+          message.push_str("（Marker 工具未输出日志）");
+        }
+        
+        // 使用当前模型总大小作为已下载字节数（更准确反映实际情况）
+        let reported_bytes = if total_downloaded > 0 {
+          total_downloaded
+        } else {
+          current_total_size
+        };
+        
+        if models_ready {
+          tracing::info!("[模型下载] 模型下载成功");
+          data_result_ok(ModelDownloadProgressPB {
+            status: ModelDownloadStatusPB::ModelDownloadCompleted,
+            progress: 1.0,
+            current_model: None,
+            message,
+            downloaded_bytes: reported_bytes,
+            total_bytes: Some(reported_bytes.max(1)),
+          })
+        } else {
+          // 模型未完全就绪，根据进度和实际情况决定状态
+          // 判断是否有实际的下载活动：如果 total_downloaded 很小（< 100MB），说明可能是模型已存在
+          let has_actual_download = total_downloaded > 100_000_000; // 100 MB
+          
+          // 如果 marker 命令执行完成，且没有检测到新的下载活动，说明下载已经停止
+          // 此时不应该显示"正在下载"，而应该根据实际情况显示状态
+          let final_status = if !has_actual_download && current_total_size >= 2_000_000_000 {
+            // 没有新的下载活动，但模型大小 >= 2.0 GB，说明模型已存在且完整
+            // 即使检查显示不完整，如果大小足够，应该认为模型是完整的（因为 marker 可以正常工作）
+            tracing::info!("[模型下载] marker 命令执行完成，模型已存在（大小: {:.2} GB），认为模型已就绪", 
+              current_total_size as f64 / (1024.0 * 1024.0 * 1024.0));
+            ModelDownloadStatusPB::ModelDownloadCompleted
+          } else if !has_actual_download && current_total_size >= 1_500_000_000 {
+            // 没有新的下载活动，但模型大小已经很大（1.5-2.0 GB），说明模型已存在但不完整
+            // 标记为"已完成"但提示模型可能不完整
+            tracing::warn!("[模型下载] marker 命令执行完成，模型已存在但检查显示未完全就绪（大小: {:.2} GB），可能缺少某些模型文件", 
+              current_total_size as f64 / (1024.0 * 1024.0 * 1024.0));
+            ModelDownloadStatusPB::ModelDownloadCompleted
+          } else if progress >= 0.9 && current_total_size >= 1_500_000_000 && has_actual_download {
+            // 有下载活动，进度很高，但检查显示未完全就绪
+            // 可能还在下载中，标记为"下载中"
+            tracing::warn!("[模型下载] 模型大小足够但检查显示未完全就绪（进度: {:.0}%，大小: {:.2} GB），可能还在下载中", 
+              progress * 100.0, current_total_size as f64 / (1024.0 * 1024.0 * 1024.0));
+            ModelDownloadStatusPB::ModelDownloadDownloading
+          } else if progress >= 0.9 {
+            // 进度很高，但没有检测到新的下载活动，说明下载已完成但模型可能不完整
+            tracing::warn!("[模型下载] marker 命令执行完成，模型可能已下载但检查显示未完全就绪（进度: {:.0}%）", progress * 100.0);
+            ModelDownloadStatusPB::ModelDownloadCompleted
+          } else if progress >= 0.5 {
+            // 部分完成，但未完全就绪
+            tracing::warn!("[模型下载] marker 命令执行成功，但模型可能未完全下载（进度: {:.0}%）", progress * 100.0);
+            // 如果没有新的下载活动，说明下载已停止，不应该显示"正在下载"
+            if has_actual_download {
+              ModelDownloadStatusPB::ModelDownloadDownloading
+            } else {
+              ModelDownloadStatusPB::ModelDownloadCompleted
+            }
+          } else {
+            // 下载可能失败
+            tracing::warn!("[模型下载] marker 命令执行成功，但模型下载可能失败（进度: {:.0}%）", progress * 100.0);
+            ModelDownloadStatusPB::ModelDownloadFailed
+          };
+          
+          let status_message = if !has_actual_download && current_total_size >= 2_000_000_000 {
+            format!("marker 命令执行完成，模型文件已存在（{:.2} GB），模型已就绪，可以正常使用",
+              current_total_size as f64 / (1024.0 * 1024.0 * 1024.0))
+          } else if !has_actual_download && current_total_size >= 1_500_000_000 {
+            format!("marker 命令执行完成，模型文件已存在（{:.2} GB），但检查显示未完全就绪。可能缺少某些必需的模型文件（如 Surya OCR 模型）。模型可能已下载但不完整，请检查模型状态或重新尝试下载",
+              current_total_size as f64 / (1024.0 * 1024.0 * 1024.0))
+          } else if progress >= 0.9 && current_total_size >= 1_500_000_000 && has_actual_download {
+            "模型文件已下载大部分，但检查显示未完全就绪。可能还在下载中，或缺少某些必需的模型文件（如 Surya OCR 模型），请检查模型状态或等待下载完成".to_string()
+          } else if progress >= 0.9 {
+            "模型下载基本完成，但检查显示未完全就绪。可能缺少某些必需的模型文件，请检查模型状态".to_string()
+          } else if progress >= 0.5 {
+            if has_actual_download {
+              "模型部分下载，可能还在下载中，请等待或重新尝试".to_string()
+            } else {
+              "模型部分下载，但未检测到新的下载活动。模型可能已存在但不完整，请检查模型状态或重新尝试下载".to_string()
+            }
+          } else {
+            "模型下载可能失败，请检查网络连接或重新尝试".to_string()
+          };
+          
+          // 估算总大小（基于预期完整模型大小）
+          let estimated_total = 2_500_000_000u64; // 2.5 GB
+          let total_bytes_estimate = if reported_bytes > 0 {
+            Some(reported_bytes.max(estimated_total))
+          } else {
+            Some(estimated_total)
+          };
+          
+          data_result_ok(ModelDownloadProgressPB {
+            status: final_status,
+            progress,
+            current_model: None,
+            message: format!("{}\n\n注意: {}", message, status_message),
+            downloaded_bytes: reported_bytes,
+            total_bytes: total_bytes_estimate,
+          })
+        }
+      } else {
+        let exit_code = status.code().unwrap_or(-1);
+        
+        // 分离错误日志和普通日志
+        let error_logs: Vec<String> = output_logs
+          .iter()
+          .filter(|log| log.contains("Error") || log.contains("error") || log.contains("ERROR") || log.contains("Exception") || log.contains("Traceback"))
+          .cloned()
+          .collect();
+        
+        let recent_logs: Vec<String> = output_logs.iter().rev().take(30).rev().cloned().collect();
+        
+        let mut message = format!(
+          "模型下载失败（耗时: {:.1} 秒）\n退出码: {}\n\n",
+          elapsed.as_secs_f64(),
+          exit_code
+        );
+        
+        // 优先显示错误日志
+        if !error_logs.is_empty() {
+          message.push_str("错误信息:\n");
+          for error_log in error_logs.iter().take(10) {
+            message.push_str(error_log);
+            message.push('\n');
+          }
+          message.push_str("\n");
+        }
+        
+        // 显示所有日志
+        if !recent_logs.is_empty() {
+          message.push_str("执行日志:\n");
+          message.push_str(&recent_logs.join("\n"));
+        } else {
+          message.push_str("（Marker 工具未输出日志）\n\n可能的原因：\n1. marker 工具执行出错\n2. 缺少必要的 Python 依赖\n3. 网络连接问题\n4. 权限问题\n5. 测试 PDF 文件创建失败");
+        }
+        
+        tracing::error!(
+          "[模型下载] marker 命令执行失败 - 退出码: {}, 耗时: {:?}, 已下载: {} 字节, 日志行数: {}, 错误日志数: {}",
+          exit_code,
+          elapsed,
+          total_downloaded,
+          output_logs.len(),
+          error_logs.len()
+        );
+        
+        // 如果日志为空，记录更多调试信息
+        if output_logs.is_empty() {
+          tracing::warn!(
+            "[模型下载] marker 工具未输出任何日志 - 这可能表示工具启动失败或立即退出"
+          );
+        } else if !error_logs.is_empty() {
+          // 记录关键错误信息
+          for error_log in error_logs.iter().take(5) {
+            tracing::error!("[模型下载] 关键错误: {}", error_log);
+          }
+        }
+        
+        data_result_ok(ModelDownloadProgressPB {
+          status: ModelDownloadStatusPB::ModelDownloadFailed,
+          progress: 0.0,
+          current_model: None,
+          message,
+          downloaded_bytes: total_downloaded,
+          total_bytes: None,
+        })
+      }
+    },
+    Ok(Err(e)) => {
+      let elapsed = start_time.elapsed();
+      tracing::error!(
+        "[模型下载] 无法等待 marker 命令: {} (耗时: {:?})",
+        e,
+        elapsed
+      );
+      
+      // 尝试获取已收集的日志
+      let output_logs: Vec<String> = if let Ok(logs) = logs_arc.lock() {
+        logs.clone()
+      } else {
+        Vec::new()
+      };
+      
+      let mut message = format!(
+        "无法等待 marker 命令执行完成\n错误: {}\n耗时: {:.1} 秒\n\n",
+        e,
+        elapsed.as_secs_f64()
+      );
+      
+      if !output_logs.is_empty() {
+        message.push_str("执行日志:\n");
+        let recent_logs: Vec<String> = output_logs.iter().rev().take(20).rev().cloned().collect();
+        message.push_str(&recent_logs.join("\n"));
+      } else {
+        message.push_str("（Marker 工具未输出日志）");
+      }
+      
+      data_result_ok(ModelDownloadProgressPB {
+        status: ModelDownloadStatusPB::ModelDownloadFailed,
+        progress: 0.0,
+        current_model: None,
+        message,
+        downloaded_bytes: 0,
+        total_bytes: None,
+      })
+    },
+    Err(_) => {
+      let elapsed = start_time.elapsed();
+      tracing::error!(
+        "[模型下载] marker 命令执行超时（超过 30 分钟，实际耗时: {:?}）",
+        elapsed
+      );
+      
+      // 检查是否有部分下载
+      let current_hf_size = get_dir_size(&hf_cache_dir);
+      let current_surya_size = get_dir_size(&surya_cache_dir);
+      let downloaded_hf = current_hf_size.saturating_sub(initial_hf_size);
+      let downloaded_surya = current_surya_size.saturating_sub(initial_surya_size);
+      let total_downloaded = downloaded_hf + downloaded_surya;
+      
+      let mut message = format!(
+        "模型下载超时（超过 30 分钟）\n实际耗时: {:.1} 秒\n已下载: {:.2} GB\n\n请检查：\n1. 网络连接是否稳定\n2. 下载速度是否过慢\n3. 是否需要使用代理\n\n执行日志:\n",
+        elapsed.as_secs_f64(),
+        total_downloaded as f64 / (1024.0 * 1024.0 * 1024.0)
+      );
+      
+      let recent_logs: Vec<String> = output_logs.iter().rev().take(20).rev().cloned().collect();
+      if !recent_logs.is_empty() {
+        message.push_str(&recent_logs.join("\n"));
+      } else {
+        message.push_str("（Marker 工具未输出日志）");
+      }
+      
+      data_result_ok(ModelDownloadProgressPB {
+        status: ModelDownloadStatusPB::ModelDownloadFailed,
+        progress: 0.0,
+        current_model: None,
+        message,
+        downloaded_bytes: total_downloaded,
+        total_bytes: None,
+      })
+    }
+  }
+}
+
+/// 计算目录大小（字节）
+fn get_dir_size(dir_path: &str) -> u64 {
+  use std::fs;
+  use std::path::PathBuf;
+  
+  let path = PathBuf::from(dir_path);
+  if !path.exists() || !path.is_dir() {
+    return 0;
+  }
+  
+  let mut total_size = 0u64;
+  if let Ok(entries) = fs::read_dir(&path) {
+    for entry in entries.flatten() {
+      let entry_path = entry.path();
+      if entry_path.is_file() {
+        if let Ok(metadata) = entry_path.metadata() {
+          total_size += metadata.len();
+        }
+      } else if entry_path.is_dir() {
+        // 递归计算子目录大小（限制深度避免过深）
+        total_size += get_dir_size_recursive(&entry_path, 5);
+      }
+    }
+  }
+  
+  total_size
+}
+
+/// 递归计算目录大小（带深度限制）
+fn get_dir_size_recursive(path: &std::path::Path, max_depth: u32) -> u64 {
+  use std::fs;
+  
+  if max_depth == 0 {
+    return 0;
+  }
+  
+  let mut total_size = 0u64;
+  if let Ok(entries) = fs::read_dir(path) {
+    for entry in entries.flatten() {
+      let entry_path = entry.path();
+      if entry_path.is_file() {
+        if let Ok(metadata) = entry_path.metadata() {
+          total_size += metadata.len();
+        }
+      } else if entry_path.is_dir() {
+        total_size += get_dir_size_recursive(&entry_path, max_depth - 1);
+      }
+    }
+  }
+  
+  total_size
+}
+
+/// 获取模型缓存目录路径
+fn get_model_cache_dirs() -> (String, String) {
+  #[cfg(target_os = "macos")]
+  {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
+    (
+      format!("{}/Library/Caches/huggingface", home),
+      format!("{}/Library/Caches/datalab/models", home),
+    )
+  }
+  
+  #[cfg(target_os = "windows")]
+  {
+    let userprofile = std::env::var("USERPROFILE").unwrap_or_else(|_| "%USERPROFILE%".to_string());
+    let localappdata = std::env::var("LOCALAPPDATA")
+      .unwrap_or_else(|_| format!("{}\\AppData\\Local", userprofile));
+    (
+      format!("{}\\.cache\\huggingface", userprofile),
+      format!("{}\\datalab\\models", localappdata),
+    )
+  }
+  
+  #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+  {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
+    (
+      format!("{}/.cache/huggingface", home),
+      format!("{}/.cache/datalab/models", home),
+    )
+  }
+}
+
 /// 获取 Marker 工具版本信息
 fn get_marker_version(marker_path: &Path) -> Option<String> {
   use std::process::Command;
@@ -1880,4 +3194,623 @@ fn get_marker_version(marker_path: &Path) -> Option<String> {
   }
   
   None
+}
+
+/// 检查 marker-pdf 工具状态
+/// 
+/// marker-pdf 是实际执行 PDF 转换的 Python 工具，通过 pipx 安装。
+/// 此函数检查 marker-pdf 是否已安装，并返回详细的工具信息。
+fn check_marker_pdf_tool() -> crate::entities::ImportToolInfoPB {
+  use crate::entities::{ImportToolInfoPB, ImportToolStatusPB};
+  use std::process::Command;
+  
+  let mut check_logs = Vec::new();
+  check_logs.push("开始检查 marker-pdf 工具...".to_string());
+  
+  tracing::info!("[工具检查] 开始检查 marker-pdf 工具");
+  
+  // 获取 marker-pdf 的安装路径
+  let marker_pdf_path = match get_marker_pdf_path() {
+    Ok(path) => {
+      check_logs.push(format!("✓ 确定 marker-pdf 期望路径: {}", path.display()));
+      path
+    },
+    Err(e) => {
+      let error_msg = format!("✗ 无法获取 marker-pdf 路径: {}", e);
+      check_logs.push(error_msg.clone());
+      tracing::warn!("[工具检查] {}", error_msg);
+      
+      let install_instruction = get_marker_pdf_install_instruction()
+        .unwrap_or_else(|_| "请参考 marker-pdf 安装文档".to_string());
+      
+      return ImportToolInfoPB {
+        name: "marker-pdf (PDF 转换引擎)".to_string(),
+        status: ImportToolStatusPB::ToolUnknown,
+        version: None,
+        path: None,
+        install_instruction: Some(format!(
+          "无法确定 marker-pdf 安装路径: {}\n\n{}",
+          e,
+          install_instruction
+        )),
+        description: "实际执行 PDF 转换的 Python 工具，通过 pipx 安装。将 PDF 转换为 Markdown 格式，保留格式和结构。".to_string(),
+        model_status: None,
+        check_logs,
+      };
+    }
+  };
+  
+  tracing::debug!("[工具检查] marker-pdf 期望路径: {}", marker_pdf_path.display());
+  
+  // 检查 marker-pdf 是否存在
+  check_logs.push(format!("检查文件是否存在: {}", marker_pdf_path.display()));
+  
+  if marker_pdf_path.exists() && marker_pdf_path.is_file() {
+    check_logs.push("✓ 文件存在且是有效文件".to_string());
+    tracing::info!("[工具检查] marker-pdf 已安装: {}", marker_pdf_path.display());
+    
+    // 检查文件权限
+    #[cfg(unix)]
+    {
+      use std::fs::Permissions;
+      use std::os::unix::fs::PermissionsExt;
+      if let Ok(metadata) = marker_pdf_path.metadata() {
+        let permissions = metadata.permissions();
+        let mode = permissions.mode();
+        check_logs.push(format!("文件权限: {:o}", mode));
+        if mode & 0o111 != 0 {
+          check_logs.push("✓ 文件具有执行权限".to_string());
+        } else {
+          check_logs.push("⚠ 文件缺少执行权限".to_string());
+        }
+      }
+    }
+    
+    // 尝试获取版本信息
+    check_logs.push("尝试获取版本信息...".to_string());
+    let version = get_marker_pdf_version_with_logs(&marker_pdf_path, &mut check_logs);
+    
+    // 检查模型就绪度
+    check_logs.push("检查模型就绪度...".to_string());
+    let (model_status, model_logs) = check_marker_models_ready_with_logs();
+    check_logs.extend(model_logs);
+    
+    let description = "实际执行 PDF 转换的 Python 工具，通过 pipx 安装。将 PDF 转换为 Markdown 格式，保留格式和结构。".to_string();
+    
+    ImportToolInfoPB {
+      name: "marker-pdf (PDF 转换引擎)".to_string(),
+      status: ImportToolStatusPB::ToolAvailable,
+      version,
+      path: Some(marker_pdf_path.display().to_string()),
+      install_instruction: None,
+      description,
+      model_status: Some(model_status),
+      check_logs,
+    }
+  } else {
+    check_logs.push("✗ 文件不存在或不是有效文件".to_string());
+    tracing::warn!("[工具检查] marker-pdf 未安装: {}", marker_pdf_path.display());
+    
+    // 检查父目录是否存在
+    if let Some(parent) = marker_pdf_path.parent() {
+      if parent.exists() {
+        check_logs.push(format!("✓ 父目录存在: {}", parent.display()));
+      } else {
+        check_logs.push(format!("✗ 父目录不存在: {}", parent.display()));
+      }
+    }
+    
+    // 获取安装指引
+    let install_instruction = get_marker_pdf_install_instruction()
+      .unwrap_or_else(|_| "请参考 marker-pdf 安装文档".to_string());
+    
+    ImportToolInfoPB {
+      name: "marker-pdf (PDF 转换引擎)".to_string(),
+      status: ImportToolStatusPB::ToolNotInstalled,
+      version: None,
+      path: Some(marker_pdf_path.display().to_string()),
+      install_instruction: Some(install_instruction),
+      description: "实际执行 PDF 转换的 Python 工具，通过 pipx 安装。将 PDF 转换为 Markdown 格式，保留格式和结构。".to_string(),
+      model_status: None,
+      check_logs,
+    }
+  }
+}
+
+/// 获取 marker-pdf 的版本信息（带日志）
+fn get_marker_pdf_version_with_logs(marker_pdf_path: &Path, logs: &mut Vec<String>) -> Option<String> {
+  use std::process::Command;
+  
+  // 通过 pipx 虚拟环境中的 Python 使用 importlib.metadata（最可靠的方法）
+  logs.push("  通过 pipx 虚拟环境 Python 使用 importlib.metadata 获取版本...".to_string());
+  
+  // 查找 Python 解释器（在 marker_single 的同一目录或父目录）
+  let python_candidates = if let Some(bin_dir) = marker_pdf_path.parent() {
+    vec![
+      bin_dir.join("python"),
+      bin_dir.join("python3"),
+      #[cfg(target_os = "windows")]
+      bin_dir.join("python.exe"),
+      #[cfg(target_os = "windows")]
+      bin_dir.join("python3.exe"),
+    ]
+  } else {
+    vec![]
+  };
+  
+  for python_path in &python_candidates {
+    if python_path.exists() {
+      logs.push(format!("  找到 Python: {}", python_path.display()));
+      // 使用 importlib.metadata 获取版本（Python 3.8+）
+      match Command::new(python_path)
+        .arg("-c")
+        .arg("try:\n    import importlib.metadata\n    print(importlib.metadata.version('marker-pdf'))\nexcept Exception as e:\n    print(f'error: {e}')")
+        .output()
+      {
+        Ok(output) => {
+          let stdout = String::from_utf8_lossy(&output.stdout);
+          let stderr = String::from_utf8_lossy(&output.stderr);
+          let stdout_trimmed = stdout.trim();
+          
+          if output.status.success() && !stdout_trimmed.is_empty() && !stdout_trimmed.starts_with("error:") {
+            let version = stdout_trimmed.to_string();
+            logs.push(format!("✓ 通过 importlib.metadata 获取版本: {}", version));
+            tracing::debug!("[工具检查] marker-pdf 版本 (importlib.metadata): {}", version);
+            return Some(version);
+          } else {
+            if !stderr.trim().is_empty() {
+              logs.push(format!("  ✗ importlib.metadata 方式失败: {}", stderr.trim()));
+            } else if stdout_trimmed.starts_with("error:") {
+              logs.push(format!("  ✗ importlib.metadata 失败: {}", stdout_trimmed));
+            }
+          }
+        },
+        Err(e) => {
+          logs.push(format!("  ✗ 无法执行 Python 命令: {}", e));
+        }
+      }
+      break; // 只尝试第一个找到的 Python
+    }
+  }
+  
+  // 方法5: 通过 pipx list 命令解析版本（备用方法）
+  logs.push("  尝试通过 pipx list 命令获取版本...".to_string());
+  match Command::new("pipx").arg("list").output() {
+    Ok(output) => {
+      let stdout = String::from_utf8_lossy(&output.stdout);
+      if output.status.success() {
+        // 解析输出，查找 marker-pdf 的版本
+        // 格式通常是: "   package marker-pdf 1.10.1, installed using Python 3.14.0"
+        for line in stdout.lines() {
+          if line.contains("marker-pdf") {
+            // 尝试提取版本号（格式：package marker-pdf VERSION,）
+            if let Some(version_start) = line.find("marker-pdf") {
+              let after_marker = &line[version_start + "marker-pdf".len()..];
+              // 跳过空格，查找版本号
+              let version_part: String = after_marker
+                .chars()
+                .skip_while(|c| c.is_whitespace())
+                .take_while(|c| !c.is_whitespace() && *c != ',')
+                .collect();
+              
+              // 验证是否是有效的版本号格式（包含数字和点）
+              if !version_part.is_empty() && version_part.chars().any(|c| c.is_ascii_digit()) {
+                logs.push(format!("✓ 通过 pipx list 获取版本: {}", version_part));
+                tracing::debug!("[工具检查] marker-pdf 版本 (pipx list): {}", version_part);
+                return Some(version_part);
+              }
+            }
+          }
+        }
+        logs.push("  ✗ pipx list 输出中未找到 marker-pdf 版本信息".to_string());
+      } else {
+        logs.push(format!("  ✗ pipx list 命令执行失败 (退出码: {})", 
+          output.status.code().unwrap_or(-1)));
+      }
+    },
+    Err(e) => {
+      logs.push(format!("  ✗ 无法执行 pipx 命令: {}", e));
+    }
+  }
+  
+  // 方法6: 尝试通过 Python 模块方式获取版本（原有方法，作为最后尝试）
+  logs.push("  尝试通过 Python 模块获取版本...".to_string());
+  
+  for python_path in python_candidates {
+    if python_path.exists() {
+      logs.push(format!("  找到 Python: {}", python_path.display()));
+      match Command::new(&python_path)
+        .arg("-c")
+        .arg("try:\n    import marker\n    print(getattr(marker, '__version__', 'unknown'))\nexcept Exception as e:\n    print(f'error: {e}')")
+        .output()
+      {
+        Ok(output) => {
+          let stdout = String::from_utf8_lossy(&output.stdout);
+          let stderr = String::from_utf8_lossy(&output.stderr);
+          let stdout_trimmed = stdout.trim();
+          
+          if output.status.success() && !stdout_trimmed.is_empty() && !stdout_trimmed.starts_with("error:") && stdout_trimmed != "unknown" {
+            let version = stdout_trimmed.to_string();
+            logs.push(format!("✓ 通过 Python 模块获取版本: {}", version));
+            return Some(version);
+          } else {
+            if !stderr.trim().is_empty() {
+              logs.push(format!("  ✗ Python 模块方式失败: {}", stderr.trim()));
+            } else if stdout_trimmed.starts_with("error:") {
+              logs.push(format!("  ✗ Python 模块导入失败: {}", stdout_trimmed));
+            }
+          }
+        },
+        Err(e) => {
+          logs.push(format!("  ✗ 无法执行 Python 命令: {}", e));
+        }
+      }
+      break; // 只尝试第一个找到的 Python
+    }
+  }
+  
+  // 如果没找到同目录的 Python，尝试使用系统 Python 并设置正确的路径
+  logs.push("  尝试使用系统 Python...".to_string());
+  let system_python = if cfg!(target_os = "windows") { "python" } else { "python3" };
+  
+  // 尝试从 marker_pdf_path 推断 site-packages 路径
+  if let Some(venv_path) = marker_pdf_path.parent()
+    .and_then(|p| p.parent())
+    .and_then(|p| p.parent())
+  {
+    // 构建可能的 site-packages 路径
+    let site_packages_pattern = if cfg!(target_os = "windows") {
+      let path = venv_path.join("lib").join("site-packages");
+      if path.exists() {
+        Some(path)
+      } else {
+        None
+      }
+    } else {
+      // Unix-like: 查找 lib/python*/site-packages
+      let mut found_path = None;
+      if let Ok(entries) = std::fs::read_dir(venv_path.join("lib")) {
+        for entry in entries.flatten() {
+          let path = entry.path();
+          if path.is_dir() {
+            if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
+              if dir_name.starts_with("python") {
+                let site_packages = path.join("site-packages");
+                if site_packages.exists() {
+                  found_path = Some(site_packages);
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+      found_path
+    };
+    
+    if let Some(site_packages) = site_packages_pattern {
+      let site_packages_str = site_packages.to_string_lossy().to_string();
+      logs.push(format!("  尝试使用 site-packages: {}", site_packages_str));
+      
+      let python_code = format!(
+        "try:\n    import sys\n    sys.path.insert(0, r'{}')\n    import marker\n    print(getattr(marker, '__version__', 'unknown'))\nexcept Exception as e:\n    print(f'error: {{e}}')",
+        site_packages_str.replace('\\', "\\\\")
+      );
+      
+      match Command::new(system_python).arg("-c").arg(&python_code).output() {
+        Ok(output) => {
+          let stdout = String::from_utf8_lossy(&output.stdout);
+          let stderr = String::from_utf8_lossy(&output.stderr);
+          let stdout_trimmed = stdout.trim();
+          
+          if output.status.success() && !stdout_trimmed.is_empty() && !stdout_trimmed.starts_with("error:") && stdout_trimmed != "unknown" {
+            let version = stdout_trimmed.to_string();
+            logs.push(format!("✓ 通过系统 Python 获取版本: {}", version));
+            return Some(version);
+          } else {
+            if !stderr.trim().is_empty() {
+              logs.push(format!("  ✗ 系统 Python 方式失败: {}", stderr.trim()));
+            }
+          }
+        },
+        Err(e) => {
+          logs.push(format!("  ✗ 无法执行系统 Python: {}", e));
+        }
+      }
+    }
+  }
+  
+  logs.push("⚠ 无法获取版本信息（所有方法均失败，但这不影响工具使用）".to_string());
+  logs.push("  说明: marker_single 可能不支持标准版本参数，这是正常的".to_string());
+  logs.push("  工具仍然可以正常使用，只是无法显示版本号".to_string());
+  tracing::debug!("[工具检查] 无法获取 marker-pdf 版本信息");
+  None
+}
+
+/// 获取 marker-pdf 的版本信息
+fn get_marker_pdf_version(marker_pdf_path: &Path) -> Option<String> {
+  let mut logs = Vec::new();
+  get_marker_pdf_version_with_logs(marker_pdf_path, &mut logs)
+}
+
+/// 安装缺失的工具
+#[tracing::instrument(level = "info", skip_all, err)]
+pub async fn install_missing_tools(
+  data: AFPluginData<crate::entities::InstallMissingToolsPB>,
+) -> DataResult<crate::entities::InstallToolProgressPB, FlowyError> {
+  use crate::entities::{InstallToolProgressPB, InstallToolStatusPB};
+  use std::process::Command;
+  use std::time::Duration;
+  use tokio::time::sleep;
+  
+  let request = data.into_inner();
+  tracing::info!("[工具安装] 开始安装缺失工具: {:?}", request.tool_names);
+  
+  let mut logs = Vec::new();
+  logs.push(format!("开始安装工具: {:?}", request.tool_names));
+  
+  // 检查需要安装哪些工具
+  let tools_status = check_import_tools_status().await?;
+  let mut tools_to_install = Vec::new();
+  
+  for tool_name in &request.tool_names {
+    if let Some(tool) = tools_status.tools.iter().find(|t| t.name == *tool_name) {
+      if tool.status == crate::entities::ImportToolStatusPB::ToolNotInstalled {
+        tools_to_install.push(tool_name.clone());
+      }
+    }
+  }
+  
+  if tools_to_install.is_empty() {
+    logs.push("所有工具已安装，无需安装".to_string());
+    return data_result_ok(InstallToolProgressPB {
+      tool_name: "all".to_string(),
+      status: InstallToolStatusPB::InstallToolCompleted,
+      progress: 1.0,
+      message: "所有工具已安装".to_string(),
+      logs,
+    });
+  }
+  
+  logs.push(format!("需要安装的工具: {:?}", tools_to_install));
+  
+  #[cfg(target_os = "macos")]
+  {
+    // macOS 安装流程：brew -> pipx -> marker-pdf
+    let mut current_progress = 0.0;
+    let total_steps = tools_to_install.len() as f64;
+    
+    // 检查并安装 brew
+    if tools_to_install.contains(&"brew".to_string()) || 
+       tools_to_install.iter().any(|t| t.contains("marker")) {
+      logs.push("检查 Homebrew...".to_string());
+      let brew_available = Command::new("which")
+        .arg("brew")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+      
+      if !brew_available {
+        logs.push("Homebrew 未安装，开始安装...".to_string());
+        logs.push("注意: Homebrew 安装需要用户交互，请按照提示操作".to_string());
+        
+        // 尝试安装 Homebrew
+        let install_script = "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"";
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        
+        logs.push(format!("执行: {}", install_script));
+        
+        // 注意：Homebrew 安装需要用户交互，这里只能提供指引
+        return data_result_ok(InstallToolProgressPB {
+          tool_name: "brew".to_string(),
+          status: InstallToolStatusPB::InstallToolFailed,
+          progress: 0.0,
+          message: "Homebrew 安装需要用户交互，无法自动安装。请打开终端运行以下命令：\n/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"".to_string(),
+          logs,
+        });
+      } else {
+        logs.push("✓ Homebrew 已安装".to_string());
+      }
+    }
+    
+    // 安装 pipx（如果需要）
+    if tools_to_install.contains(&"pipx".to_string()) || 
+       tools_to_install.iter().any(|t| t.contains("marker")) {
+      logs.push("检查 pipx...".to_string());
+      let pipx_available = Command::new("which")
+        .arg("pipx")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+      
+      if !pipx_available {
+        logs.push("pipx 未安装，开始安装...".to_string());
+        current_progress += 1.0 / total_steps;
+        
+        // 使用 shell 执行 brew install pipx
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let cmd = if shell.contains("zsh") {
+          "source ~/.zprofile 2>/dev/null || source ~/.zshrc 2>/dev/null || true; brew install pipx"
+        } else if shell.contains("bash") {
+          "source ~/.bash_profile 2>/dev/null || source ~/.bashrc 2>/dev/null || true; brew install pipx"
+        } else {
+          "brew install pipx"
+        };
+        
+        logs.push(format!("执行: {}", cmd));
+        
+        match Command::new(&shell)
+          .arg("-c")
+          .arg(cmd)
+          .output()
+        {
+          Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            logs.push(format!("stdout: {}", stdout));
+            if !stderr.is_empty() {
+              logs.push(format!("stderr: {}", stderr));
+            }
+            
+            if output.status.success() {
+              logs.push("✓ pipx 安装成功".to_string());
+            } else {
+              logs.push(format!("✗ pipx 安装失败: {}", stderr));
+              return data_result_ok(InstallToolProgressPB {
+                tool_name: "pipx".to_string(),
+                status: InstallToolStatusPB::InstallToolFailed,
+                progress: current_progress,
+                message: format!("pipx 安装失败: {}", stderr),
+                logs,
+              });
+            }
+          }
+          Err(e) => {
+            logs.push(format!("✗ pipx 安装出错: {}", e));
+            return data_result_ok(InstallToolProgressPB {
+              tool_name: "pipx".to_string(),
+              status: InstallToolStatusPB::InstallToolFailed,
+              progress: current_progress,
+              message: format!("pipx 安装出错: {}", e),
+              logs,
+            });
+          }
+        }
+      } else {
+        logs.push("✓ pipx 已安装".to_string());
+      }
+    }
+    
+    // 安装 marker-pdf 的依赖（如果需要）
+    if tools_to_install.iter().any(|t| t.contains("marker")) {
+      logs.push("安装 marker-pdf 依赖库...".to_string());
+      current_progress += 1.0 / total_steps;
+      
+      let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+      let deps_cmd = if shell.contains("zsh") {
+        "source ~/.zprofile 2>/dev/null || source ~/.zshrc 2>/dev/null || true; brew install jpeg libpng freetype openjpeg libtiff webp"
+      } else if shell.contains("bash") {
+        "source ~/.bash_profile 2>/dev/null || source ~/.bashrc 2>/dev/null || true; brew install jpeg libpng freetype openjpeg libtiff webp"
+      } else {
+        "brew install jpeg libpng freetype openjpeg libtiff webp"
+      };
+      
+      logs.push(format!("执行: {}", deps_cmd));
+      
+      match Command::new(&shell)
+        .arg("-c")
+        .arg(deps_cmd)
+        .output()
+      {
+        Ok(output) => {
+          let stdout = String::from_utf8_lossy(&output.stdout);
+          let stderr = String::from_utf8_lossy(&output.stderr);
+          if !stdout.trim().is_empty() {
+            logs.push(format!("stdout: {}", stdout.trim()));
+          }
+          if !stderr.trim().is_empty() && !stderr.contains("Warning") {
+            logs.push(format!("stderr: {}", stderr.trim()));
+          }
+          
+          if output.status.success() {
+            logs.push("✓ 依赖库安装成功".to_string());
+          } else {
+            // 依赖库可能已经安装，继续
+            logs.push("⚠ 依赖库安装可能已存在或失败，继续安装 marker-pdf".to_string());
+          }
+        }
+        Err(e) => {
+          logs.push(format!("⚠ 依赖库安装出错: {}，继续安装 marker-pdf", e));
+        }
+      }
+    }
+    
+    // 安装 marker-pdf（如果需要）
+    if tools_to_install.iter().any(|t| t.contains("marker")) {
+      logs.push("安装 marker-pdf...".to_string());
+      current_progress += 1.0 / total_steps;
+      
+      let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+      let pipx_cmd = if shell.contains("zsh") {
+        "source ~/.zprofile 2>/dev/null || source ~/.zshrc 2>/dev/null || true; pipx install marker-pdf"
+      } else if shell.contains("bash") {
+        "source ~/.bash_profile 2>/dev/null || source ~/.bashrc 2>/dev/null || true; pipx install marker-pdf"
+      } else {
+        "pipx install marker-pdf"
+      };
+      
+      logs.push(format!("执行: {}", pipx_cmd));
+      logs.push("注意: marker-pdf 安装可能需要几分钟时间，请耐心等待...".to_string());
+      
+      match Command::new(&shell)
+        .arg("-c")
+        .arg(pipx_cmd)
+        .output()
+      {
+        Ok(output) => {
+          let stdout = String::from_utf8_lossy(&output.stdout);
+          let stderr = String::from_utf8_lossy(&output.stderr);
+          if !stdout.trim().is_empty() {
+            logs.push(format!("stdout: {}", stdout.trim()));
+          }
+          if !stderr.trim().is_empty() && !stderr.contains("Warning") {
+            logs.push(format!("stderr: {}", stderr.trim()));
+          }
+          
+          if output.status.success() {
+            logs.push("✓ marker-pdf 安装成功".to_string());
+            current_progress = 1.0;
+            
+            return data_result_ok(InstallToolProgressPB {
+              tool_name: "marker-pdf".to_string(),
+              status: InstallToolStatusPB::InstallToolCompleted,
+              progress: current_progress,
+              message: "所有工具安装完成".to_string(),
+              logs,
+            });
+          } else {
+            logs.push(format!("✗ marker-pdf 安装失败: {}", stderr));
+            return data_result_ok(InstallToolProgressPB {
+              tool_name: "marker-pdf".to_string(),
+              status: InstallToolStatusPB::InstallToolFailed,
+              progress: current_progress,
+              message: format!("marker-pdf 安装失败: {}", stderr),
+              logs,
+            });
+          }
+        }
+        Err(e) => {
+          logs.push(format!("✗ marker-pdf 安装出错: {}", e));
+          return data_result_ok(InstallToolProgressPB {
+            tool_name: "marker-pdf".to_string(),
+            status: InstallToolStatusPB::InstallToolFailed,
+            progress: current_progress,
+            message: format!("marker-pdf 安装出错: {}", e),
+            logs,
+          });
+        }
+      }
+    }
+    
+    // 所有工具安装完成
+    data_result_ok(InstallToolProgressPB {
+      tool_name: "all".to_string(),
+      status: InstallToolStatusPB::InstallToolCompleted,
+      progress: 1.0,
+      message: "所有工具安装完成".to_string(),
+      logs,
+    })
+  }
+  
+  #[cfg(not(target_os = "macos"))]
+  {
+    logs.push(format!("当前平台 {} 不支持自动安装工具", std::env::consts::OS));
+    data_result_ok(InstallToolProgressPB {
+      tool_name: "unknown".to_string(),
+      status: InstallToolStatusPB::InstallToolFailed,
+      progress: 0.0,
+      message: format!("当前平台 {} 不支持自动安装工具", std::env::consts::OS),
+      logs,
+    })
+  }
 }
