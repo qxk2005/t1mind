@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:appflowy_backend/dispatch/dispatch.dart';
 import 'package:appflowy_backend/log.dart';
 import 'package:appflowy_backend/protobuf/flowy-user/import_settings.pb.dart';
@@ -94,6 +96,12 @@ class ImportSettingsBloc extends Bloc<ImportSettingsEvent, ImportSettingsState> 
           },
           installMissingTools: (toolNames) async {
             await _installMissingTools(emit, toolNames);
+          },
+          updateInstallProgress: (progress) async {
+            await _updateInstallProgress(emit, progress);
+          },
+          installFailed: (error) async {
+            await _installFailed(emit, error);
           },
         );
       },
@@ -407,11 +415,24 @@ class ImportSettingsBloc extends Bloc<ImportSettingsEvent, ImportSettingsState> 
     try {
       emit(state.copyWith(isDownloadingModels: true, modelDownloadProgress: null));
       
+      // 启动定期刷新任务，在下载过程中定期检查工具状态以获取最新进度
+      final refreshTimer = Stream.periodic(const Duration(seconds: 3), (i) => i)
+          .takeWhile((_) => !isClosed && !emit.isDone)
+          .listen((_) async {
+        if (!isClosed && !emit.isDone) {
+          Log.info('[模型下载] 定期刷新工具状态以获取最新进度');
+          await _checkImportTools(emit);
+        }
+      });
+      
       final request = DownloadMarkerModelsPB()..force = force;
       final result = await UserEventDownloadMarkerModels(request).send();
       
       await result.fold(
         (progress) async {
+          // 停止定期刷新任务
+          await refreshTimer.cancel();
+          
           // 先更新进度状态
           if (!emit.isDone) {
             emit(state.copyWith(
@@ -432,6 +453,9 @@ class ImportSettingsBloc extends Bloc<ImportSettingsEvent, ImportSettingsState> 
           }
         },
         (error) async {
+          // 停止定期刷新任务
+          await refreshTimer.cancel();
+          
           Log.error('Failed to download marker models: $error');
           if (!emit.isDone) {
             emit(state.copyWith(
@@ -449,7 +473,7 @@ class ImportSettingsBloc extends Bloc<ImportSettingsEvent, ImportSettingsState> 
     }
   }
 
-  /// 安装缺失的工具
+  /// 安装缺失的工具（带流式反馈）
   Future<void> _installMissingTools(
     Emitter<ImportSettingsState> emit,
     List<String> toolNames,
@@ -457,42 +481,152 @@ class ImportSettingsBloc extends Bloc<ImportSettingsEvent, ImportSettingsState> 
     try {
       emit(state.copyWith(isInstallingTools: true, installProgress: null));
       
-      final request = InstallMissingToolsPB()..toolNames.addAll(toolNames);
-      final result = await UserEventInstallMissingTools(request).send();
+      // 先发送初始状态
+      final initialProgress = InstallToolProgressPB()
+        ..toolName = toolNames.isNotEmpty ? toolNames[0] : 'unknown'
+        ..status = InstallToolStatusPB.InstallToolInstalling
+        ..progress = 0.0
+        ..message = '准备安装...'
+        ..logs.add('开始安装工具: ${toolNames.join(", ")}');
+      emit(state.copyWith(installProgress: initialProgress));
       
-      result.fold(
-        (progress) {
-          if (!emit.isDone) {
-            emit(state.copyWith(
-              installProgress: progress,
-              isInstallingTools: progress.status != InstallToolStatusPB.InstallToolCompleted &&
-                                 progress.status != InstallToolStatusPB.InstallToolFailed,
-            ));
-          }
-          
-          // 如果安装完成或失败，重新检查工具状态
-          if (progress.status == InstallToolStatusPB.InstallToolCompleted ||
-              progress.status == InstallToolStatusPB.InstallToolFailed) {
-            if (!emit.isDone) {
-              _checkImportTools(emit);
-            }
-          }
-        },
-        (error) {
-          Log.error('Failed to install missing tools: $error');
-          if (!emit.isDone) {
-            emit(state.copyWith(
-              isInstallingTools: false,
-              installProgress: InstallToolProgressPB()
-                ..status = InstallToolStatusPB.InstallToolFailed
-                ..message = '安装失败: ${error.msg}',
-            ));
-          }
-        },
-      );
+      // 在后台异步执行安装，同时提供流式反馈
+      _installWithStreamingFeedback(emit, toolNames);
     } catch (e) {
       Log.error('Failed to install missing tools: $e');
       emit(state.copyWith(isInstallingTools: false));
+    }
+  }
+  
+  /// 带流式反馈的安装过程（使用真实的后端进度）
+  Future<void> _installWithStreamingFeedback(
+    Emitter<ImportSettingsState> emit,
+    List<String> toolNames,
+  ) async {
+    Log.info('开始安装流程，工具: ${toolNames.join(", ")}');
+    
+    // 显示初始状态
+    final initialProgress = InstallToolProgressPB()
+      ..toolName = toolNames.isNotEmpty ? toolNames[0] : 'unknown'
+      ..status = InstallToolStatusPB.InstallToolInstalling
+      ..progress = 0.0
+      ..message = '准备安装...'
+      ..logs.add('开始安装工具: ${toolNames.join(", ")}');
+    
+    if (!isClosed && !emit.isDone) {
+      emit(state.copyWith(installProgress: initialProgress));
+    }
+    
+    // 执行安装（直接调用后端 API，不使用模拟步骤）
+    final request = InstallMissingToolsPB()..toolNames.addAll(toolNames);
+    
+    Log.info('启动后端 API 调用');
+    final result = await UserEventInstallMissingTools(request).send();
+    
+    // 处理后端返回的真实结果
+    result.fold(
+      (backendProgress) {
+        Log.info('后端 API 返回成功: ${backendProgress.message}');
+        Log.info('后端返回状态: ${backendProgress.status}');
+        Log.info('后端返回日志数量: ${backendProgress.logs.length}');
+        Log.info('后端返回工具名: ${backendProgress.toolName}');
+        Log.info('后端返回进度: ${backendProgress.progress}');
+        
+        // 记录 emit 状态，用于诊断
+        Log.info('emit.isDone: ${emit.isDone}, isClosed: $isClosed');
+        
+        // 使用 add 事件来更新状态，而不是直接使用 emit
+        // 这样可以确保状态更新在正确的事件处理器中执行，避免 emit.isDone 的问题
+        final isFailed = backendProgress.status == InstallToolStatusPB.InstallToolFailed;
+        final isCompleted = backendProgress.status == InstallToolStatusPB.InstallToolCompleted;
+        
+        Log.info('安装状态 - 失败: $isFailed, 完成: $isCompleted');
+        Log.info('准备通过 add 事件更新状态: isInstallingTools=${!isCompleted && !isFailed}');
+        
+        // 使用 add 事件来更新状态
+        if (!isClosed) {
+          add(ImportSettingsEvent.updateInstallProgress(backendProgress));
+          Log.info('已发送 updateInstallProgress 事件，等待事件处理器响应');
+          
+          // 如果安装完成或失败，重新检查工具状态
+          if (isCompleted || isFailed) {
+            // 使用 Future.microtask 确保状态更新后再检查工具状态
+            Future.microtask(() {
+              if (!isClosed) {
+                Log.info('安装完成或失败，重新检查工具状态');
+                add(const ImportSettingsEvent.checkImportTools());
+              }
+            });
+          }
+        } else {
+          Log.warn('Bloc 已关闭，无法更新状态');
+        }
+      },
+      (error) {
+        Log.error('后端 API 调用失败: $error');
+        Log.info('错误处理 - emit.isDone: ${emit.isDone}, isClosed: $isClosed');
+        
+        // 使用 add 事件来更新状态，而不是直接使用 emit
+        if (!isClosed) {
+          final errorLogs = <String>[];
+          errorLogs.add('开始安装工具: ${toolNames.join(", ")}');
+          errorLogs.add('✗ 安装失败: ${error.msg}');
+          
+          final errorProgress = InstallToolProgressPB()
+            ..toolName = toolNames.isNotEmpty ? toolNames[0] : 'unknown'
+            ..status = InstallToolStatusPB.InstallToolFailed
+            ..progress = 0.0
+            ..message = '安装失败: ${error.msg}'
+            ..logs.addAll(errorLogs);
+          
+          add(ImportSettingsEvent.updateInstallProgress(errorProgress));
+          Log.info('已发送 updateInstallProgress 事件（错误），等待事件处理器响应');
+        } else {
+          Log.warn('Bloc 已关闭，无法更新错误状态');
+        }
+      },
+    );
+  }
+  
+  /// 更新安装进度
+  Future<void> _updateInstallProgress(
+    Emitter<ImportSettingsState> emit,
+    InstallToolProgressPB progress,
+  ) async {
+    Log.info('[updateInstallProgress] 开始更新状态');
+    Log.info('[updateInstallProgress] emit.isDone: ${emit.isDone}, isClosed: $isClosed');
+    Log.info('[updateInstallProgress] 进度状态: ${progress.status}, 消息: ${progress.message}, 日志数量: ${progress.logs.length}');
+    
+    if (!isClosed && !emit.isDone) {
+      final isCompleted = progress.status == InstallToolStatusPB.InstallToolCompleted;
+      final isFailed = progress.status == InstallToolStatusPB.InstallToolFailed;
+      final isInstalling = !isCompleted && !isFailed;
+      
+      Log.info('[updateInstallProgress] 安装状态 - 完成: $isCompleted, 失败: $isFailed, 进行中: $isInstalling');
+      
+      emit(state.copyWith(
+        installProgress: progress,
+        isInstallingTools: isInstalling,
+      ));
+      
+      Log.info('[updateInstallProgress] 状态已更新');
+    } else {
+      Log.warn('[updateInstallProgress] 无法更新状态 - emit.isDone: ${emit.isDone}, isClosed: $isClosed');
+    }
+  }
+  
+  /// 安装失败处理
+  Future<void> _installFailed(
+    Emitter<ImportSettingsState> emit,
+    String error,
+  ) async {
+    if (!emit.isDone) {
+      emit(state.copyWith(
+        isInstallingTools: false,
+        installProgress: InstallToolProgressPB()
+          ..status = InstallToolStatusPB.InstallToolFailed
+          ..message = '安装失败: $error',
+      ));
     }
   }
 }
@@ -523,6 +657,8 @@ class ImportSettingsEvent with _$ImportSettingsEvent {
   const factory ImportSettingsEvent.checkImportTools() = _CheckImportTools;
   const factory ImportSettingsEvent.downloadMarkerModels(bool force) = _DownloadMarkerModels;
   const factory ImportSettingsEvent.installMissingTools(List<String> toolNames) = _InstallMissingTools;
+  const factory ImportSettingsEvent.updateInstallProgress(InstallToolProgressPB progress) = _UpdateInstallProgress;
+  const factory ImportSettingsEvent.installFailed(String error) = _InstallFailed;
 }
 
 @freezed

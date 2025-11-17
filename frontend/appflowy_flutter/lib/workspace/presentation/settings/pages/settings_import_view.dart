@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../import/import_settings_bloc.dart';
+import 'install_tools_progress_dialog.dart';
 
 class SettingsImportView extends StatefulWidget {
   const SettingsImportView({
@@ -407,8 +408,13 @@ class _ImportToolsStatusWidget extends StatelessWidget {
                     const SizedBox(height: 8),
                     ElevatedButton.icon(
                       onPressed: () {
-                        context.read<ImportSettingsBloc>().add(
-                          ImportSettingsEvent.installMissingTools(missingTools),
+                        // 显示安装进度对话框
+                        // 传入 bloc 确保能够正确访问到 BlocProvider
+                        final bloc = context.read<ImportSettingsBloc>();
+                        showInstallToolsProgressDialog(
+                          context,
+                          toolNames: missingTools,
+                          bloc: bloc,
                         );
                       },
                       icon: const Icon(Icons.download, size: 16),

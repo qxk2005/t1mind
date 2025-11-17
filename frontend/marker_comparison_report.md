@@ -230,3 +230,5 @@ find . -name "*.safetensors" -exec ls -lh {} \;
 3. 确保 marker 脚本在执行时正确设置了所有必要的环境变量
 
 
+
+

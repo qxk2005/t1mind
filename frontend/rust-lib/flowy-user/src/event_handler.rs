@@ -16,7 +16,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::sync::Weak;
 use std::{convert::TryInto, sync::Arc};
-use tracing::event;
+use tracing::{debug, error, event, info, warn};
 use uuid::Uuid;
 
 fn upgrade_manager(manager: AFPluginState<Weak<UserManager>>) -> FlowyResult<Arc<UserManager>> {
@@ -2020,11 +2020,45 @@ fn get_marker_pdf_install_instruction() -> Result<String, String> {
   #[cfg(target_os = "macos")]
   {
     // 检测是否安装了 Homebrew
-    let brew_available = Command::new("which")
+    // 首先尝试使用 which 检查（如果 brew 在 PATH 中）
+    let brew_available_from_path = Command::new("which")
       .arg("brew")
       .output()
       .map(|output| output.status.success())
       .unwrap_or(false);
+    
+    // 如果 which 找不到，检查默认安装路径
+    let arch = Command::new("uname")
+      .arg("-m")
+      .output()
+      .ok()
+      .and_then(|output| String::from_utf8(output.stdout).ok())
+      .unwrap_or_else(|| "x86_64".to_string())
+      .trim()
+      .to_string();
+    let is_apple_silicon = arch == "arm64";
+    
+    let brew_path = if is_apple_silicon {
+      "/opt/homebrew/bin/brew"
+    } else {
+      "/usr/local/bin/brew"
+    };
+    
+    let brew_available_from_path_check = std::path::Path::new(brew_path).exists();
+    
+    // 如果路径存在，尝试执行 brew --version 来验证
+    let brew_available = if brew_available_from_path {
+      true
+    } else if brew_available_from_path_check {
+      // 检查文件是否存在且可执行
+      Command::new(brew_path)
+        .arg("--version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+    } else {
+      false
+    };
     
     if !brew_available {
       return Ok(format!(
@@ -2032,7 +2066,7 @@ fn get_marker_pdf_install_instruction() -> Result<String, String> {
         Marker 工具需要使用 Homebrew 来安装 marker-pdf。\n\n\
         请先安装 Homebrew：\n\
         1. 打开终端，运行：\n\
-           /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"\n\n\
+           bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"\n\n\
         2. 或者访问 https://brew.sh 查看安装说明\n\n\
         3. 安装 Homebrew 后，运行：\n\
            brew install jpeg libpng freetype openjpeg libtiff webp\n\
@@ -2433,6 +2467,44 @@ fn check_marker_models_ready() -> String {
   status
 }
 
+/// 下载进度信息结构体
+#[derive(Clone, Debug)]
+struct DownloadProgress {
+  percentage: f64,
+  downloaded_bytes: u64,
+  total_bytes: Option<u64>,
+  speed: Option<f64>,
+  current_file: Option<String>,
+  latest_message: String,
+}
+
+/// 解析下载进度信息
+/// 
+/// 从 marker 工具的输出中解析下载进度信息。
+fn parse_download_progress(line: &str, progress: &mut DownloadProgress) {
+  // 更新最新消息
+  progress.latest_message = line.to_string();
+  
+  // 尝试解析常见的进度格式
+  // 例如: "Downloading: 50%", "Progress: 1234/5678 bytes", etc.
+  if line.contains("%") {
+    // 尝试提取百分比
+    if let Some(percent_str) = line.split_whitespace()
+      .find(|s| s.ends_with("%"))
+      .and_then(|s| s.strip_suffix("%")) {
+      if let Ok(percent) = percent_str.parse::<f64>() {
+        progress.percentage = percent / 100.0;
+      }
+    }
+  }
+  
+  // 尝试解析字节数
+  if line.contains("bytes") || line.contains("MB") || line.contains("GB") {
+    // 简单的字节数提取（可以根据实际输出格式调整）
+    // 这里只是占位实现，实际解析逻辑可以根据 marker 工具的实际输出格式调整
+  }
+}
+
 /// 下载 Marker 模型
 /// 
 /// 通过执行 marker 命令处理一个测试 PDF 来触发模型下载。
@@ -2684,10 +2756,20 @@ pub async fn download_marker_models(
     }
   };
   
-  // 收集输出日志
+  // 收集输出日志和进度信息
   let logs_arc = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+  let progress_arc = std::sync::Arc::new(std::sync::Mutex::new(DownloadProgress {
+    percentage: 0.0,
+    downloaded_bytes: 0,
+    total_bytes: None,
+    speed: None,
+    current_file: None,
+    latest_message: String::new(),
+  }));
+  
   let logs_clone_stdout = logs_arc.clone();
   let logs_clone_stderr = logs_arc.clone();
+  let progress_clone_stderr = progress_arc.clone();
   
   // 在后台任务中读取 stdout
   let stdout_handle = tokio::spawn(async move {
@@ -2716,10 +2798,15 @@ pub async fn download_marker_models(
     while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
       let trimmed = line.trim();
       if !trimmed.is_empty() {
-        // stderr 通常包含错误信息，使用 error 级别记录
+        // stderr 通常包含错误信息和进度信息
         tracing::error!("[模型下载 stderr] {}", trimmed);
         if let Ok(mut logs) = logs_clone_stderr.lock() {
           logs.push(format!("[Marker Error] {}", trimmed));
+        }
+        
+        // 解析进度信息
+        if let Ok(mut progress) = progress_clone_stderr.lock() {
+          parse_download_progress(trimmed, &mut progress);
         }
       }
       line.clear();
@@ -2732,11 +2819,25 @@ pub async fn download_marker_models(
   // 等待输出读取完成
   let _ = tokio::join!(stdout_handle, stderr_handle);
   
-  // 获取收集的日志
+  // 获取收集的日志和进度信息
   let output_logs: Vec<String> = if let Ok(logs) = logs_arc.lock() {
     logs.clone()
   } else {
     Vec::new()
+  };
+  
+  // 获取解析的进度信息
+  let parsed_progress = if let Ok(progress) = progress_arc.lock() {
+    progress.clone()
+  } else {
+    DownloadProgress {
+      percentage: 0.0,
+      downloaded_bytes: 0,
+      total_bytes: None,
+      speed: None,
+      current_file: None,
+      latest_message: String::new(),
+    }
   };
   
   match wait_result {
@@ -2817,18 +2918,57 @@ pub async fn download_marker_models(
         };
         
         // 构建详细的消息
+        // 优先使用解析的进度信息，如果没有则使用计算的值
+        let final_progress = if parsed_progress.percentage > 0.0 {
+          parsed_progress.percentage
+        } else {
+          progress
+        };
+        
+        let final_downloaded_bytes = if parsed_progress.downloaded_bytes > 0 {
+          parsed_progress.downloaded_bytes
+        } else if total_downloaded > 0 {
+          total_downloaded
+        } else {
+          current_total_size
+        };
+        
+        let final_total_bytes = parsed_progress.total_bytes.or_else(|| {
+          if final_downloaded_bytes > 0 && final_progress > 0.0 {
+            Some((final_downloaded_bytes as f64 / final_progress) as u64)
+          } else {
+            None
+          }
+        });
+        
         // 显示当前模型总大小（如果本次没有下载，显示已存在的模型大小）
         let display_size = if total_downloaded > 0 {
           total_downloaded
         } else {
           current_total_size
         };
-        let mut message = format!(
-          "模型下载完成（耗时: {:.1} 秒）\n当前模型大小: {:.2} GB\n进度: {:.0}%\n\n执行日志:\n",
-          elapsed.as_secs_f64(),
-          display_size as f64 / (1024.0 * 1024.0 * 1024.0),
-          progress * 100.0
-        );
+        
+        // 构建消息，包含解析的进度信息
+        let mut message = if !parsed_progress.latest_message.is_empty() {
+          format!(
+            "最新进度: {:.1}%\n已下载: {:.2} GB{}\n{}\n\n执行日志:\n",
+            final_progress * 100.0,
+            final_downloaded_bytes as f64 / (1024.0 * 1024.0 * 1024.0),
+            if let Some(total) = final_total_bytes {
+              format!(" / {:.2} GB", total as f64 / (1024.0 * 1024.0 * 1024.0))
+            } else {
+              String::new()
+            },
+            parsed_progress.latest_message
+          )
+        } else {
+          format!(
+            "模型下载完成（耗时: {:.1} 秒）\n当前模型大小: {:.2} GB\n进度: {:.0}%\n\n执行日志:\n",
+            elapsed.as_secs_f64(),
+            display_size as f64 / (1024.0 * 1024.0 * 1024.0),
+            final_progress * 100.0
+          )
+        };
         
         // 添加最近的日志（最多 20 行）
         let recent_logs: Vec<String> = output_logs.iter().rev().take(20).rev().cloned().collect();
@@ -2850,10 +2990,10 @@ pub async fn download_marker_models(
           data_result_ok(ModelDownloadProgressPB {
             status: ModelDownloadStatusPB::ModelDownloadCompleted,
             progress: 1.0,
-            current_model: None,
+            current_model: parsed_progress.current_file,
             message,
-            downloaded_bytes: reported_bytes,
-            total_bytes: Some(reported_bytes.max(1)),
+            downloaded_bytes: final_downloaded_bytes.max(reported_bytes),
+            total_bytes: final_total_bytes.or(Some(reported_bytes.max(1))),
           })
         } else {
           // 模型未完全就绪，根据进度和实际情况决定状态
@@ -3572,72 +3712,379 @@ pub async fn install_missing_tools(
     });
   }
   
-  logs.push(format!("需要安装的工具: {:?}", tools_to_install));
-  
   #[cfg(target_os = "macos")]
   {
     // macOS 安装流程：brew -> pipx -> marker-pdf
+    // 计算总步骤数：检查brew(1) + 安装pipx(1) + 安装依赖(1) + 安装marker-pdf(1) = 4步
     let mut current_progress = 0.0;
-    let total_steps = tools_to_install.len() as f64;
+    let total_steps = 4.0; // 固定步骤数，更准确
+    let step_progress = 1.0 / total_steps;
     
-    // 检查并安装 brew
+    logs.push("=== 开始安装工具 ===".to_string());
+    logs.push(format!("需要安装的工具: {:?}", tools_to_install));
+    logs.push("".to_string());
+    
+    // 步骤 1: 检查并安装 brew
     if tools_to_install.contains(&"brew".to_string()) || 
        tools_to_install.iter().any(|t| t.contains("marker")) {
-      logs.push("检查 Homebrew...".to_string());
-      let brew_available = Command::new("which")
+      logs.push("步骤 1/4: 检查 Homebrew...".to_string());
+      
+      // 检测芯片架构（Apple Silicon vs Intel）
+      let arch = Command::new("uname")
+        .arg("-m")
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .unwrap_or_else(|| "x86_64".to_string())
+        .trim()
+        .to_string();
+      let is_apple_silicon = arch == "arm64";
+      
+      // 首先尝试使用 which 检查（如果 brew 在 PATH 中）
+      let brew_available_from_path = Command::new("which")
         .arg("brew")
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false);
       
+      // 如果 which 找不到，检查默认安装路径
+      let brew_path = if is_apple_silicon {
+        "/opt/homebrew/bin/brew"
+      } else {
+        "/usr/local/bin/brew"
+      };
+      
+      let brew_available_from_path_check = std::path::Path::new(brew_path).exists();
+      
+      // 如果路径存在，尝试执行 brew --version 来验证
+      let brew_available = if brew_available_from_path {
+        true
+      } else if brew_available_from_path_check {
+        // 检查文件是否存在且可执行
+        Command::new(brew_path)
+          .arg("--version")
+          .output()
+          .map(|output| output.status.success())
+          .unwrap_or(false)
+      } else {
+        false
+      };
+      
+      logs.push(format!("Homebrew 检查结果: which brew={}, 路径检查={}, 最终结果={}", 
+        brew_available_from_path, brew_available_from_path_check, brew_available));
+      
       if !brew_available {
-        logs.push("Homebrew 未安装，开始安装...".to_string());
-        logs.push("注意: Homebrew 安装需要用户交互，请按照提示操作".to_string());
+        logs.push("⚠ Homebrew 未安装，开始自动安装...".to_string());
+        logs.push("正在从网络下载 Homebrew 安装脚本...".to_string());
+        logs.push("注意: 安装过程可能需要 10-30 分钟，取决于网络速度".to_string());
+        logs.push("".to_string());
+        logs.push(format!("检测到系统架构: {} ({})", 
+          if is_apple_silicon { "Apple Silicon" } else { "Intel" }, 
+          arch));
+        logs.push("".to_string());
         
-        // 尝试安装 Homebrew
-        let install_script = "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"";
+        // 执行 Homebrew 安装脚本
+        let install_script = "curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh";
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
         
-        logs.push(format!("执行: {}", install_script));
+        logs.push(format!("执行命令: {}", install_script));
+        logs.push("正在安装 Homebrew，这可能需要 10-30 分钟...".to_string());
+        logs.push("".to_string());
         
-        // 注意：Homebrew 安装需要用户交互，这里只能提供指引
-        return data_result_ok(InstallToolProgressPB {
-          tool_name: "brew".to_string(),
-          status: InstallToolStatusPB::InstallToolFailed,
-          progress: 0.0,
-          message: "Homebrew 安装需要用户交互，无法自动安装。请打开终端运行以下命令：\n/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"".to_string(),
-          logs,
-        });
+        // 检查安装目录的权限
+        let install_dir = if is_apple_silicon {
+          "/opt/homebrew"
+        } else {
+          "/usr/local"
+        };
+        
+        // 检查目录是否存在且可写，或者父目录可写
+        let parent_dir = if is_apple_silicon {
+          "/opt"
+        } else {
+          "/usr"
+        };
+        
+        let can_write = std::path::Path::new(parent_dir)
+          .metadata()
+          .map(|m| {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = m.permissions();
+            let mode = perms.mode();
+            // 检查是否有写权限（用户、组或其他）
+            (mode & 0o022) != 0 || std::path::Path::new(install_dir).exists()
+          })
+          .unwrap_or(false);
+        
+        if !can_write {
+          logs.push("⚠ 警告: 检测到可能没有安装目录的写入权限".to_string());
+          logs.push(format!("安装目录: {}", install_dir));
+          logs.push("如果安装失败，请手动在终端中运行安装命令".to_string());
+          logs.push("".to_string());
+        }
+        
+        // 使用 NONINTERACTIVE=1 环境变量实现非交互式安装
+        match Command::new(&shell)
+          .arg("-c")
+          .arg(format!("{} | bash", install_script))
+          .env("NONINTERACTIVE", "1")
+          .output()
+        {
+          Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            
+            // 记录输出（但不全部显示，因为可能很长）
+            if !stdout.trim().is_empty() {
+              // 只显示关键信息
+              for line in stdout.lines() {
+                if line.contains("==>") || line.contains("Installing") || line.contains("Downloading") {
+                  logs.push(format!("输出: {}", line));
+                }
+              }
+            }
+            if !stderr.trim().is_empty() && !stderr.contains("Warning") {
+              logs.push(format!("错误: {}", stderr.trim()));
+            }
+            
+            if output.status.success() {
+              logs.push("".to_string());
+              logs.push("✓ Homebrew 安装成功".to_string());
+              
+              // 配置环境变量
+              let brew_path = if is_apple_silicon {
+                "/opt/homebrew/bin/brew"
+              } else {
+                "/usr/local/bin/brew"
+              };
+              
+              // 检查 brew 是否可用
+              let brew_check = Command::new("which")
+                .arg("brew")
+                .output();
+              
+              // 如果 brew 不在 PATH 中，需要添加到 shell 配置文件
+              if brew_check.is_err() || !brew_check.unwrap().status.success() {
+                logs.push("配置 Homebrew 环境变量...".to_string());
+                
+                let shell_config = if shell.contains("zsh") {
+                  "~/.zprofile"
+                } else if shell.contains("bash") {
+                  "~/.bash_profile"
+                } else {
+                  "~/.profile"
+                };
+                
+                let eval_cmd = if is_apple_silicon {
+                  "echo 'eval \"$(/opt/homebrew/bin/brew shellenv)\"' >> ~/.zprofile"
+                } else {
+                  "echo 'eval \"$(/usr/local/bin/brew shellenv)\"' >> ~/.zprofile"
+                };
+                
+                // 尝试添加到 shell 配置文件
+                let _ = Command::new(&shell)
+                  .arg("-c")
+                  .arg(eval_cmd)
+                  .output();
+                
+                // 立即设置环境变量（当前会话）
+                let _ = Command::new(&shell)
+                  .arg("-c")
+                  .arg(if is_apple_silicon {
+                    "eval \"$(/opt/homebrew/bin/brew shellenv)\""
+                  } else {
+                    "eval \"$(/usr/local/bin/brew shellenv)\""
+                  })
+                  .output();
+                
+                logs.push(format!("已配置环境变量到 {}", shell_config));
+              }
+              
+              // 再次检查 brew 是否可用
+              let brew_available_after = Command::new("which")
+                .arg("brew")
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false);
+              
+              if brew_available_after {
+                logs.push("✓ Homebrew 已配置并可用".to_string());
+                current_progress += step_progress;
+              } else {
+                logs.push("⚠ Homebrew 已安装但可能需要在新的终端会话中使用".to_string());
+                let brew_path = if is_apple_silicon { "/opt/homebrew" } else { "/usr/local" };
+                let brew_bin_path = format!("{}/bin/brew", brew_path);
+                let home_dir = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
+                let shell_config = if shell.contains("zsh") {
+                  format!("{}/.zprofile", home_dir)
+                } else if shell.contains("bash") {
+                  format!("{}/.bash_profile", home_dir)
+                } else {
+                  format!("{}/.profile", home_dir)
+                };
+                
+                logs.push("根据 Homebrew 安装后的提示执行下列类似指令：".to_string());
+                logs.push("".to_string());
+                logs.push("执行以下三个命令来配置 Homebrew 环境变量:".to_string());
+                logs.push(format!("    1. echo >> {}", shell_config));
+                logs.push(format!("    2. echo 'eval \"$({} shellenv)\"' >> {}", brew_bin_path, shell_config));
+                logs.push(format!("    3. eval \"$({} shellenv)\"", brew_bin_path));
+                current_progress += step_progress; // 继续执行，因为 Homebrew 已安装
+              }
+            } else {
+              logs.push("".to_string());
+              
+              // 检查是否是权限错误
+              let is_permission_error = stderr.contains("Need sudo access") || 
+                                       stderr.contains("permission denied") ||
+                                       stderr.contains("Permission denied") ||
+                                       stderr.contains("Administrator");
+              
+              if is_permission_error {
+                logs.push("✗ Homebrew 安装失败: 需要管理员权限".to_string());
+                logs.push("".to_string());
+                logs.push("原因: Homebrew 安装需要管理员权限或用户目录写入权限".to_string());
+                logs.push("".to_string());
+                logs.push("解决方案:".to_string());
+                logs.push("1. 确保当前用户是管理员（Administrator）".to_string());
+                logs.push("2. 或者手动在终端中运行以下命令安装 Homebrew:".to_string());
+                logs.push(format!("   bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\""));
+                logs.push("".to_string());
+                logs.push("3. 安装完成后，重新运行此安装流程".to_string());
+                logs.push("".to_string());
+                logs.push("注意: 如果手动安装，安装完成后根据 Homebrew 安装后的提示执行下列类似指令：".to_string());
+                let brew_bin_path = if is_apple_silicon {
+                  "/opt/homebrew/bin/brew"
+                } else {
+                  "/usr/local/bin/brew"
+                };
+                let home_dir = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
+                let shell_config = if shell.contains("zsh") {
+                  format!("{}/.zprofile", home_dir)
+                } else if shell.contains("bash") {
+                  format!("{}/.bash_profile", home_dir)
+                } else {
+                  format!("{}/.profile", home_dir)
+                };
+                logs.push("".to_string());
+                logs.push("执行以下三个命令来配置 Homebrew 环境变量:".to_string());
+                logs.push(format!("    1. echo >> {}", shell_config));
+                logs.push(format!("    2. echo 'eval \"$({} shellenv)\"' >> {}", brew_bin_path, shell_config));
+                logs.push(format!("    3. eval \"$({} shellenv)\"", brew_bin_path));
+                logs.push("".to_string());
+                logs.push("执行上述命令后，重新运行此安装流程".to_string());
+              }
+            }
+          }
+          Err(e) => {
+            logs.push("".to_string());
+            logs.push(format!("✗ Homebrew 安装出错: {}", e));
+            return data_result_ok(InstallToolProgressPB {
+              tool_name: "brew".to_string(),
+              status: InstallToolStatusPB::InstallToolFailed,
+              progress: current_progress,
+              message: "Homebrew 安装失败: 需要管理员权限。请手动安装 Homebrew 后重试。".to_string(),
+              logs,
+            });
+          }
+        }
       } else {
-        logs.push("✓ Homebrew 已安装".to_string());
+        // Homebrew 已安装，获取实际路径
+        let actual_brew_path = if brew_available_from_path {
+          // 如果 which 能找到，使用 which 的结果
+          Command::new("which")
+            .arg("brew")
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| brew_path.to_string())
+        } else {
+          // 否则使用默认路径
+          brew_path.to_string()
+        };
+        
+        logs.push("✓ Homebrew 已安装，跳过此步骤".to_string());
+        logs.push(format!("使用 Homebrew 路径: {}", actual_brew_path));
+        current_progress += step_progress;
       }
+      logs.push("".to_string());
     }
     
-    // 安装 pipx（如果需要）
+    // 步骤 2: 安装 pipx（如果需要）
     if tools_to_install.contains(&"pipx".to_string()) || 
        tools_to_install.iter().any(|t| t.contains("marker")) {
-      logs.push("检查 pipx...".to_string());
-      let pipx_available = Command::new("which")
-        .arg("pipx")
+      logs.push("步骤 2/4: 检查 pipx...".to_string());
+      
+      // 检测芯片架构（用于确定 brew 路径）
+      let arch = Command::new("uname")
+        .arg("-m")
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .unwrap_or_else(|| "x86_64".to_string())
+        .trim()
+        .to_string();
+      let is_apple_silicon = arch == "arm64";
+      
+      // 首先检查 Homebrew 是否可用（使用改进的检查逻辑）
+      let brew_available_from_path = Command::new("which")
+        .arg("brew")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+      
+      let brew_path_default = if is_apple_silicon {
+        "/opt/homebrew/bin/brew"
+      } else {
+        "/usr/local/bin/brew"
+      };
+      
+      // 获取 brew 路径：优先使用 which 的结果，否则使用默认路径（如果存在）
+      let brew_path = if brew_available_from_path {
+        // 如果 which 能找到，使用 which 的结果
+        Command::new("which")
+          .arg("brew")
+          .output()
+          .ok()
+          .and_then(|output| String::from_utf8(output.stdout).ok())
+          .map(|s| s.trim().to_string())
+          .unwrap_or_else(|| brew_path_default.to_string())
+      } else if std::path::Path::new(brew_path_default).exists() {
+        // 如果默认路径存在，使用默认路径
+        brew_path_default.to_string()
+      } else {
+        // 否则使用默认路径（即使不存在，后续会报错）
+        brew_path_default.to_string()
+      };
+      
+      logs.push(format!("使用 Homebrew 路径: {}", brew_path));
+      
+      // 检查 pipx 是否可用（使用完整路径的 brew 来检查）
+      let pipx_check_cmd = format!("{} list --packages | grep -q pipx || which pipx", brew_path);
+      let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+      let pipx_available = Command::new(&shell)
+        .arg("-c")
+        .arg(&pipx_check_cmd)
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false);
       
       if !pipx_available {
         logs.push("pipx 未安装，开始安装...".to_string());
-        current_progress += 1.0 / total_steps;
+        current_progress += step_progress;
         
-        // 使用 shell 执行 brew install pipx
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        // 使用完整路径的 brew 来安装 pipx，确保能找到 brew 命令
         let cmd = if shell.contains("zsh") {
-          "source ~/.zprofile 2>/dev/null || source ~/.zshrc 2>/dev/null || true; brew install pipx"
+          format!("source ~/.zprofile 2>/dev/null || source ~/.zshrc 2>/dev/null || eval \"$({} shellenv)\" 2>/dev/null || true; {} install pipx", brew_path, brew_path)
         } else if shell.contains("bash") {
-          "source ~/.bash_profile 2>/dev/null || source ~/.bashrc 2>/dev/null || true; brew install pipx"
+          format!("source ~/.bash_profile 2>/dev/null || source ~/.bashrc 2>/dev/null || eval \"$({} shellenv)\" 2>/dev/null || true; {} install pipx", brew_path, brew_path)
         } else {
-          "brew install pipx"
+          format!("eval \"$({} shellenv)\" 2>/dev/null || true; {} install pipx", brew_path, brew_path)
         };
         
-        logs.push(format!("执行: {}", cmd));
+        logs.push(format!("执行命令: {}", cmd));
+        logs.push("正在安装 pipx，这可能需要几分钟...".to_string());
         
         match Command::new(&shell)
           .arg("-c")
@@ -3647,15 +4094,50 @@ pub async fn install_missing_tools(
           Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
-            logs.push(format!("stdout: {}", stdout));
-            if !stderr.is_empty() {
-              logs.push(format!("stderr: {}", stderr));
+            
+            if !stdout.trim().is_empty() {
+              logs.push(format!("输出: {}", stdout.trim()));
+            }
+            if !stderr.trim().is_empty() && !stderr.contains("Warning") {
+              logs.push(format!("错误: {}", stderr.trim()));
             }
             
             if output.status.success() {
               logs.push("✓ pipx 安装成功".to_string());
             } else {
               logs.push(format!("✗ pipx 安装失败: {}", stderr));
+              
+              // 检查是否是 Homebrew 环境变量未配置的问题
+              let is_brew_env_error = stderr.contains("command not found") || 
+                                      stderr.contains("brew: command not found") ||
+                                      stderr.contains("No such file or directory");
+              
+              if is_brew_env_error {
+                logs.push("".to_string());
+                logs.push("可能的原因: Homebrew 环境变量未正确配置".to_string());
+                logs.push("".to_string());
+                logs.push("解决方案: 根据 Homebrew 安装后的提示执行下列类似指令：".to_string());
+                let brew_bin_path = if is_apple_silicon {
+                  "/opt/homebrew/bin/brew"
+                } else {
+                  "/usr/local/bin/brew"
+                };
+                let home_dir = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
+                let shell_config = if shell.contains("zsh") {
+                  format!("{}/.zprofile", home_dir)
+                } else if shell.contains("bash") {
+                  format!("{}/.bash_profile", home_dir)
+                } else {
+                  format!("{}/.profile", home_dir)
+                };
+                logs.push("".to_string());
+                logs.push(format!("    echo >> {}", shell_config));
+                logs.push(format!("    echo 'eval \"$({} shellenv)\"' >> {}", brew_bin_path, shell_config));
+                logs.push(format!("    eval \"$({} shellenv)\"", brew_bin_path));
+                logs.push("".to_string());
+                logs.push("执行上述命令后，重新运行此安装流程".to_string());
+              }
+              
               return data_result_ok(InstallToolProgressPB {
                 tool_name: "pipx".to_string(),
                 status: InstallToolStatusPB::InstallToolFailed,
@@ -3677,25 +4159,45 @@ pub async fn install_missing_tools(
           }
         }
       } else {
-        logs.push("✓ pipx 已安装".to_string());
+        logs.push("✓ pipx 已安装，跳过此步骤".to_string());
+        current_progress += step_progress;
       }
+      logs.push("".to_string());
     }
     
-    // 安装 marker-pdf 的依赖（如果需要）
+    // 步骤 3: 安装 marker-pdf 的依赖（如果需要）
     if tools_to_install.iter().any(|t| t.contains("marker")) {
-      logs.push("安装 marker-pdf 依赖库...".to_string());
-      current_progress += 1.0 / total_steps;
+      logs.push("步骤 3/4: 安装 marker-pdf 依赖库...".to_string());
+      logs.push("需要安装的依赖: jpeg, libpng, freetype, openjpeg, libtiff, webp".to_string());
+      current_progress += step_progress;
+      
+      // 检测芯片架构（用于确定 brew 路径）
+      let arch = Command::new("uname")
+        .arg("-m")
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .unwrap_or_else(|| "x86_64".to_string())
+        .trim()
+        .to_string();
+      let is_apple_silicon = arch == "arm64";
+      let brew_path = if is_apple_silicon {
+        "/opt/homebrew/bin/brew"
+      } else {
+        "/usr/local/bin/brew"
+      };
       
       let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
       let deps_cmd = if shell.contains("zsh") {
-        "source ~/.zprofile 2>/dev/null || source ~/.zshrc 2>/dev/null || true; brew install jpeg libpng freetype openjpeg libtiff webp"
+        format!("source ~/.zprofile 2>/dev/null || source ~/.zshrc 2>/dev/null || eval \"$({} shellenv)\" 2>/dev/null || true; {} install jpeg libpng freetype openjpeg libtiff webp", brew_path, brew_path)
       } else if shell.contains("bash") {
-        "source ~/.bash_profile 2>/dev/null || source ~/.bashrc 2>/dev/null || true; brew install jpeg libpng freetype openjpeg libtiff webp"
+        format!("source ~/.bash_profile 2>/dev/null || source ~/.bashrc 2>/dev/null || eval \"$({} shellenv)\" 2>/dev/null || true; {} install jpeg libpng freetype openjpeg libtiff webp", brew_path, brew_path)
       } else {
-        "brew install jpeg libpng freetype openjpeg libtiff webp"
+        format!("eval \"$({} shellenv)\" 2>/dev/null || true; {} install jpeg libpng freetype openjpeg libtiff webp", brew_path, brew_path)
       };
       
-      logs.push(format!("执行: {}", deps_cmd));
+      logs.push(format!("执行命令: {}", deps_cmd));
+      logs.push("正在安装依赖库，这可能需要几分钟...".to_string());
       
       match Command::new(&shell)
         .arg("-c")
@@ -3706,29 +4208,30 @@ pub async fn install_missing_tools(
           let stdout = String::from_utf8_lossy(&output.stdout);
           let stderr = String::from_utf8_lossy(&output.stderr);
           if !stdout.trim().is_empty() {
-            logs.push(format!("stdout: {}", stdout.trim()));
+            logs.push(format!("输出: {}", stdout.trim()));
           }
           if !stderr.trim().is_empty() && !stderr.contains("Warning") {
-            logs.push(format!("stderr: {}", stderr.trim()));
+            logs.push(format!("错误: {}", stderr.trim()));
           }
           
           if output.status.success() {
             logs.push("✓ 依赖库安装成功".to_string());
           } else {
             // 依赖库可能已经安装，继续
-            logs.push("⚠ 依赖库安装可能已存在或失败，继续安装 marker-pdf".to_string());
+            logs.push("⚠ 依赖库可能已存在或安装失败，继续安装 marker-pdf".to_string());
           }
         }
         Err(e) => {
           logs.push(format!("⚠ 依赖库安装出错: {}，继续安装 marker-pdf", e));
         }
       }
+      logs.push("".to_string());
     }
     
-    // 安装 marker-pdf（如果需要）
+    // 步骤 4: 安装 marker-pdf（如果需要）
     if tools_to_install.iter().any(|t| t.contains("marker")) {
-      logs.push("安装 marker-pdf...".to_string());
-      current_progress += 1.0 / total_steps;
+      logs.push("步骤 4/4: 安装 marker-pdf...".to_string());
+      current_progress += step_progress;
       
       let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
       let pipx_cmd = if shell.contains("zsh") {
@@ -3739,8 +4242,9 @@ pub async fn install_missing_tools(
         "pipx install marker-pdf"
       };
       
-      logs.push(format!("执行: {}", pipx_cmd));
-      logs.push("注意: marker-pdf 安装可能需要几分钟时间，请耐心等待...".to_string());
+      logs.push(format!("执行命令: {}", pipx_cmd));
+      logs.push("正在安装 marker-pdf，这可能需要 5-10 分钟，请耐心等待...".to_string());
+      logs.push("注意: marker-pdf 会下载模型文件，首次安装时间较长".to_string());
       
       match Command::new(&shell)
         .arg("-c")
@@ -3751,24 +4255,27 @@ pub async fn install_missing_tools(
           let stdout = String::from_utf8_lossy(&output.stdout);
           let stderr = String::from_utf8_lossy(&output.stderr);
           if !stdout.trim().is_empty() {
-            logs.push(format!("stdout: {}", stdout.trim()));
+            logs.push(format!("输出: {}", stdout.trim()));
           }
           if !stderr.trim().is_empty() && !stderr.contains("Warning") {
-            logs.push(format!("stderr: {}", stderr.trim()));
+            logs.push(format!("错误: {}", stderr.trim()));
           }
           
           if output.status.success() {
+            logs.push("".to_string());
             logs.push("✓ marker-pdf 安装成功".to_string());
+            logs.push("=== 所有工具安装完成 ===".to_string());
             current_progress = 1.0;
             
             return data_result_ok(InstallToolProgressPB {
               tool_name: "marker-pdf".to_string(),
               status: InstallToolStatusPB::InstallToolCompleted,
               progress: current_progress,
-              message: "所有工具安装完成".to_string(),
+              message: "所有工具安装完成！".to_string(),
               logs,
             });
           } else {
+            logs.push("".to_string());
             logs.push(format!("✗ marker-pdf 安装失败: {}", stderr));
             return data_result_ok(InstallToolProgressPB {
               tool_name: "marker-pdf".to_string(),
@@ -3780,6 +4287,7 @@ pub async fn install_missing_tools(
           }
         }
         Err(e) => {
+          logs.push("".to_string());
           logs.push(format!("✗ marker-pdf 安装出错: {}", e));
           return data_result_ok(InstallToolProgressPB {
             tool_name: "marker-pdf".to_string(),
@@ -3793,11 +4301,13 @@ pub async fn install_missing_tools(
     }
     
     // 所有工具安装完成
+    logs.push("".to_string());
+    logs.push("=== 所有工具安装完成 ===".to_string());
     data_result_ok(InstallToolProgressPB {
       tool_name: "all".to_string(),
       status: InstallToolStatusPB::InstallToolCompleted,
       progress: 1.0,
-      message: "所有工具安装完成".to_string(),
+      message: "所有工具安装完成！".to_string(),
       logs,
     })
   }

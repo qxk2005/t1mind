@@ -1964,11 +1964,45 @@ fn get_platform_marker_pdf_install_instructions() -> String {
     #[cfg(target_os = "macos")]
     {
         // 检测是否安装了 Homebrew
-        let brew_available = Command::new("which")
+        // 首先尝试使用 which 检查（如果 brew 在 PATH 中）
+        let brew_available_from_path = Command::new("which")
             .arg("brew")
             .output()
             .map(|output| output.status.success())
             .unwrap_or(false);
+        
+        // 如果 which 找不到，检查默认安装路径
+        let arch = Command::new("uname")
+            .arg("-m")
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .unwrap_or_else(|| "x86_64".to_string())
+            .trim()
+            .to_string();
+        let is_apple_silicon = arch == "arm64";
+        
+        let brew_path = if is_apple_silicon {
+            "/opt/homebrew/bin/brew"
+        } else {
+            "/usr/local/bin/brew"
+        };
+        
+        let brew_available_from_path_check = std::path::Path::new(brew_path).exists();
+        
+        // 如果路径存在，尝试执行 brew --version 来验证
+        let brew_available = if brew_available_from_path {
+            true
+        } else if brew_available_from_path_check {
+            // 检查文件是否存在且可执行
+            Command::new(brew_path)
+                .arg("--version")
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false)
+        } else {
+            false
+        };
         
         if !brew_available {
             return format!(
